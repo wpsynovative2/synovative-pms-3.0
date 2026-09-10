@@ -1,26 +1,116 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ * Colour theme + font family are the only things borrowed from
+ * https://synovative.vercel.app/ (see PRD §3). Layout is independent.
+ */
+@theme {
+  /* Brand palette */
+  --color-base: #17131f;
+  --color-base-deep: #100d16;
+  --color-surface: #1e1929;
+  --color-surface-2: #262032;
+  --color-surface-3: #2f2840;
+  --color-line: #332b44;
+  --color-line-soft: #2a2338;
+
+  --color-brand: #5f3ca7;
+  --color-brand-bright: #7c55d6;
+  --color-brand-soft: #3a2a5c;
+  --color-brand-dim: #241c38;
+
+  --color-ink: #ede9f3;
+  --color-ink-muted: #a79dbb;
+  --color-ink-faint: #7a7090;
+
+  /* Semantic status colours (PRD §5.3) */
+  --color-st-notstarted: #8b8299;
+  --color-st-inprogress: #4b8fe6;
+  --color-st-submitted: #e0a325;
+  --color-st-changes: #ec7c2a;
+  --color-st-rejected: #e04b4b;
+  --color-st-approved: #35b37e;
+
+  /* Priority */
+  --color-pr-low: #6b7f9e;
+  --color-pr-medium: #4b8fe6;
+  --color-pr-high: #e0a325;
+  --color-pr-critical: #e04b4b;
+
+  --font-sans: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), ui-monospace, monospace;
+
+  --radius-card: 14px;
+}
+
+/* The app is dark-only by design; lock the scheme so form controls match. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--color-base);
+  color: var(--color-ink);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbars that don't fight the dark surface */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-3) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Native date/time pickers need a light icon on dark ground */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.75);
+  cursor: pointer;
+}
+
+@keyframes pms-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-up {
+  animation: pms-fade-up 0.18s ease-out both;
+}
+
+@keyframes pms-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pms-pulse-dot 1.4s ease-in-out infinite;
 }
