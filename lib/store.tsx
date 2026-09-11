@@ -1,5 +1,6 @@
 "use client";
 
+import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import {
   createContext,
   useCallback,
@@ -8,25 +9,31 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
+import { addWorkingDays } from "./calendar";
 import {
-  addDays,
-  addWorkingDays,
-  daysBetween,
-  formatDate,
-  snapToWorkingDay,
-  toISODate,
-  todayISO,
-} from "./calendar";
-import { FINANCE_DEPARTMENT } from "./master-data";
-import { occurrencesBetween, type Occurrence } from "./recurrence";
-import { seedDatabase } from "./seed";
-import { autoStopInstant } from "./time";
+  ALL_SCOPES,
+  EMPTY_DB,
+  EXPENSE_COLUMNS,
+  PROJECT_COLUMNS,
+  TASK_COLUMNS,
+  VENDOR_COLUMNS,
+  loadScopes,
+  patchColumns,
+  projectRow,
+  seriesColumns,
+  taskRow,
+  templateItemRow,
+  toNotification,
+  type Scope,
+} from "./data/db";
+import { getSupabase } from "./supabase/client";
+import { isSupabaseConfigured } from "./supabase/config";
 import type {
-  AppNotification,
   CalendarConfig,
   Database,
   Expense,
-  NotificationType,
+  LinkGroup,
+  OperationalLink,
   OutputLocation,
   Project,
   ProjectTemplate,
@@ -35,384 +42,200 @@ import type {
   Review,
   ReviewDecision,
   ReviewSource,
+  Role,
   Task,
   TaskTemplate,
   User,
   Vendor,
 } from "./types";
 
-const DB_KEY = "synovative-pms:db:v1";
-const SESSION_KEY = "synovative-pms:session:v1";
+/*
+ * Client-side state for the signed-in user, backed by Supabase.
+ *
+ * Reads: on sign-in every scope the user may see is loaded (Row Level Security
+ * decides what that is). Afterwards a scope is refetched when this user changes
+ * it, when a notification arrives (someone else changed something relevant),
+ * and when the tab regains focus — Realtime is used for notifications only (§19).
+ *
+ * Writes: each mutation updates the screen straight away, then runs against
+ * Supabase. Writes are queued so they reach the database in order; if one fails
+ * the user sees why and the affected scopes are reloaded, undoing the change.
+ * Workflow transitions (timer, submit, review, expense verdicts) go through the
+ * SECURITY DEFINER functions in supabase/migrations, which re-check every rule.
+ */
 
-let idCounter = 0;
-function uid(prefix: string): string {
-  idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}${idCounter.toString(36)}`;
-}
+/* --------------------------------------------------------------- helpers */
 
 const now = () => new Date().toISOString();
+const newId = () => crypto.randomUUID();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/* ------------------------------------------------------------ persistence */
-
-function loadDb(): Database {
-  try {
-    const raw = window.localStorage.getItem(DB_KEY);
-    if (!raw) return seedDatabase();
-    const parsed = JSON.parse(raw) as Database;
-    // Shallow shape check so an older payload can't break the app.
-    if (!parsed.users || !parsed.tasks || !parsed.projects) return seedDatabase();
-    return parsed;
-  } catch {
-    return seedDatabase();
+/** Turns Postgres / PostgREST errors into something a person can act on. */
+function friendlyError(err: unknown): string {
+  const e = err as { message?: string; code?: string };
+  const message = e?.message ?? String(err);
+  if (e?.code === "42501" || /row-level security|permission denied/i.test(message)) {
+    return "You don't have permission to do that.";
   }
-}
-
-function saveDb(db: Database) {
-  try {
-    window.localStorage.setItem(DB_KEY, JSON.stringify(db));
-  } catch {
-    /* quota or private mode — the app still works for this session */
+  if (e?.code === "23503" || /foreign key/i.test(message)) {
+    return "It's still used elsewhere (for example by expenses or tasks), so it can't be removed.";
   }
-}
-
-/* ----------------------------------------------------------- auto-stop */
-
-/**
- * §11.3.4 — any timer still running at 11:59 PM is stopped. In production this
- * is a Supabase `pg_cron` job pinned to IST; here it runs once when the app
- * loads, so the data is consistent whenever it is next opened.
- */
-function applyAutoStop(db: Database): Database {
-  const today = todayISO();
-  if (db.lastAutoStopSweep === today) return db;
-
-  let changed = false;
-  const newNotifications: AppNotification[] = [];
-
-  const tasks = db.tasks.map((task) => {
-    const open = task.sessions.find((s) => s.endedAt === null);
-    if (!open) return task;
-    const startedOn = toISODate(new Date(open.startedAt));
-    if (startedOn >= today) return task;
-
-    changed = true;
-    const stopAt = autoStopInstant(new Date(open.startedAt)).toISOString();
-    newNotifications.push({
-      id: uid("n"),
-      userId: task.assigneeId,
-      type: "timer_autostop",
-      title: "Timer auto-stopped at 11:59 PM",
-      body: `Your timer on “${task.title}” was stopped automatically.`,
-      href: `/tasks?task=${task.id}`,
-      read: false,
-      createdAt: stopAt,
-    });
-    return {
-      ...task,
-      sessions: task.sessions.map((s) =>
-        s.id === open.id
-          ? { ...s, endedAt: stopAt, endReason: "Auto-stopped" as const }
-          : s,
-      ),
-    };
-  });
-
-  if (!changed) return { ...db, lastAutoStopSweep: today };
-  return {
-    ...db,
-    tasks,
-    notifications: [...newNotifications, ...db.notifications],
-    lastAutoStopSweep: today,
-  };
-}
-
-/* ---------------------------------------------------------- recurrence */
-
-const TERMINAL_PROJECT_STATUSES: Project["status"][] = ["Completed", "Cancelled", "Archived"];
-
-const clampISO = (iso: string, min: string, max: string) =>
-  iso < min ? min : iso > max ? max : iso;
-
-/** A task copied into a new occurrence: same brief and assignee, clean slate. */
-function freshTaskCopy(source: Task, patch: Partial<Task>): Task {
-  return {
-    ...source,
-    id: uid("t"),
-    status: "Not Started",
-    tags: [...source.tags],
-    createdAt: now(),
-    sessions: [],
-    submissions: [],
-    reviews: [],
-    remarks: [],
-    recurrence: null,
-    series: null,
-    ...patch,
-  };
-}
-
-/**
- * One occurrence of a repeating project: a copy of the source project and all
- * of its current tasks, moved so the project starts on the occurrence date.
- * Dates snap forward to working days (§5.4); when two occurrences snap onto the
- * same day — a daily rule over a weekend — only one copy is made.
- */
-function materializeProject(draft: Database, source: Project, occ: Occurrence): Database {
-  const start = snapToWorkingDay(occ.date, draft.calendar);
-  const taken =
-    start === source.startDate ||
-    draft.projects.some((p) => p.series?.sourceId === source.id && p.startDate === start);
-  if (taken) return draft;
-
-  const shift = daysBetween(source.startDate, start);
-  const deadline = addDays(source.deadline, shift);
-  const project: Project = {
-    ...source,
-    id: uid("p"),
-    name: `${source.name} · ${formatDate(start)}`,
-    startDate: start,
-    deadline,
-    status: TERMINAL_PROJECT_STATUSES.includes(source.status) ? "Planning" : source.status,
-    memberIds: [...source.memberIds],
-    services: [...source.services],
-    createdAt: now(),
-    recurrence: null,
-    series: { sourceId: source.id, index: occ.index, date: occ.date },
-  };
-
-  const tasks = draft.tasks
-    .filter((t) => t.projectId === source.id)
-    .map((t) => {
-      const taskStart = clampISO(
-        snapToWorkingDay(addDays(t.startDate, shift), draft.calendar),
-        start,
-        deadline,
-      );
-      const taskDue = clampISO(
-        snapToWorkingDay(addDays(t.dueDate, shift), draft.calendar),
-        taskStart,
-        deadline,
-      );
-      return freshTaskCopy(t, { projectId: project.id, startDate: taskStart, dueDate: taskDue });
-    });
-
-  let next: Database = {
-    ...draft,
-    projects: [project, ...draft.projects],
-    tasks: [...draft.tasks, ...tasks],
-  };
-  for (const t of tasks) {
-    next = pushNotifications(
-      next,
-      [t.assigneeId],
-      "task_assigned",
-      "New task assigned",
-      `“${t.title}” in ${project.name}.`,
-      `/projects/${project.id}?task=${t.id}`,
-    );
+  if (/link_groups_name_unique/.test(message)) {
+    return "A group with that name already exists.";
   }
-  return next;
-}
-
-/** One occurrence of a repeating individual task (§10). */
-function materializeTask(draft: Database, source: Task, occ: Occurrence): Database {
-  const start = snapToWorkingDay(occ.date, draft.calendar);
-  const taken =
-    start === source.startDate ||
-    draft.tasks.some((t) => t.series?.sourceId === source.id && t.startDate === start);
-  if (taken) return draft;
-
-  const shift = daysBetween(source.startDate, start);
-  const due = snapToWorkingDay(addDays(source.dueDate, shift), draft.calendar);
-  const task = freshTaskCopy(source, {
-    projectId: null,
-    startDate: start,
-    dueDate: due < start ? start : due,
-    series: { sourceId: source.id, index: occ.index, date: occ.date },
-  });
-
-  return pushNotifications(
-    { ...draft, tasks: [...draft.tasks, task] },
-    [task.assigneeId],
-    "task_assigned",
-    "New task assigned",
-    `“${task.title}” — repeat #${occ.index}, due ${formatDate(task.dueDate)}.`,
-    `/individual-tasks?task=${task.id}`,
-  );
-}
-
-/**
- * Create every repeating occurrence that has come due. In production this is
- * `generate_recurring_occurrences()` on pg_cron (0004_recurrence.sql); here it
- * runs on load, after saves, and whenever the date rolls over in an open tab.
- * Returns `db` untouched when there is nothing to do.
- */
-function applyRecurrence(db: Database): Database {
-  const today = todayISO();
-  let draft = db;
-
-  const advance = (series: RecurrenceSeries): RecurrenceSeries => ({ ...series, cursor: today });
-
-  for (const source of db.projects) {
-    const series = source.recurrence;
-    if (!series || series.cursor >= today) continue;
-    for (const occ of occurrencesBetween(series, series.cursor, today)) {
-      draft = materializeProject(draft, source, occ);
-    }
-    draft = {
-      ...draft,
-      projects: draft.projects.map((p) =>
-        p.id === source.id ? { ...p, recurrence: advance(series) } : p,
-      ),
-    };
+  if (e?.code === "23505" || /duplicate key|already exists/i.test(message)) {
+    return "That already exists.";
   }
-
-  for (const source of db.tasks) {
-    const series = source.recurrence;
-    if (!series || source.projectId !== null || series.cursor >= today) continue;
-    for (const occ of occurrencesBetween(series, series.cursor, today)) {
-      draft = materializeTask(draft, source, occ);
-    }
-    draft = {
-      ...draft,
-      tasks: draft.tasks.map((t) =>
-        t.id === source.id ? { ...t, recurrence: advance(series) } : t,
-      ),
-    };
+  if (/one_running_timer_per_user/.test(message)) {
+    return "You already have a timer running — pause it first.";
   }
-
-  return draft;
+  if (/Failed to fetch|NetworkError|fetch failed/i.test(message)) {
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  return message;
 }
 
-/** Moving a source's start date moves the series with it. */
-function followAnchor<T extends { startDate: string; recurrence?: RecurrenceSeries | null }>(
-  item: T,
-): T {
-  const series = item.recurrence;
-  if (!series || series.anchor === item.startDate) return item;
-  return { ...item, recurrence: { ...series, anchor: item.startDate } };
+/** Supabase calls resolve with `{ error }` rather than throwing. */
+async function run<T extends { error: { message: string; code?: string } | null }>(
+  q: PromiseLike<T>,
+): Promise<T> {
+  const res = await q;
+  if (res.error) throw res.error;
+  return res;
 }
 
-/* --------------------------------------------------------- external store */
+/* ------------------------------------------------------------ app state */
 
-/*
- * The database lives outside React so `useSyncExternalStore` can serve a
- * stable server snapshot during hydration and the persisted browser state
- * immediately afterwards — no hydration mismatch, and no setState-in-effect.
- */
+type AuthStatus = "starting" | "signed-out" | "loading" | "signed-in";
 
-const SERVER_DB: Database = seedDatabase();
+export interface Toast {
+  id: string;
+  kind: "error" | "success";
+  message: string;
+}
 
-let dbState: Database = SERVER_DB;
-let sessionState: string | null = null;
+interface State {
+  db: Database;
+  auth: AuthStatus;
+  userId: string | null;
+  toasts: Toast[];
+}
+
+const SERVER_STATE: State = { db: EMPTY_DB, auth: "starting", userId: null, toasts: [] };
+let state: State = SERVER_STATE;
 
 const listeners = new Set<() => void>();
-
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
+function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
 }
+function setState(patch: Partial<State>) {
+  state = { ...state, ...patch };
+  for (const l of listeners) l();
+}
+const setDb = (db: Database) => setState({ db });
 
-// Runs once when this client module is first evaluated — before any render.
-if (typeof window !== "undefined") {
-  const hydrated = applyRecurrence(applyAutoStop(loadDb()));
-  dbState = hydrated;
-  saveDb(hydrated);
+const getSnapshot = () => state;
+const getServerSnapshot = () => SERVER_STATE;
+
+function toast(message: string, kind: Toast["kind"] = "error") {
+  const id = newId();
+  setState({ toasts: [...state.toasts, { id, kind, message }] });
+  window.setTimeout(() => dismissToast(id), kind === "error" ? 7000 : 3500);
+}
+function dismissToast(id: string) {
+  if (state.toasts.some((t) => t.id === id)) {
+    setState({ toasts: state.toasts.filter((t) => t.id !== id) });
+  }
+}
+
+const sb = (): SupabaseClient => getSupabase();
+
+/* ------------------------------------------------------- refresh queue */
+
+const queuedScopes = new Set<Scope>();
+let pendingWrites = 0;
+let writeEpoch = 0;
+let refreshing = false;
+let lastFullRefresh = 0;
+
+function requestRefresh(scopes: Iterable<Scope>) {
+  for (const s of scopes) queuedScopes.add(s);
+  scheduleFlush();
+}
+
+function scheduleFlush() {
+  // Never apply server data over optimistic changes that haven't been written yet.
+  if (pendingWrites > 0 || refreshing || queuedScopes.size === 0) return;
+  if (state.auth !== "signed-in" && state.auth !== "loading") return;
+  void flush();
+}
+
+async function flush() {
+  const scopes = Array.from(queuedScopes);
+  queuedScopes.clear();
+  refreshing = true;
+  const epoch = writeEpoch;
   try {
-    const sid = window.localStorage.getItem(SESSION_KEY);
-    if (sid && hydrated.users.some((u) => u.id === sid && u.active)) sessionState = sid;
-  } catch {
-    /* ignore */
+    const slice = await loadScopes(sb(), scopes);
+    if (writeEpoch !== epoch) {
+      // A write started while we were fetching — this data may predate it.
+      for (const s of scopes) queuedScopes.add(s);
+    } else if (state.userId) {
+      setDb({ ...state.db, ...slice });
+      if (scopes.length === ALL_SCOPES.length) lastFullRefresh = Date.now();
+    }
+  } catch (err) {
+    toast(`Couldn't load the latest data: ${friendlyError(err)}`);
+  } finally {
+    refreshing = false;
+    scheduleFlush();
   }
 }
 
-const getDbSnapshot = () => dbState;
-const getServerDbSnapshot = () => SERVER_DB;
-const getSessionSnapshot = () => sessionState;
-const getServerSessionSnapshot = (): string | null => null;
+/* ---------------------------------------------------------- write queue */
 
-/** True only after hydration, so guards don't fire against the server snapshot. */
-const getReady = () => true;
-const getServerReady = () => false;
+let chain: Promise<unknown> = Promise.resolve();
 
-function mutate(updater: (db: Database) => Database) {
-  const next = updater(dbState);
-  if (next === dbState) return;
-  dbState = next;
-  saveDb(next);
-  emit();
+/**
+ * Apply `optimistic` to the screen now, then run `write` after every earlier
+ * write. Resolves to whether it succeeded; failures are shown to the user and
+ * the given scopes are reloaded either way.
+ */
+function commit(
+  scopes: Scope[],
+  optimistic: ((db: Database) => Database) | null,
+  write: (client: SupabaseClient) => Promise<unknown>,
+): Promise<boolean> {
+  if (optimistic) setDb(optimistic(state.db));
+  pendingWrites += 1;
+  writeEpoch += 1;
+  const result = chain.then(async () => {
+    try {
+      await write(sb());
+      return true;
+    } catch (err) {
+      toast(friendlyError(err));
+      return false;
+    } finally {
+      pendingWrites -= 1;
+      requestRefresh(scopes);
+    }
+  });
+  chain = result;
+  return result;
 }
 
-function setSession(id: string | null) {
-  sessionState = id;
-  try {
-    if (id) window.localStorage.setItem(SESSION_KEY, id);
-    else window.localStorage.removeItem(SESSION_KEY);
-  } catch {
-    /* ignore */
-  }
-  emit();
-}
+/* ---------------------------------------------------- optimistic helpers */
 
-/* ------------------------------------------------------ shared behaviour */
+const mapTask = (db: Database, id: string, fn: (t: Task) => Task): Database => ({
+  ...db,
+  tasks: db.tasks.map((t) => (t.id === id ? fn(t) : t)),
+});
 
-function pushNotifications(
-  draft: Database,
-  userIds: string[],
-  type: NotificationType,
-  title: string,
-  body: string,
-  href: string,
-): Database {
-  const unique = Array.from(new Set(userIds)).filter(Boolean);
-  if (unique.length === 0) return draft;
-  const created = unique.map<AppNotification>((userId) => ({
-    id: uid("n"),
-    userId,
-    type,
-    title,
-    body,
-    href,
-    read: false,
-    createdAt: now(),
-  }));
-  return { ...draft, notifications: [...created, ...draft.notifications] };
-}
-
-/** Who reviews this task (§12.2) — also the notification audience. */
-function reviewersFor(draft: Database, task: Task): string[] {
-  if (task.projectId === null) {
-    return draft.users
-      .filter((u) => ["super_admin", "admin", "manager"].includes(u.role) && u.active)
-      .map((u) => u.id);
-  }
-  const project = draft.projects.find((p) => p.id === task.projectId);
-  return project ? [project.leaderId] : [];
-}
-
-function financeMembers(draft: Database): string[] {
-  return draft.users
-    .filter((u) => u.active && u.departments.includes(FINANCE_DEPARTMENT))
-    .map((u) => u.id);
-}
-
-function taskHref(task: Task): string {
-  return task.projectId
-    ? `/projects/${task.projectId}?task=${task.id}`
-    : `/individual-tasks?task=${task.id}`;
-}
-
-function closeOpenSession(
-  task: Task,
-  reason: Task["sessions"][number]["endReason"],
-  note?: string,
-): Task {
+function closeOpenSession(task: Task, reason: Task["sessions"][number]["endReason"], note?: string): Task {
   return {
     ...task,
     sessions: task.sessions.map((s) =>
@@ -421,19 +244,142 @@ function closeOpenSession(
   };
 }
 
-function openSessionFor(task: Task, userId: string): Task {
+function openSession(task: Task, userId: string): Task {
   if (task.sessions.some((s) => s.endedAt === null)) return task;
   return {
     ...task,
     status: "In Progress",
     sessions: [
       ...task.sessions,
-      { id: uid("s"), userId, startedAt: now(), endedAt: null, endReason: null },
+      { id: newId(), userId, startedAt: now(), endedAt: null, endReason: null },
     ],
   };
 }
 
-/* --------------------------------------------------------------- context */
+/* ------------------------------------------------------------- session */
+
+let initialised = false;
+let channel: RealtimeChannel | null = null;
+let activating: string | null = null;
+
+function subscribeToNotifications(userId: string) {
+  channel?.unsubscribe();
+  channel = sb()
+    .channel(`notifications:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "notifications",
+        filter: `profile_id=eq.${userId}`,
+      },
+      (payload) => {
+        const n = toNotification(payload.new as Record<string, unknown>);
+        if (state.db.notifications.some((x) => x.id === n.id)) return;
+        setDb({ ...state.db, notifications: [n, ...state.db.notifications] });
+        // A notification means someone changed work this user can see.
+        requestRefresh(["tasks", "projects", "expenses"]);
+      },
+    )
+    .subscribe();
+}
+
+function resetSession() {
+  channel?.unsubscribe();
+  channel = null;
+  queuedScopes.clear();
+  setState({ db: EMPTY_DB, auth: "signed-out", userId: null });
+}
+
+/** Load everything for this user and check their profile may use the app. */
+async function activate(userId: string): Promise<{ ok: boolean; error?: string }> {
+  if (activating === userId) return { ok: true };
+  activating = userId;
+  setState({ auth: "loading", userId });
+  try {
+    const db = await loadScopes(sb(), ALL_SCOPES);
+    const full = { ...EMPTY_DB, ...db };
+    const me = full.users.find((u) => u.id === userId);
+    if (!me) {
+      await sb().auth.signOut();
+      resetSession();
+      return { ok: false, error: "This login has no profile yet. Ask an administrator to add you." };
+    }
+    if (!me.active) {
+      await sb().auth.signOut();
+      resetSession();
+      return { ok: false, error: "This account is deactivated." };
+    }
+    lastFullRefresh = Date.now();
+    setState({ db: full, auth: "signed-in", userId });
+    subscribeToNotifications(userId);
+    return { ok: true };
+  } catch (err) {
+    resetSession();
+    return { ok: false, error: `Couldn't load your workspace: ${friendlyError(err)}` };
+  } finally {
+    activating = null;
+  }
+}
+
+async function init() {
+  if (initialised) return;
+  initialised = true;
+  if (!isSupabaseConfigured) {
+    setState({ auth: "signed-out" });
+    return;
+  }
+
+  const client = sb();
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  if (session?.user) {
+    const result = await activate(session.user.id);
+    if (!result.ok && result.error) toast(result.error);
+  } else {
+    setState({ auth: "signed-out" });
+  }
+
+  client.auth.onAuthStateChange((event, next) => {
+    if (event === "SIGNED_OUT") {
+      resetSession();
+    } else if (event === "SIGNED_IN" && next?.user && next.user.id !== state.userId) {
+      void activate(next.user.id);
+    }
+  });
+
+  // Catch up on anything that changed while the tab was in the background.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || state.auth !== "signed-in") return;
+    if (Date.now() - lastFullRefresh > 60_000) requestRefresh(ALL_SCOPES);
+  });
+}
+
+/* ------------------------------------------------------- admin API calls */
+
+async function callAdmin(
+  path: string,
+  method: "POST" | "PATCH" | "DELETE",
+  body?: unknown,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) return { ok: false, error: json.error ?? `Request failed (${res.status}).` };
+    requestRefresh(["users"]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: friendlyError(err) };
+  }
+}
+
+/* ------------------------------------------------------------- context */
 
 export interface SubmissionInput {
   outputLocation: OutputLocation;
@@ -461,24 +407,53 @@ export type NewTaskInput = Omit<
   "id" | "createdAt" | "createdBy" | "sessions" | "submissions" | "reviews" | "remarks"
 >;
 
+export interface NewUserInput {
+  fullName: string;
+  email: string;
+  /** Temporary — the user must change it at first sign-in (§6). */
+  password: string;
+  role: Role;
+  departments: string[];
+}
+
+export type UserPatch = Partial<Pick<User, "fullName" | "email" | "role" | "departments" | "active">> & {
+  /** Resets the password and asks the user to change it again. */
+  password?: string;
+};
+
+/** A link and where it goes: an existing group, or a new one created with it. */
+export interface LinkInput {
+  groupId?: string;
+  newGroupName?: string;
+  name: string;
+  url: string;
+}
+
+type Result = Promise<{ ok: boolean; error?: string }>;
+
 interface StoreValue {
   db: Database;
+  /** False until we know who is signed in and their data has loaded. */
   ready: boolean;
+  /** False when .env.local lacks the Supabase keys. */
+  configured: boolean;
   currentUser: User | null;
+  toasts: Toast[];
+  showToast: (message: string, kind?: Toast["kind"]) => void;
+  dismissToast: (id: string) => void;
 
-  login: (email: string, password: string) => { ok: boolean; error?: string };
-  logout: () => void;
-  switchUser: (userId: string) => void;
-  changePassword: (password: string) => void;
+  login: (email: string, password: string) => Result;
+  logout: () => Promise<void>;
+  changePassword: (password: string) => Result;
 
   userById: (id: string) => User | undefined;
   projectById: (id: string) => Project | undefined;
   taskById: (id: string) => Task | undefined;
   vendorById: (id: string) => Vendor | undefined;
 
-  createUser: (input: Omit<User, "id" | "createdAt">) => void;
-  updateUser: (id: string, patch: Partial<User>) => void;
-  deleteUser: (id: string) => void;
+  createUser: (input: NewUserInput) => Result;
+  updateUser: (id: string, patch: UserPatch) => Result;
+  deleteUser: (id: string) => Result;
 
   createProject: (input: Omit<Project, "id" | "createdAt" | "createdBy">) => Project;
   createProjectFromTemplate: (input: ProjectFromTemplateInput) => Project;
@@ -496,9 +471,7 @@ interface StoreValue {
   submitTask: (taskId: string, input: SubmissionInput) => void;
   reviewTask: (taskId: string, input: ReviewInput) => void;
 
-  createExpense: (
-    input: Omit<Expense, "id" | "createdAt" | "createdBy" | "status">,
-  ) => void;
+  createExpense: (input: Omit<Expense, "id" | "createdAt" | "createdBy" | "status">) => void;
   updateExpense: (id: string, patch: Partial<Expense>) => void;
   deleteExpense: (id: string) => void;
   reviewExpense: (id: string, approved: boolean, remarks?: string) => void;
@@ -517,677 +490,761 @@ interface StoreValue {
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: () => void;
 
-  resetDemoData: () => void;
+  createLink: (input: LinkInput) => void;
+  updateLink: (id: string, input: LinkInput) => void;
+  deleteLink: (id: string) => void;
+  renameLinkGroup: (id: string, name: string) => void;
+  deleteLinkGroup: (id: string) => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const db = useSyncExternalStore(subscribe, getDbSnapshot, getServerDbSnapshot);
-  const currentUserId = useSyncExternalStore(
-    subscribe,
-    getSessionSnapshot,
-    getServerSessionSnapshot,
-  );
-  const ready = useSyncExternalStore(subscribe, getReady, getServerReady);
+/* -------------------------------------------------------- the mutations */
 
-  // Pick up occurrences that come due while the tab stays open past midnight.
-  useEffect(() => {
-    const id = window.setInterval(() => mutate(applyRecurrence), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
+// Module-level so their identity is stable and the context value stays cheap.
 
-  const currentUser = useMemo(
-    () => db.users.find((u) => u.id === currentUserId) ?? null,
-    [db.users, currentUserId],
-  );
+const me = () => state.userId ?? "";
 
-  /* ------------------------------------------------------------- auth */
+const actions = {
+  /* ------------------------------------------------------------ auth */
 
-  const login = useCallback((email: string, password: string) => {
-    const user = dbState.users.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase(),
-    );
-    if (!user) return { ok: false, error: "No account with that email." };
-    if (!user.active) return { ok: false, error: "This account is deactivated." };
-    if (user.password !== password) return { ok: false, error: "Incorrect password." };
-    setSession(user.id);
-    return { ok: true };
-  }, []);
-
-  const logout = useCallback(() => setSession(null), []);
-  const switchUser = useCallback((userId: string) => setSession(userId), []);
-
-  const changePassword = useCallback((password: string) => {
-    const uidNow = sessionState;
-    if (!uidNow) return;
-    mutate((d) => ({
-      ...d,
-      users: d.users.map((u) =>
-        u.id === uidNow ? { ...u, password, mustChangePassword: false } : u,
-      ),
-    }));
-  }, []);
-
-  /* ---------------------------------------------------------- lookups */
-
-  const userById = useCallback(
-    (id: string) => db.users.find((u) => u.id === id),
-    [db.users],
-  );
-  const projectById = useCallback(
-    (id: string) => db.projects.find((p) => p.id === id),
-    [db.projects],
-  );
-  const taskById = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
-  const vendorById = useCallback(
-    (id: string) => db.vendors.find((v) => v.id === id),
-    [db.vendors],
-  );
-
-  /* ------------------------------------------------------------ users */
-
-  const createUser = useCallback((input: Omit<User, "id" | "createdAt">) => {
-    mutate((d) => ({
-      ...d,
-      users: [...d.users, { ...input, id: uid("u"), createdAt: now() }],
-    }));
-  }, []);
-
-  const updateUser = useCallback((id: string, patch: Partial<User>) => {
-    mutate((d) => ({
-      ...d,
-      users: d.users.map((u) => (u.id === id ? { ...u, ...patch } : u)),
-    }));
-  }, []);
-
-  const deleteUser = useCallback((id: string) => {
-    mutate((d) => ({ ...d, users: d.users.filter((u) => u.id !== id) }));
-  }, []);
-
-  /* --------------------------------------------------------- projects */
-
-  const createProject = useCallback(
-    (input: Omit<Project, "id" | "createdAt" | "createdBy">) => {
-      const project: Project = {
-        ...input,
-        id: uid("p"),
-        createdBy: sessionState ?? "system",
-        createdAt: now(),
+  async login(email: string, password: string) {
+    if (!isSupabaseConfigured) return { ok: false, error: "Supabase isn't configured yet." };
+    const { data, error } = await sb().auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error || !data.user) {
+      return {
+        ok: false,
+        error: /invalid login/i.test(error?.message ?? "")
+          ? "Incorrect email or password."
+          : friendlyError(error),
       };
-      mutate((d) => applyRecurrence({ ...d, projects: [project, ...d.projects] }));
-      return project;
-    },
-    [],
-  );
+    }
+    return activate(data.user.id);
+  },
 
-  const createProjectFromTemplate = useCallback(
-    ({ templateId, project, assignments }: ProjectFromTemplateInput) => {
-      const created: Project = {
-        ...project,
-        id: uid("p"),
-        createdBy: sessionState ?? "system",
-        createdAt: now(),
-      };
-      mutate((d) => {
-        let draft: Database = { ...d, projects: [created, ...d.projects] };
-        const template = d.projectTemplates.find((t) => t.id === templateId);
-        if (!template) return draft;
+  async logout() {
+    await sb().auth.signOut();
+    resetSession();
+  },
 
-        const newTasks: Task[] = [];
-        for (const item of template.tasks) {
-          const assigneeId = assignments[item.id];
-          if (!assigneeId) continue;
-          let startDate = addWorkingDays(created.startDate, item.startOffsetDays, d.calendar);
-          if (startDate > created.deadline) startDate = created.deadline;
-          let dueDate = addWorkingDays(startDate, item.durationDays, d.calendar);
-          if (dueDate > created.deadline) dueDate = created.deadline;
-          newTasks.push({
-            id: uid("t"),
-            projectId: created.id,
-            title: item.title,
-            description: item.description,
-            department: item.department,
-            assigneeId,
-            status: "Not Started",
-            priority: item.priority,
-            startDate,
-            dueDate,
-            estimatedHours: item.estimatedHours,
-            tags: item.tags,
-            createdBy: sessionState ?? "system",
-            createdAt: now(),
-            sessions: [],
-            submissions: [],
-            reviews: [],
-            remarks: [],
-          });
-        }
-
-        draft = { ...draft, tasks: [...draft.tasks, ...newTasks] };
-        for (const t of newTasks) {
-          draft = pushNotifications(
-            draft,
-            [t.assigneeId],
-            "task_assigned",
-            "New task assigned",
-            `“${t.title}” in ${created.name}.`,
-            `/projects/${created.id}?task=${t.id}`,
-          );
-        }
-        return applyRecurrence(draft);
-      });
-      return created;
-    },
-    [],
-  );
-
-  const updateProject = useCallback((id: string, patch: Partial<Project>) => {
-    mutate((d) =>
-      applyRecurrence({
-        ...d,
-        projects: d.projects.map((p) => (p.id === id ? followAnchor({ ...p, ...patch }) : p)),
+  async changePassword(password: string) {
+    const { error } = await sb().auth.updateUser({ password });
+    if (error) return { ok: false, error: friendlyError(error) };
+    const ok = await commit(
+      ["users"],
+      (db) => ({
+        ...db,
+        users: db.users.map((u) => (u.id === me() ? { ...u, mustChangePassword: false } : u)),
       }),
+      (c) => run(c.from("profiles").update({ must_change_password: false }).eq("id", me())),
     );
-  }, []);
+    return ok ? { ok: true } : { ok: false, error: "Password changed, but the profile didn't update." };
+  },
 
-  const deleteProject = useCallback((id: string) => {
-    mutate((d) => ({
-      ...d,
-      projects: d.projects.filter((p) => p.id !== id),
-      tasks: d.tasks.filter((t) => t.projectId !== id),
-      expenses: d.expenses.filter((e) => e.projectId !== id),
-    }));
-  }, []);
+  /* ----------------------------------------------------------- users */
 
-  /* ------------------------------------------------------------ tasks */
+  createUser: (input: NewUserInput) => callAdmin("/api/admin/users", "POST", input),
+  updateUser: (id: string, patch: UserPatch) =>
+    callAdmin(`/api/admin/users/${id}`, "PATCH", patch),
+  deleteUser: (id: string) => callAdmin(`/api/admin/users/${id}`, "DELETE"),
 
-  const createTask = useCallback((input: NewTaskInput) => {
+  /* -------------------------------------------------------- projects */
+
+  createProject(input: Omit<Project, "id" | "createdAt" | "createdBy">): Project {
+    const project: Project = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["projects"],
+      (db) => ({ ...db, projects: [project, ...db.projects] }),
+      async (c) => {
+        await insertProject(c, project);
+      },
+    );
+    return project;
+  },
+
+  createProjectFromTemplate({ templateId, project, assignments }: ProjectFromTemplateInput): Project {
+    const created: Project = { ...project, id: newId(), createdBy: me(), createdAt: now() };
+    const template = state.db.projectTemplates.find((t) => t.id === templateId);
+    const calendar = state.db.calendar;
+
+    // Tasks left unassigned are skipped (§13); dates follow working days.
+    const tasks: Task[] = (template?.tasks ?? []).flatMap((item) => {
+      const assigneeId = assignments[item.id];
+      if (!assigneeId) return [];
+      let startDate = addWorkingDays(created.startDate, item.startOffsetDays, calendar);
+      if (startDate > created.deadline) startDate = created.deadline;
+      let dueDate = addWorkingDays(startDate, item.durationDays, calendar);
+      if (dueDate > created.deadline) dueDate = created.deadline;
+      return [
+        {
+          id: newId(),
+          projectId: created.id,
+          title: item.title,
+          description: item.description,
+          department: item.department,
+          assigneeId,
+          status: "Not Started" as const,
+          priority: item.priority,
+          startDate,
+          dueDate,
+          estimatedHours: item.estimatedHours,
+          tags: item.tags,
+          createdBy: me(),
+          createdAt: now(),
+          sessions: [],
+          submissions: [],
+          reviews: [],
+          remarks: [],
+        },
+      ];
+    });
+
+    void commit(
+      ["projects", "tasks"],
+      (db) => ({ ...db, projects: [created, ...db.projects], tasks: [...db.tasks, ...tasks] }),
+      async (c) => {
+        await insertProject(c, created);
+        if (tasks.length) {
+          await run(c.from("tasks").insert(tasks.map((t) => ({ ...taskRow(t), created_by: me() }))));
+        }
+      },
+    );
+    return created;
+  },
+
+  updateProject(id: string, patch: Partial<Project>) {
+    void commit(
+      ["projects"],
+      (db) => ({ ...db, projects: db.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)) }),
+      async (c) => {
+        const columns: Record<string, unknown> = patchColumns(patch, PROJECT_COLUMNS);
+        if ("recurrence" in patch) Object.assign(columns, seriesColumns(patch.recurrence));
+        if (Object.keys(columns).length) {
+          await run(c.from("projects").update(columns).eq("id", id));
+        }
+        if (patch.services) {
+          await run(c.from("project_services").delete().eq("project_id", id));
+          if (patch.services.length) {
+            await run(
+              c.from("project_services").insert(patch.services.map((service) => ({ project_id: id, service }))),
+            );
+          }
+        }
+        if (patch.memberIds) {
+          await run(c.from("project_members").delete().eq("project_id", id));
+          if (patch.memberIds.length) {
+            await run(
+              c
+                .from("project_members")
+                .insert(patch.memberIds.map((profile_id) => ({ project_id: id, profile_id }))),
+            );
+          }
+        }
+      },
+    );
+  },
+
+  deleteProject(id: string) {
+    void commit(
+      ["projects", "tasks", "expenses"],
+      (db) => ({
+        ...db,
+        projects: db.projects.filter((p) => p.id !== id),
+        tasks: db.tasks.filter((t) => t.projectId !== id),
+        expenses: db.expenses.filter((e) => e.projectId !== id),
+      }),
+      (c) => run(c.from("projects").delete().eq("id", id)),
+    );
+  },
+
+  /* ----------------------------------------------------------- tasks */
+
+  createTask(input: NewTaskInput): Task {
     const task: Task = {
       ...input,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
-      id: uid("t"),
-      createdBy: sessionState ?? "system",
+      id: newId(),
+      createdBy: me(),
       createdAt: now(),
       sessions: [],
       submissions: [],
       reviews: [],
       remarks: [],
     };
-    mutate((d) => {
-      const draft: Database = { ...d, tasks: [...d.tasks, task] };
-      const project = task.projectId
-        ? d.projects.find((p) => p.id === task.projectId)
-        : null;
-      return applyRecurrence(
-        pushNotifications(
-          draft,
-          [task.assigneeId],
-          "task_assigned",
-          "New task assigned",
-          project ? `“${task.title}” in ${project.name}.` : `“${task.title}”.`,
-          taskHref(task),
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, tasks: [...db.tasks, task] }),
+      (c) =>
+        run(
+          c.from("tasks").insert({
+            ...taskRow(task),
+            created_by: me(),
+            ...seriesColumns(task.recurrence),
+          }),
         ),
-      );
-    });
+    );
     return task;
-  }, []);
+  },
 
-  const updateTask = useCallback((id: string, patch: Partial<Task>) => {
-    mutate((d) => {
-      const before = d.tasks.find((t) => t.id === id);
-      if (!before) return d;
+  updateTask(id: string, patch: Partial<Task>) {
+    const before = state.db.tasks.find((t) => t.id === id);
+    if (!before) return;
+    const reassigned = !!patch.assigneeId && patch.assigneeId !== before.assigneeId;
+    // Handing a task to someone else puts it back at the start (§12.2 parallel).
+    const status = reassigned ? (patch.status ?? "Not Started") : (patch.status ?? before.status);
+    const effective: Partial<Task> = { ...patch, status };
+    const isIndividual = (patch.projectId ?? before.projectId) === null;
 
-      const reassigned = !!patch.assigneeId && patch.assigneeId !== before.assigneeId;
-      // Handing a task to someone else puts it back at the start (§12.2 parallel).
-      const combined: Task = {
-        ...before,
-        ...patch,
-        status: reassigned ? (patch.status ?? "Not Started") : (patch.status ?? before.status),
-      };
-      const merged = followAnchor(
-        combined.projectId === null ? combined : { ...combined, recurrence: null },
-      );
+    void commit(
+      ["tasks"],
+      (db) => mapTask(db, id, (t) => ({ ...t, ...effective })),
+      (c) => {
+        const columns: Record<string, unknown> = patchColumns(effective, TASK_COLUMNS);
+        if ("recurrence" in patch) {
+          Object.assign(columns, seriesColumns(isIndividual ? patch.recurrence : null));
+        }
+        return run(c.from("tasks").update(columns).eq("id", id));
+      },
+    );
+  },
 
-      let draft: Database = {
-        ...d,
-        tasks: d.tasks.map((t) => (t.id === id ? merged : t)),
-      };
+  deleteTask(id: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, tasks: db.tasks.filter((t) => t.id !== id) }),
+      (c) => run(c.from("tasks").delete().eq("id", id)),
+    );
+  },
 
-      if (reassigned) {
-        const project = merged.projectId
-          ? d.projects.find((p) => p.id === merged.projectId)
-          : null;
-        draft = pushNotifications(
-          draft,
-          [merged.assigneeId],
-          "task_assigned",
-          "Task assigned to you",
-          project ? `“${merged.title}” in ${project.name}.` : `“${merged.title}”.`,
-          taskHref(merged),
-        );
-      }
-      return applyRecurrence(draft);
-    });
-  }, []);
+  addRemark(taskId: string, text: string) {
+    const remark: Remark = { id: newId(), byUserId: me(), at: now(), text };
+    void commit(
+      ["tasks"],
+      (db) => mapTask(db, taskId, (t) => ({ ...t, remarks: [...t.remarks, remark] })),
+      (c) =>
+        run(c.from("remarks").insert({ id: remark.id, task_id: taskId, by_profile_id: me(), body: text })),
+    );
+  },
 
-  const deleteTask = useCallback((id: string) => {
-    mutate((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== id) }));
-  }, []);
+  /* ----------------------------------------------------------- timer */
 
-  const addRemark = useCallback((taskId: string, text: string) => {
-    const author = sessionState;
-    if (!author) return;
-    mutate((d) => {
-      const task = d.tasks.find((t) => t.id === taskId);
-      if (!task) return d;
-      const remark: Remark = { id: uid("rm"), byUserId: author, at: now(), text };
-      const draft: Database = {
-        ...d,
-        tasks: d.tasks.map((t) =>
-          t.id === taskId ? { ...t, remarks: [...t.remarks, remark] } : t,
+  startTimer(taskId: string) {
+    const userId = me();
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        // §11.3.1 — one timer per user: any other open session closes as "Switched".
+        tasks: db.tasks.map((t) =>
+          t.id === taskId
+            ? openSession(t, userId)
+            : t.sessions.some((s) => s.endedAt === null && s.userId === userId)
+              ? closeOpenSession(t, "Switched")
+              : t,
         ),
-      };
-      // Only the assignee's remarks notify the reviewers (§17).
-      if (task.assigneeId !== author) return draft;
-      const name = d.users.find((u) => u.id === author)?.fullName ?? "The assignee";
-      return pushNotifications(
-        draft,
-        reviewersFor(d, task),
-        "remark_added",
-        "New remark on a task",
-        `${name} added a remark on “${task.title}”.`,
-        taskHref(task),
-      );
-    });
-  }, []);
-
-  /* ------------------------------------------------------------ timer */
-
-  const startTimer = useCallback((taskId: string) => {
-    const author = sessionState;
-    if (!author) return;
-    mutate((d) => ({
-      ...d,
-      tasks: d.tasks.map((t) => (t.id === taskId ? openSessionFor(t, author) : t)),
-    }));
-  }, []);
+      }),
+      (c) => run(c.rpc("start_timer", { p_task_id: taskId })),
+    );
+  },
 
   /** "Done for the day" — session ends, task stays In Progress (Paused). */
-  const pauseTimer = useCallback((taskId: string, note?: string) => {
-    mutate((d) => ({
-      ...d,
-      tasks: d.tasks.map((t) =>
-        t.id === taskId ? closeOpenSession(t, "End of day", note) : t,
-      ),
-    }));
-  }, []);
+  pauseTimer(taskId: string, note?: string) {
+    void commit(
+      ["tasks"],
+      (db) => mapTask(db, taskId, (t) => closeOpenSession(t, "End of day", note)),
+      (c) =>
+        run(c.rpc("pause_timer", { p_task_id: taskId, p_reason: "End of day", p_note: note ?? null })),
+    );
+  },
 
   /** "Working on a different project" — close here, open there (§11.2 option 2). */
-  const switchTimer = useCallback((fromTaskId: string, toTaskId: string) => {
-    const author = sessionState;
-    if (!author) return;
-    mutate((d) => {
-      const target = d.tasks.find((t) => t.id === toTaskId);
-      const targetProject = target?.projectId
-        ? d.projects.find((p) => p.id === target.projectId)
-        : null;
-      const note = targetProject
-        ? `Switched to ${targetProject.name}`
-        : `Switched to ${target?.title ?? "another task"}`;
-      return {
-        ...d,
-        tasks: d.tasks.map((t) => {
+  switchTimer(fromTaskId: string, toTaskId: string) {
+    const userId = me();
+    const target = state.db.tasks.find((t) => t.id === toTaskId);
+    const targetProject = target?.projectId
+      ? state.db.projects.find((p) => p.id === target.projectId)
+      : null;
+    const note = targetProject
+      ? `Switched to ${targetProject.name}`
+      : `Switched to ${target?.title ?? "another task"}`;
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        tasks: db.tasks.map((t) => {
           if (t.id === fromTaskId) return closeOpenSession(t, "Switched", note);
-          if (t.id === toTaskId) return openSessionFor(t, author);
+          if (t.id === toTaskId) return openSession(t, userId);
           return t;
         }),
-      };
-    });
-  }, []);
+      }),
+      async (c) => {
+        await run(c.rpc("pause_timer", { p_task_id: fromTaskId, p_reason: "Switched", p_note: note }));
+        await run(c.rpc("start_timer", { p_task_id: toTaskId }));
+      },
+    );
+  },
 
-  const submitTask = useCallback((taskId: string, input: SubmissionInput) => {
-    const author = sessionState;
-    if (!author) return;
-    mutate((d) => {
-      const task = d.tasks.find((t) => t.id === taskId);
-      if (!task) return d;
-      const submitted: Task = {
-        ...closeOpenSession(task, "Submitted"),
-        status: "Submitted",
-        submissions: [
-          ...task.submissions,
-          {
-            id: uid("sub"),
-            byUserId: author,
+  submitTask(taskId: string, input: SubmissionInput) {
+    void commit(
+      ["tasks"],
+      (db) =>
+        mapTask(db, taskId, (t) => ({
+          ...closeOpenSession(t, "Submitted"),
+          status: "Submitted",
+          submissions: [
+            ...t.submissions,
+            {
+              id: newId(),
+              byUserId: me(),
+              at: now(),
+              outputLocation: input.outputLocation,
+              driveLink: input.driveLink,
+              description: input.description,
+            },
+          ],
+        })),
+      (c) =>
+        run(
+          c.rpc("submit_task", {
+            p_task_id: taskId,
+            p_output: input.outputLocation,
+            p_drive_link: input.driveLink ?? null,
+            p_description: input.description,
+          }),
+        ),
+    );
+  },
+
+  reviewTask(taskId: string, input: ReviewInput) {
+    void commit(
+      ["tasks"],
+      (db) =>
+        mapTask(db, taskId, (task) => {
+          const review: Review = {
+            id: newId(),
+            submissionId: task.submissions[task.submissions.length - 1]?.id ?? "",
+            byUserId: me(),
             at: now(),
-            outputLocation: input.outputLocation,
-            driveLink: input.driveLink,
-            description: input.description,
-          },
-        ],
-      };
-      const draft: Database = {
-        ...d,
-        tasks: d.tasks.map((t) => (t.id === taskId ? submitted : t)),
-      };
-      const name = d.users.find((u) => u.id === author)?.fullName ?? "The assignee";
-      return pushNotifications(
-        draft,
-        reviewersFor(d, task),
-        "task_submitted",
-        "Task submitted for review",
-        `${name} submitted “${task.title}”.`,
-        taskHref(task),
-      );
-    });
-  }, []);
+            decision: input.decision,
+            source: input.source,
+            remarks: input.remarks,
+            newAssigneeId: input.newAssigneeId,
+            newDueDate: input.newDueDate,
+          };
+          const reviewed = { ...task, reviews: [...task.reviews, review] };
+          if (input.decision === "Approved") return { ...reviewed, status: "Approved" };
+          if (input.decision === "Changes Required") return { ...reviewed, status: "Changes Required" };
+          // Reject → reassign, reset to Not Started, optionally move the due date.
+          return {
+            ...reviewed,
+            status: "Not Started",
+            assigneeId: input.newAssigneeId ?? task.assigneeId,
+            dueDate: input.newDueDate ?? task.dueDate,
+          };
+        }),
+      (c) =>
+        run(
+          c.rpc("review_task", {
+            p_task_id: taskId,
+            p_decision: input.decision,
+            p_remarks: input.remarks,
+            p_source: input.source ?? null,
+            p_new_assignee: input.newAssigneeId ?? null,
+            p_new_due_date: input.newDueDate ?? null,
+          }),
+        ),
+    );
+  },
 
-  const reviewTask = useCallback((taskId: string, input: ReviewInput) => {
-    const reviewer = sessionState;
-    if (!reviewer) return;
-    mutate((d) => {
-      const task = d.tasks.find((t) => t.id === taskId);
-      if (!task) return d;
+  /* -------------------------------------------------------- expenses */
 
-      const lastSubmission = task.submissions[task.submissions.length - 1];
-      const review: Review = {
-        id: uid("rev"),
-        submissionId: lastSubmission?.id ?? "",
-        byUserId: reviewer,
-        at: now(),
-        decision: input.decision,
-        source: input.source,
-        remarks: input.remarks,
-        newAssigneeId: input.newAssigneeId,
-        newDueDate: input.newDueDate,
-      };
+  createExpense(input: Omit<Expense, "id" | "createdAt" | "createdBy" | "status">) {
+    const expense: Expense = { ...input, id: newId(), status: "Pending", createdBy: me(), createdAt: now() };
+    void commit(
+      ["expenses"],
+      (db) => ({ ...db, expenses: [expense, ...db.expenses] }),
+      (c) =>
+        run(
+          c.from("expenses").insert({
+            id: expense.id,
+            ...patchColumns(expense, EXPENSE_COLUMNS),
+            status: "Pending",
+            created_by: me(),
+          }),
+        ),
+    );
+  },
 
-      let updated: Task = { ...task, reviews: [...task.reviews, review] };
-      if (input.decision === "Approved") {
-        updated = { ...updated, status: "Approved" };
-      } else if (input.decision === "Changes Required") {
-        // Same assignee reworks and resubmits (§12.2).
-        updated = { ...updated, status: "Changes Required" };
-      } else {
-        // Reject → reassign, reset to Not Started, optionally move the due date.
-        updated = {
-          ...updated,
-          status: "Not Started",
-          assigneeId: input.newAssigneeId ?? task.assigneeId,
-          dueDate: input.newDueDate ?? task.dueDate,
-        };
-      }
+  updateExpense(id: string, patch: Partial<Expense>) {
+    void commit(
+      ["expenses"],
+      (db) => ({ ...db, expenses: db.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) }),
+      (c) => run(c.from("expenses").update(patchColumns(patch, EXPENSE_COLUMNS)).eq("id", id)),
+    );
+  },
 
-      let draft: Database = {
-        ...d,
-        tasks: d.tasks.map((t) => (t.id === taskId ? updated : t)),
-      };
+  deleteExpense(id: string) {
+    void commit(
+      ["expenses"],
+      (db) => ({ ...db, expenses: db.expenses.filter((e) => e.id !== id) }),
+      (c) => run(c.from("expenses").delete().eq("id", id)),
+    );
+  },
 
-      draft = pushNotifications(
-        draft,
-        [task.assigneeId],
-        "review_decision",
-        `Review: ${input.decision}`,
-        `“${task.title}” was marked ${input.decision}.`,
-        taskHref(task),
-      );
-
-      if (input.decision === "Rejected" && updated.assigneeId !== task.assigneeId) {
-        draft = pushNotifications(
-          draft,
-          [updated.assigneeId],
-          "task_assigned",
-          "Task reassigned to you",
-          `“${task.title}” was reassigned to you after a rejection.`,
-          taskHref(task),
-        );
-      }
-      return draft;
-    });
-  }, []);
-
-  /* --------------------------------------------------------- expenses */
-
-  const createExpense = useCallback(
-    (input: Omit<Expense, "id" | "createdAt" | "createdBy" | "status">) => {
-      mutate((d) => {
-        const expense: Expense = {
-          ...input,
-          id: uid("e"),
-          status: "Pending",
-          createdBy: sessionState ?? "system",
-          createdAt: now(),
-        };
-        const project = d.projects.find((p) => p.id === expense.projectId);
-        const draft: Database = { ...d, expenses: [expense, ...d.expenses] };
-        return pushNotifications(
-          draft,
-          financeMembers(d),
-          "expense_added",
-          "New expense to verify",
-          `₹${expense.amount.toLocaleString("en-IN")} — ${expense.description}${
-            project ? ` (${project.name})` : ""
-          }.`,
-          `/expenses?expense=${expense.id}`,
-        );
-      });
-    },
-    [],
-  );
-
-  const updateExpense = useCallback((id: string, patch: Partial<Expense>) => {
-    mutate((d) => ({
-      ...d,
-      expenses: d.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)),
-    }));
-  }, []);
-
-  const deleteExpense = useCallback((id: string) => {
-    mutate((d) => ({ ...d, expenses: d.expenses.filter((e) => e.id !== id) }));
-  }, []);
-
-  const reviewExpense = useCallback((id: string, approved: boolean, remarks?: string) => {
-    const reviewer = sessionState;
-    if (!reviewer) return;
-    mutate((d) => {
-      const expense = d.expenses.find((e) => e.id === id);
-      if (!expense) return d;
-      const project = d.projects.find((p) => p.id === expense.projectId);
-      const draft: Database = {
-        ...d,
-        expenses: d.expenses.map((e) =>
+  reviewExpense(id: string, approved: boolean, remarks?: string) {
+    void commit(
+      ["expenses"],
+      (db) => ({
+        ...db,
+        expenses: db.expenses.map((e) =>
           e.id === id
             ? {
                 ...e,
                 status: approved ? "Approved" : "Rejected",
                 financeRemarks: remarks,
-                reviewedBy: reviewer,
+                reviewedBy: me(),
                 reviewedAt: now(),
               }
             : e,
         ),
-      };
-      return pushNotifications(
-        draft,
-        project ? [project.leaderId] : [],
-        "expense_reviewed",
-        `Expense ${approved ? "approved" : "rejected"}`,
-        `₹${expense.amount.toLocaleString("en-IN")} — ${expense.description}.`,
-        `/expenses?expense=${expense.id}`,
-      );
-    });
+      }),
+      (c) =>
+        run(c.rpc("review_expense", { p_expense_id: id, p_approved: approved, p_remarks: remarks ?? null })),
+    );
+  },
+
+  /* --------------------------------------------------------- vendors */
+
+  createVendor(input: Omit<Vendor, "id">) {
+    const vendor: Vendor = { ...input, id: newId() };
+    void commit(
+      ["vendors"],
+      (db) => ({ ...db, vendors: [...db.vendors, vendor] }),
+      (c) => run(c.from("vendors").insert({ id: vendor.id, ...patchColumns(vendor, VENDOR_COLUMNS) })),
+    );
+  },
+
+  updateVendor(id: string, patch: Partial<Vendor>) {
+    void commit(
+      ["vendors"],
+      (db) => ({ ...db, vendors: db.vendors.map((v) => (v.id === id ? { ...v, ...patch } : v)) }),
+      (c) => run(c.from("vendors").update(patchColumns(patch, VENDOR_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteVendor(id: string) {
+    void commit(
+      ["vendors"],
+      (db) => ({ ...db, vendors: db.vendors.filter((v) => v.id !== id) }),
+      (c) => run(c.from("vendors").delete().eq("id", id)),
+    );
+  },
+
+  /* ------------------------------------------------------- templates */
+
+  saveProjectTemplate(input: ProjectTemplate) {
+    const t = { ...input, id: UUID.test(input.id) ? input.id : newId() };
+    void commit(
+      ["templates"],
+      (db) => ({
+        ...db,
+        projectTemplates: db.projectTemplates.some((x) => x.id === input.id)
+          ? db.projectTemplates.map((x) => (x.id === input.id ? t : x))
+          : [...db.projectTemplates, t],
+      }),
+      async (c) => {
+        await run(
+          c.from("project_templates").upsert({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            color: t.color,
+            priority: t.priority,
+            duration_days: t.durationDays,
+          }),
+        );
+        await run(c.from("project_template_services").delete().eq("template_id", t.id));
+        if (t.services.length) {
+          await run(
+            c
+              .from("project_template_services")
+              .insert(t.services.map((service) => ({ template_id: t.id, service }))),
+          );
+        }
+        await run(c.from("project_template_tasks").delete().eq("template_id", t.id));
+        if (t.tasks.length) {
+          await run(
+            c.from("project_template_tasks").insert(
+              t.tasks.map((item, position) => ({ template_id: t.id, position, ...templateItemRow(item) })),
+            ),
+          );
+        }
+      },
+    );
+  },
+
+  deleteProjectTemplate(id: string) {
+    void commit(
+      ["templates"],
+      (db) => ({ ...db, projectTemplates: db.projectTemplates.filter((t) => t.id !== id) }),
+      (c) => run(c.from("project_templates").delete().eq("id", id)),
+    );
+  },
+
+  saveTaskTemplate(input: TaskTemplate) {
+    const t = { ...input, id: UUID.test(input.id) ? input.id : newId() };
+    void commit(
+      ["templates"],
+      (db) => ({
+        ...db,
+        taskTemplates: db.taskTemplates.some((x) => x.id === input.id)
+          ? db.taskTemplates.map((x) => (x.id === input.id ? t : x))
+          : [...db.taskTemplates, t],
+      }),
+      (c) => run(c.from("task_templates").upsert({ id: t.id, ...templateItemRow(t) })),
+    );
+  },
+
+  deleteTaskTemplate(id: string) {
+    void commit(
+      ["templates"],
+      (db) => ({ ...db, taskTemplates: db.taskTemplates.filter((t) => t.id !== id) }),
+      (c) => run(c.from("task_templates").delete().eq("id", id)),
+    );
+  },
+
+  /* -------------------------------------------------------- calendar */
+
+  updateCalendar(patch: Partial<CalendarConfig>) {
+    const before = state.db.calendar;
+    const next = { ...before, ...patch };
+    const beforeDates = new Map(before.holidays.map((h) => [h.date, h.name]));
+    const nextDates = new Map(next.holidays.map((h) => [h.date, h.name]));
+    const addedHolidays = next.holidays.filter((h) => beforeDates.get(h.date) !== h.name);
+    const removedHolidays = before.holidays.filter((h) => !nextDates.has(h.date)).map((h) => h.date);
+    const addedOverrides = next.workingOverrides.filter((d) => !before.workingOverrides.includes(d));
+    const removedOverrides = before.workingOverrides.filter((d) => !next.workingOverrides.includes(d));
+
+    void commit(
+      ["calendar"],
+      (db) => ({ ...db, calendar: next }),
+      async (c) => {
+        if (removedHolidays.length) {
+          await run(c.from("holidays").delete().in("holiday_date", removedHolidays));
+        }
+        if (addedHolidays.length) {
+          await run(
+            c
+              .from("holidays")
+              .upsert(addedHolidays.map((h) => ({ holiday_date: h.date, name: h.name }))),
+          );
+        }
+        if (removedOverrides.length) {
+          await run(c.from("working_overrides").delete().in("override_date", removedOverrides));
+        }
+        if (addedOverrides.length) {
+          await run(
+            c
+              .from("working_overrides")
+              .insert(addedOverrides.map((d) => ({ override_date: d, created_by: me() }))),
+          );
+        }
+      },
+    );
+  },
+
+  /* --------------------------------------------------- notifications */
+
+  markNotificationRead(id: string) {
+    void commit(
+      [],
+      (db) => ({
+        ...db,
+        notifications: db.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      }),
+      (c) => run(c.from("notifications").update({ read: true }).eq("id", id)),
+    );
+  },
+
+  markAllNotificationsRead() {
+    const userId = me();
+    void commit(
+      [],
+      (db) => ({
+        ...db,
+        notifications: db.notifications.map((n) => (n.userId === userId ? { ...n, read: true } : n)),
+      }),
+      (c) =>
+        run(c.from("notifications").update({ read: true }).eq("profile_id", userId).eq("read", false)),
+    );
+  },
+};
+
+/**
+ * The group a link should go in. A typed name that matches an existing group
+ * (ignoring case) reuses it; otherwise a new group is made alongside the link.
+ */
+function resolveLinkGroup(input: LinkInput): { groupId: string; created: LinkGroup | null } {
+  const name = input.newGroupName?.trim();
+  if (!name) return { groupId: input.groupId ?? "", created: null };
+  const existing = state.db.linkGroups.find((g) => g.name.trim().toLowerCase() === name.toLowerCase());
+  if (existing) return { groupId: existing.id, created: null };
+  const created: LinkGroup = { id: newId(), name, createdAt: now() };
+  return { groupId: created.id, created };
+}
+
+async function insertLinkGroup(c: SupabaseClient, group: LinkGroup | null) {
+  if (group) await run(c.from("link_groups").insert({ id: group.id, name: group.name }));
+}
+
+const linkActions = {
+  createLink(input: LinkInput) {
+    const { groupId, created } = resolveLinkGroup(input);
+    const link: OperationalLink = {
+      id: newId(),
+      groupId,
+      name: input.name.trim(),
+      url: input.url.trim(),
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["links"],
+      (db) => ({
+        ...db,
+        linkGroups: created ? [...db.linkGroups, created] : db.linkGroups,
+        operationalLinks: [...db.operationalLinks, link],
+      }),
+      async (c) => {
+        await insertLinkGroup(c, created);
+        await run(
+          c.from("operational_links").insert({
+            id: link.id,
+            group_id: link.groupId,
+            name: link.name,
+            url: link.url,
+          }),
+        );
+      },
+    );
+  },
+
+  updateLink(id: string, input: LinkInput) {
+    const { groupId, created } = resolveLinkGroup(input);
+    const patch = { groupId, name: input.name.trim(), url: input.url.trim() };
+    void commit(
+      ["links"],
+      (db) => ({
+        ...db,
+        linkGroups: created ? [...db.linkGroups, created] : db.linkGroups,
+        operationalLinks: db.operationalLinks.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+      }),
+      async (c) => {
+        await insertLinkGroup(c, created);
+        await run(
+          c
+            .from("operational_links")
+            .update({ group_id: patch.groupId, name: patch.name, url: patch.url })
+            .eq("id", id),
+        );
+      },
+    );
+  },
+
+  deleteLink(id: string) {
+    void commit(
+      ["links"],
+      (db) => ({ ...db, operationalLinks: db.operationalLinks.filter((l) => l.id !== id) }),
+      (c) => run(c.from("operational_links").delete().eq("id", id)),
+    );
+  },
+
+  renameLinkGroup(id: string, name: string) {
+    const trimmed = name.trim();
+    void commit(
+      ["links"],
+      (db) => ({
+        ...db,
+        linkGroups: db.linkGroups.map((g) => (g.id === id ? { ...g, name: trimmed } : g)),
+      }),
+      (c) => run(c.from("link_groups").update({ name: trimmed }).eq("id", id)),
+    );
+  },
+
+  /** Removes the group and every link in it. */
+  deleteLinkGroup(id: string) {
+    void commit(
+      ["links"],
+      (db) => ({
+        ...db,
+        linkGroups: db.linkGroups.filter((g) => g.id !== id),
+        operationalLinks: db.operationalLinks.filter((l) => l.groupId !== id),
+      }),
+      (c) => run(c.from("link_groups").delete().eq("id", id)),
+    );
+  },
+};
+
+async function insertProject(c: SupabaseClient, p: Project) {
+  await run(
+    c.from("projects").insert({
+      ...projectRow(p),
+      created_by: me(),
+      ...seriesColumns(p.recurrence as RecurrenceSeries | null | undefined),
+    }),
+  );
+  if (p.services.length) {
+    await run(c.from("project_services").insert(p.services.map((service) => ({ project_id: p.id, service }))));
+  }
+  if (p.memberIds.length) {
+    await run(
+      c.from("project_members").insert(p.memberIds.map((profile_id) => ({ project_id: p.id, profile_id }))),
+    );
+  }
+}
+
+/* ------------------------------------------------------------ provider */
+
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  useEffect(() => {
+    void init();
   }, []);
 
-  /* ---------------------------------------------------------- vendors */
+  const { db, auth, userId, toasts } = snapshot;
 
-  const createVendor = useCallback((input: Omit<Vendor, "id">) => {
-    mutate((d) => ({ ...d, vendors: [...d.vendors, { ...input, id: uid("v") }] }));
-  }, []);
+  const currentUser = useMemo(
+    () => (auth === "signed-in" ? (db.users.find((u) => u.id === userId) ?? null) : null),
+    [auth, db.users, userId],
+  );
 
-  const updateVendor = useCallback((id: string, patch: Partial<Vendor>) => {
-    mutate((d) => ({
-      ...d,
-      vendors: d.vendors.map((v) => (v.id === id ? { ...v, ...patch } : v)),
-    }));
-  }, []);
-
-  const deleteVendor = useCallback((id: string) => {
-    mutate((d) => ({ ...d, vendors: d.vendors.filter((v) => v.id !== id) }));
-  }, []);
-
-  /* -------------------------------------------------------- templates */
-
-  const saveProjectTemplate = useCallback((t: ProjectTemplate) => {
-    mutate((d) => ({
-      ...d,
-      projectTemplates: d.projectTemplates.some((x) => x.id === t.id)
-        ? d.projectTemplates.map((x) => (x.id === t.id ? t : x))
-        : [...d.projectTemplates, t],
-    }));
-  }, []);
-
-  const deleteProjectTemplate = useCallback((id: string) => {
-    mutate((d) => ({
-      ...d,
-      projectTemplates: d.projectTemplates.filter((t) => t.id !== id),
-    }));
-  }, []);
-
-  const saveTaskTemplate = useCallback((t: TaskTemplate) => {
-    mutate((d) => ({
-      ...d,
-      taskTemplates: d.taskTemplates.some((x) => x.id === t.id)
-        ? d.taskTemplates.map((x) => (x.id === t.id ? t : x))
-        : [...d.taskTemplates, t],
-    }));
-  }, []);
-
-  const deleteTaskTemplate = useCallback((id: string) => {
-    mutate((d) => ({ ...d, taskTemplates: d.taskTemplates.filter((t) => t.id !== id) }));
-  }, []);
-
-  /* --------------------------------------------------------- calendar */
-
-  const updateCalendar = useCallback((patch: Partial<CalendarConfig>) => {
-    mutate((d) => ({ ...d, calendar: { ...d.calendar, ...patch } }));
-  }, []);
-
-  /* ---------------------------------------------------- notifications */
-
-  const markNotificationRead = useCallback((id: string) => {
-    mutate((d) => ({
-      ...d,
-      notifications: d.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    }));
-  }, []);
-
-  const markAllNotificationsRead = useCallback(() => {
-    const me = sessionState;
-    if (!me) return;
-    mutate((d) => ({
-      ...d,
-      notifications: d.notifications.map((n) =>
-        n.userId === me ? { ...n, read: true } : n,
-      ),
-    }));
-  }, []);
-
-  const resetDemoData = useCallback(() => {
-    mutate(() => seedDatabase());
-    setSession(null);
-  }, []);
+  const userById = useCallback((id: string) => db.users.find((u) => u.id === id), [db.users]);
+  const projectById = useCallback((id: string) => db.projects.find((p) => p.id === id), [db.projects]);
+  const taskById = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
+  const vendorById = useCallback((id: string) => db.vendors.find((v) => v.id === id), [db.vendors]);
 
   const value = useMemo<StoreValue>(
     () => ({
       db,
-      ready,
+      ready: auth === "signed-in" || auth === "signed-out",
+      configured: isSupabaseConfigured,
       currentUser,
-      login,
-      logout,
-      switchUser,
-      changePassword,
+      toasts,
+      showToast: toast,
+      dismissToast,
       userById,
       projectById,
       taskById,
       vendorById,
-      createUser,
-      updateUser,
-      deleteUser,
-      createProject,
-      createProjectFromTemplate,
-      updateProject,
-      deleteProject,
-      createTask,
-      updateTask,
-      deleteTask,
-      addRemark,
-      startTimer,
-      pauseTimer,
-      switchTimer,
-      submitTask,
-      reviewTask,
-      createExpense,
-      updateExpense,
-      deleteExpense,
-      reviewExpense,
-      createVendor,
-      updateVendor,
-      deleteVendor,
-      saveProjectTemplate,
-      deleteProjectTemplate,
-      saveTaskTemplate,
-      deleteTaskTemplate,
-      updateCalendar,
-      markNotificationRead,
-      markAllNotificationsRead,
-      resetDemoData,
+      ...actions,
+      ...linkActions,
     }),
-    [
-      db,
-      ready,
-      currentUser,
-      login,
-      logout,
-      switchUser,
-      changePassword,
-      userById,
-      projectById,
-      taskById,
-      vendorById,
-      createUser,
-      updateUser,
-      deleteUser,
-      createProject,
-      createProjectFromTemplate,
-      updateProject,
-      deleteProject,
-      createTask,
-      updateTask,
-      deleteTask,
-      addRemark,
-      startTimer,
-      pauseTimer,
-      switchTimer,
-      submitTask,
-      reviewTask,
-      createExpense,
-      updateExpense,
-      deleteExpense,
-      reviewExpense,
-      createVendor,
-      updateVendor,
-      deleteVendor,
-      saveProjectTemplate,
-      deleteProjectTemplate,
-      saveTaskTemplate,
-      deleteTaskTemplate,
-      updateCalendar,
-      markNotificationRead,
-      markAllNotificationsRead,
-      resetDemoData,
-    ],
+    [db, auth, currentUser, toasts, userById, projectById, taskById, vendorById],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

@@ -3,16 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { SetupNotice } from "@/components/layout/setup-notice";
 import { useStore } from "@/lib/store";
 
 /** Auth gate for every signed-in surface. */
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
-  const { ready, currentUser } = useStore();
+  const { ready, currentUser, configured } = useStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (ready && !currentUser) router.replace("/login");
-  }, [ready, currentUser, router]);
+    if (configured && ready && !currentUser) router.replace("/login");
+  }, [configured, ready, currentUser, router]);
+
+  if (!configured) return <SetupNotice />;
 
   if (!ready || !currentUser) {
     return (

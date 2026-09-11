@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fredoka, JetBrains_Mono, Nunito } from "next/font/google";
+import { Toaster } from "@/components/layout/toaster";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { StoreProvider } from "@/lib/store";
 import "./globals.css";
@@ -60,7 +61,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full bg-canvas text-ink">
-        <StoreProvider>{children}</StoreProvider>
+        <StoreProvider>
+          {children}
+          <Toaster />
+        </StoreProvider>
       </body>
     </html>
   );

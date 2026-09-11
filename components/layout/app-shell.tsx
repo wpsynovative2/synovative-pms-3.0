@@ -11,6 +11,7 @@ import {
   IconClock,
   IconDashboard,
   IconInbox,
+  IconLink,
   IconLogout,
   IconMenu,
   IconPause,
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/icons";
 import { Avatar, cx } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { FirstSignInPassword } from "./first-sign-in";
 import { relativeTime } from "@/lib/calendar";
 import { navGate } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
@@ -85,6 +87,12 @@ function useNavItems(user: User): NavItem[] {
       label: "Vendors",
       icon: <IconTruck size={18} />,
       show: gate.vendors,
+    },
+    {
+      href: "/links",
+      label: "Operational Links",
+      icon: <IconLink size={18} />,
+      show: gate.links,
     },
     {
       href: "/templates",
@@ -480,12 +488,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>
+
+      <FirstSignInPassword user={currentUser} />
     </div>
   );
 }
 
 function UserMenu({ user }: { user: User }) {
-  const { logout, db, switchUser } = useStore();
+  const { logout } = useStore();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -534,40 +544,10 @@ function UserMenu({ user }: { user: User }) {
             <IconUser size={15} /> My profile
           </button>
 
-          {/* Demo affordance: hop between roles without signing out. */}
-          <div className="border-t border-line-soft px-4 pt-2.5 pb-1">
-            <p className="text-[10px] font-medium tracking-wide text-ink-faint uppercase">
-              Switch demo user
-            </p>
-          </div>
-          <div className="max-h-44 overflow-y-auto pb-1">
-            {db.users
-              .filter((u) => u.active)
-              .map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => {
-                    switchUser(u.id);
-                    setOpen(false);
-                    router.push("/dashboard");
-                  }}
-                  className={cx(
-                    "flex w-full items-center gap-2.5 px-4 py-2 text-left text-[12px] transition-colors hover:bg-surface-3",
-                    u.id === user.id ? "text-ink" : "text-ink-muted",
-                  )}
-                >
-                  <Avatar name={u.fullName} size={20} />
-                  <span className="min-w-0 flex-1 truncate">{u.fullName}</span>
-                  <span className="shrink-0 text-[10px] text-ink-faint">
-                    {ROLE_LABEL[u.role]}
-                  </span>
-                </button>
-              ))}
-          </div>
-
           <button
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              setOpen(false);
+              await logout();
               router.replace("/login");
             }}
             className="flex w-full items-center gap-2.5 border-t border-line-soft px-4 py-2.5 text-left text-[12px] text-st-rejected hover:bg-st-rejected/10"

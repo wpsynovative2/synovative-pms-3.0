@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskRow } from "@/components/task/task-list";
 import { IconClock, IconLogout, IconTasks, IconUser } from "@/components/ui/icons";
-import { ConfirmDialog } from "@/components/ui/modal";
+import { MIN_PASSWORD } from "@/components/layout/first-sign-in";
 import {
   Avatar,
   Badge,
@@ -20,13 +20,13 @@ import {
 } from "@/components/ui/primitives";
 import { isOverdue } from "@/lib/analytics";
 import { formatDate } from "@/lib/calendar";
-import { navGate } from "@/lib/permissions";
+import { canManageLinks, navGate } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
 import { ROLE_LABEL } from "@/lib/types";
 
 export default function ProfilePage() {
-  const { db, currentUser, changePassword, logout, resetDemoData } = useStore();
+  const { db, currentUser, changePassword, logout } = useStore();
   const user = currentUser!;
   const router = useRouter();
 
@@ -35,7 +35,7 @@ export default function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const myTasks = useMemo(
     () => db.tasks.filter((t) => t.assigneeId === user.id),
@@ -50,17 +50,23 @@ export default function ProfilePage() {
   const totalTime = myTasks.reduce((s, t) => s + taskElapsedMs(t), 0);
   const gate = navGate(user);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) {
-      setError("Use at least 6 characters.");
+    if (password.length < MIN_PASSWORD) {
+      setError(`Use at least ${MIN_PASSWORD} characters.`);
       return;
     }
     if (password !== confirm) {
       setError("The two passwords don't match.");
       return;
     }
-    changePassword(password);
+    setBusy(true);
+    const result = await changePassword(password);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error ?? "Couldn't change your password.");
+      return;
+    }
     setPassword("");
     setConfirm("");
     setError(null);
@@ -126,6 +132,7 @@ export default function ProfilePage() {
                   ["Reports", gate.reports],
                   ["Working calendar", gate.calendar],
                   ["User management", gate.users],
+                  ["Manage operational links", canManageLinks(user)],
                 ] as const
               ).map(([label, on]) => (
                 <li key={label} className="flex items-center gap-2 bg-surface px-4 py-2.5">
@@ -151,7 +158,7 @@ export default function ProfilePage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
-                  placeholder="At least 6 characters"
+                  placeholder={`At least ${MIN_PASSWORD} characters`}
                 />
               </Field>
               <Field label="Confirm new password" required error={error ?? undefined}>
@@ -163,8 +170,8 @@ export default function ProfilePage() {
                 />
               </Field>
               <div className="flex items-center gap-3">
-                <Button type="submit" variant="primary">
-                  Update password
+                <Button type="submit" variant="primary" disabled={busy}>
+                  {busy ? "Saving…" : "Update password"}
                 </Button>
                 {saved ? (
                   <span className="text-[12px] text-st-approved">Password updated.</span>
@@ -250,18 +257,13 @@ export default function ProfilePage() {
             <div className="flex flex-wrap items-center gap-2 px-5 py-4">
               <Button
                 variant="danger"
-                onClick={() => {
-                  logout();
+                onClick={async () => {
+                  await logout();
                   router.replace("/login");
                 }}
               >
                 <IconLogout size={14} /> Sign out
               </Button>
-              <Button onClick={() => setConfirmReset(true)}>Reset demo data</Button>
-              <p className="w-full text-[11px] leading-relaxed text-ink-faint">
-                Resetting restores the seeded demo dataset and signs you out. Data lives in
-                this browser only; a production deployment reads and writes Supabase.
-              </p>
             </div>
           </Card>
         </div>
@@ -271,17 +273,6 @@ export default function ProfilePage() {
         <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
       ) : null}
 
-      <ConfirmDialog
-        open={confirmReset}
-        onClose={() => setConfirmReset(false)}
-        onConfirm={() => {
-          resetDemoData();
-          router.replace("/login");
-        }}
-        title="Reset demo data?"
-        body="Every change you've made in this browser is discarded and the seeded dataset is restored."
-        confirmLabel="Reset"
-      />
     </div>
   );
 }

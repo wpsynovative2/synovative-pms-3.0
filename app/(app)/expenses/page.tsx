@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ExpenseFormModal, ExpenseReviewModal } from "@/components/expense/expense-dialogs";
+import {
+  AttachmentLink,
+  ExpenseFormModal,
+  ExpenseReviewModal,
+} from "@/components/expense/expense-dialogs";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   IconCheck,
@@ -291,7 +295,7 @@ export default function ExpensesPage() {
                       <div className="max-w-72 text-ink">{e.description}</div>
                       {e.attachmentName ? (
                         <div className="mt-0.5 text-[10px] text-ink-faint">
-                          📎 {e.attachmentName}
+                          <AttachmentLink name={e.attachmentName} url={e.attachmentUrl} />
                         </div>
                       ) : null}
                       {e.financeRemarks ? (

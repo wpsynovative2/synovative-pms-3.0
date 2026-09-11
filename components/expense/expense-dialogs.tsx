@@ -10,6 +10,7 @@ import { formatINR } from "@/lib/analytics";
 import { formatDate, todayISO } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import type { Expense, Project } from "@/lib/types";
+import { uploadBill } from "@/lib/uploads";
 
 /** Project Leader adds or edits an expense — only while it is Pending (§8). */
 export function ExpenseFormModal({
@@ -35,7 +36,26 @@ export function ExpenseFormModal({
   const [description, setDescription] = useState(expense?.description ?? "");
   const [amount, setAmount] = useState(expense ? String(expense.amount) : "");
   const [expenseDate, setExpenseDate] = useState(expense?.expenseDate ?? todayISO());
-  const [attachmentName, setAttachmentName] = useState(expense?.attachmentName ?? "");
+  const [attachment, setAttachment] = useState<{ name: string; url?: string } | null>(
+    expense?.attachmentName
+      ? { name: expense.attachmentName, url: expense.attachmentUrl }
+      : null,
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const pickFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      setAttachment(await uploadBill(file));
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  };
   const [touched, setTouched] = useState(false);
 
   const vendorOptions = useMemo(
@@ -63,14 +83,15 @@ export function ExpenseFormModal({
 
   const save = () => {
     setTouched(true);
-    if (!valid) return;
+    if (!valid || uploading) return;
     const payload = {
       projectId,
       vendorId,
       description: description.trim(),
       amount: numericAmount,
       expenseDate,
-      attachmentName: attachmentName || undefined,
+      attachmentName: attachment?.name,
+      attachmentUrl: attachment?.url,
     };
     if (expense) updateExpense(expense.id, payload);
     else createExpense(payload);
@@ -86,8 +107,8 @@ export function ExpenseFormModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save}>
-            {expense ? "Save changes" : "Submit for verification"}
+          <Button variant="primary" onClick={save} disabled={uploading}>
+            {uploading ? "Uploading…" : expense ? "Save changes" : "Submit for verification"}
           </Button>
         </>
       }
@@ -169,16 +190,29 @@ export function ExpenseFormModal({
 
         <Field
           label="Bill / attachment"
-          hint="Optional. Uploads go to Cloudinary in production; the file name is recorded here."
+          hint="Optional — an image or PDF up to 10 MB."
+          error={uploadError ?? undefined}
         >
           <input
             type="file"
             accept="image/*,.pdf"
-            onChange={(e) => setAttachmentName(e.target.files?.[0]?.name ?? "")}
+            disabled={uploading}
+            onChange={(e) => void pickFile(e.target.files?.[0])}
             className="w-full rounded-[10px] border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-[12px] file:text-ink hover:file:bg-brand/30"
           />
-          {attachmentName ? (
-            <p className="mt-1 text-[11px] text-ink-faint">Attached: {attachmentName}</p>
+          {uploading ? (
+            <p className="mt-1 text-[11px] text-ink-faint">Uploading…</p>
+          ) : attachment ? (
+            <p className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
+              Attached: <AttachmentLink name={attachment.name} url={attachment.url} />
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="text-st-rejected hover:underline"
+              >
+                Remove
+              </button>
+            </p>
           ) : null}
         </Field>
       </div>
@@ -257,7 +291,7 @@ export function ExpenseReviewModal({
               </p>
               {expense.attachmentName ? (
                 <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-surface-3 px-2 py-1 text-[11px] text-ink-muted">
-                  📎 {expense.attachmentName}
+                  <AttachmentLink name={expense.attachmentName} url={expense.attachmentUrl} />
                 </p>
               ) : (
                 <p className="mt-1.5 text-[11px] text-st-submitted">
@@ -314,5 +348,21 @@ export function ExpenseReviewModal({
         </Field>
       </div>
     </Modal>
+  );
+}
+
+/** A bill attachment: opens the Cloudinary file when there is one. */
+export function AttachmentLink({ name, url }: { name: string; url?: string }) {
+  if (!url) return <span>📎 {name}</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-brand-ink hover:underline"
+      onClick={(e) => e.stopPropagation()}
+    >
+      📎 {name}
+    </a>
   );
 }

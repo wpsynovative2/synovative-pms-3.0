@@ -26,12 +26,13 @@ import {
   canDeleteUsers,
   canEditUsers,
 } from "@/lib/permissions";
-import { useStore } from "@/lib/store";
+import { MIN_PASSWORD } from "@/components/layout/first-sign-in";
+import { useStore, type UserPatch } from "@/lib/store";
 import { ROLE_LABEL, type Role, type User } from "@/lib/types";
 
 /** §6 — user management. Deactivation is preferred over deletion. */
 export default function UsersPage() {
-  const { db, currentUser, createUser, updateUser, deleteUser } = useStore();
+  const { db, currentUser, createUser, updateUser, deleteUser, showToast } = useStore();
   const user = currentUser!;
 
   const [query, setQuery] = useState("");
@@ -236,7 +237,12 @@ export default function UsersPage() {
                       {canEditUsers(user) && u.id !== user.id ? (
                         <Button
                           size="sm"
-                          onClick={() => updateUser(u.id, { active: !u.active })}
+                          onClick={async () => {
+                            const r = await updateUser(u.id, { active: !u.active });
+                            if (r.ok) {
+                              showToast(`${u.fullName} ${u.active ? "deactivated" : "reactivated"}.`, "success");
+                            } else showToast(r.error ?? "Couldn't update the account.");
+                          }}
                         >
                           {u.active ? "Deactivate" : "Reactivate"}
                         </Button>
@@ -271,14 +277,20 @@ export default function UsersPage() {
           }}
           editing={editing ?? undefined}
           assignable={assignableRoles(user)}
-          onSave={(payload) => {
-            if (editing) updateUser(editing.id, payload);
-            else
-              createUser({
-                ...payload,
-                active: true,
-                mustChangePassword: true,
-              } as Omit<User, "id" | "createdAt">);
+          onSave={async (payload) => {
+            const result = editing
+              ? await updateUser(editing.id, payload)
+              : await createUser({
+                  fullName: payload.fullName ?? "",
+                  email: payload.email ?? "",
+                  password: payload.password ?? "",
+                  role: payload.role ?? "team_member",
+                  departments: payload.departments ?? [],
+                });
+            if (result.ok) {
+              showToast(editing ? "Changes saved." : `${payload.fullName} can now sign in.`, "success");
+            }
+            return result;
           }}
         />
       ) : null}
@@ -286,9 +298,14 @@ export default function UsersPage() {
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && deleteUser(deleting.id)}
+        onConfirm={async () => {
+          if (!deleting) return;
+          const r = await deleteUser(deleting.id);
+          if (r.ok) showToast(`${deleting.fullName}'s account was deleted.`, "success");
+          else showToast(r.error ?? "Couldn't delete the account.");
+        }}
         title={`Delete ${deleting?.fullName ?? "this user"}?`}
-        body="Their tasks keep the reference but will show an unknown assignee. Deactivating instead preserves history and blocks sign-in."
+        body="Only possible for someone with no work on record — otherwise deactivate them, which keeps their history and blocks access."
       />
     </div>
   );
@@ -305,7 +322,7 @@ function UserFormModal({
   onClose: () => void;
   editing?: User;
   assignable: Role[];
-  onSave: (payload: Partial<User>) => void;
+  onSave: (payload: UserPatch) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const { db } = useStore();
   const [fullName, setFullName] = useState(editing?.fullName ?? "");
@@ -314,6 +331,8 @@ function UserFormModal({
   const [role, setRole] = useState<Role>(editing?.role ?? "team_member");
   const [departments, setDepartments] = useState<string[]>(editing?.departments ?? []);
   const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const multiDepartment = role === "team_leader";
   const emailTaken = db.users.some(
@@ -327,7 +346,10 @@ function UserFormModal({
       : emailTaken
         ? "That email is already in use."
         : undefined,
-    password: !editing && password.length < 6 ? "At least 6 characters." : undefined,
+    password:
+      (!editing || password) && password.length < MIN_PASSWORD
+        ? `At least ${MIN_PASSWORD} characters.`
+        : undefined,
     departments: departments.length === 0 ? "Pick at least one department." : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
@@ -340,31 +362,35 @@ function UserFormModal({
       subtitle={
         editing
           ? undefined
-          : "Created server-side through Supabase Auth in production. The temporary password must be changed at first login."
+          : "Creates their login. They choose their own password the first time they sign in."
       }
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button
             variant="primary"
-            onClick={() => {
+            disabled={busy}
+            onClick={async () => {
               setTouched(true);
               if (!valid) return;
-              const payload: Partial<User> = {
+              const payload: UserPatch = {
                 fullName: fullName.trim(),
                 email: email.trim().toLowerCase(),
-                role,
                 departments: multiDepartment ? departments : departments.slice(0, 1),
               };
-              if (password) {
-                payload.password = password;
-                payload.mustChangePassword = true;
-              }
-              onSave(payload);
-              onClose();
+              // Leave the role out when it isn't changing — a Super Admin's own
+              // role isn't in the assignable list and must not be re-sent.
+              if (role !== editing?.role) payload.role = role;
+              if (password) payload.password = password;
+              setBusy(true);
+              setServerError(null);
+              const result = await onSave(payload);
+              setBusy(false);
+              if (result.ok) onClose();
+              else setServerError(result.error ?? "Couldn't save.");
             }}
           >
-            {editing ? "Save changes" : "Create user"}
+            {busy ? "Saving…" : editing ? "Save changes" : "Create user"}
           </Button>
         </>
       }
@@ -397,8 +423,8 @@ function UserFormModal({
           required={!editing}
           hint={
             editing
-              ? "Leave blank to keep the current password."
-              : "The user must change it at first login."
+              ? "Leave blank to keep the current password. A reset asks them to choose a new one."
+              : "Share it privately; they must change it at first sign-in."
           }
           error={touched ? errors.password : undefined}
         >
@@ -406,7 +432,7 @@ function UserFormModal({
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 6 characters"
+            placeholder={`At least ${MIN_PASSWORD} characters`}
             autoComplete="new-password"
           />
         </Field>
@@ -466,6 +492,12 @@ function UserFormModal({
             />
           )}
         </Field>
+
+        {serverError ? (
+          <p className="rounded-lg border border-st-rejected/30 bg-st-rejected/10 px-3 py-2 text-[12px] text-st-rejected">
+            {serverError}
+          </p>
+        ) : null}
 
         {departments.includes("Accounts & Finance") ? (
           <p className="rounded-lg border border-st-submitted/25 bg-st-submitted/10 px-3 py-2 text-[11px] leading-relaxed text-st-submitted">

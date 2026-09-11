@@ -25,9 +25,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 export interface User {
   id: string;
   fullName: string;
+  /** Login ID; the password itself lives only in Supabase Auth (§6). */
   email: string;
-  /** Demo-only. Real deployments authenticate through Supabase Auth (§6). */
-  password: string;
   role: Role;
   /** Department names from §5.1. Multi-valued for Team Leaders. */
   departments: string[];
@@ -277,6 +276,25 @@ export interface CalendarConfig {
   workingOverrides: string[];
 }
 
+/* ---------------------------------------------------- Operational links */
+
+/** A named folder of links, e.g. "Brand assets" or "Client onboarding". */
+export interface LinkGroup {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+/** A shared Google Drive (or other) link, filed under one group. */
+export interface OperationalLink {
+  id: string;
+  groupId: string;
+  name: string;
+  url: string;
+  createdBy: string;
+  createdAt: string;
+}
+
 /* --------------------------------------------------------- Notifications */
 
 export type NotificationType =
@@ -303,6 +321,10 @@ export interface AppNotification {
 
 /* ------------------------------------------------------------------ DB */
 
+/**
+ * The signed-in user's view of the database: every row Row Level Security lets
+ * them read, assembled into the nested shapes the screens use.
+ */
 export interface Database {
   users: User[];
   projects: Project[];
@@ -313,6 +335,6 @@ export interface Database {
   taskTemplates: TaskTemplate[];
   calendar: CalendarConfig;
   notifications: AppNotification[];
-  /** ISO date of the last 11:59 PM auto-stop sweep that was applied (§11.3.4). */
-  lastAutoStopSweep: string | null;
+  linkGroups: LinkGroup[];
+  operationalLinks: OperationalLink[];
 }

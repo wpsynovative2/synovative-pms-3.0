@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { use, useMemo, useState } from "react";
-import { ExpenseFormModal, ExpenseReviewModal } from "@/components/expense/expense-dialogs";
+import {
+  AttachmentLink,
+  ExpenseFormModal,
+  ExpenseReviewModal,
+} from "@/components/expense/expense-dialogs";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -596,7 +600,9 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
                             <span>{vendor?.name ?? "Unknown vendor"}</span>
                             <span>{formatDate(e.expenseDate)}</span>
-                            {e.attachmentName ? <span>📎 {e.attachmentName}</span> : null}
+                            {e.attachmentName ? (
+                              <AttachmentLink name={e.attachmentName} url={e.attachmentUrl} />
+                            ) : null}
                             {reviewer && e.reviewedAt ? (
                               <span>
                                 {e.status} by {reviewer.fullName} on{" "}

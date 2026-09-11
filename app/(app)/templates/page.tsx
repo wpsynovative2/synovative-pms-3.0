@@ -349,7 +349,7 @@ function ProjectTemplateModal({
     setTasks((t) => [
       ...t,
       {
-        id: `pti-${Date.now()}-${t.length}`,
+        id: crypto.randomUUID(),
         title: "",
         description: "",
         department: DEPARTMENTS[0],
@@ -390,7 +390,7 @@ function ProjectTemplateModal({
               setTouched(true);
               if (!valid) return;
               onSave({
-                id: template?.id ?? `pt-${Date.now()}`,
+                id: template?.id ?? crypto.randomUUID(),
                 name: name.trim(),
                 description: description.trim(),
                 color,
@@ -640,7 +640,7 @@ function TaskTemplateModal({
               setTouched(true);
               if (!valid) return;
               onSave({
-                id: template?.id ?? `tt-${Date.now()}`,
+                id: template?.id ?? crypto.randomUUID(),
                 title: title.trim(),
                 description: description.trim(),
                 department,

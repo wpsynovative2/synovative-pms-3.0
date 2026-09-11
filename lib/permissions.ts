@@ -214,6 +214,11 @@ export function scopedDepartments(u: User): string[] | null {
 
 export const canManageVendors = (u: User) => isGlobalManager(u) || isFinance(u);
 
+/* ---------------------------------------------------- operational links */
+
+/** Super Admin, Admin and Manager manage links; everyone else reads them. */
+export const canManageLinks = (u: User) => isGlobalManager(u);
+
 /* ------------------------------------------------------------ navigation */
 
 export interface NavGate {
@@ -227,6 +232,7 @@ export interface NavGate {
   reports: boolean;
   users: boolean;
   calendar: boolean;
+  links: boolean;
 }
 
 export function navGate(u: User): NavGate {
@@ -241,5 +247,6 @@ export function navGate(u: User): NavGate {
     reports: canViewReports(u),
     users: canAddUsers(u),
     calendar: true,
+    links: true,
   };
 }

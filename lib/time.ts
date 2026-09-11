@@ -60,13 +60,3 @@ export function formatHours(hours: number): string {
   const rounded = Math.round(hours * 10) / 10;
   return `${rounded}h`;
 }
-
-/**
- * The 11:59 PM cut-off for a given day, in local time (§11.3.4).
- * Deployed to Supabase this is a `pg_cron` job pinned to IST.
- */
-export function autoStopInstant(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(23, 59, 0, 0);
-  return d;
-}

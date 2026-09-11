@@ -5,38 +5,42 @@ import { useEffect, useState } from "react";
 import { IconSparkle } from "@/components/ui/icons";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Button, Card, Field, Input } from "@/components/ui/primitives";
-import { DEMO_LOGINS } from "@/lib/seed";
+import { SetupNotice } from "@/components/layout/setup-notice";
 import { useStore } from "@/lib/store";
-import { ROLE_LABEL } from "@/lib/types";
+
+/** Where to go after signing in: the page the proxy bounced us from, if safe. */
+function nextPath(): string {
+  const next = new URLSearchParams(window.location.search).get("next");
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+}
 
 export default function LoginPage() {
-  const { login, currentUser, ready, db } = useStore();
+  const { login, currentUser, ready, configured } = useStore();
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (ready && currentUser) router.replace("/dashboard");
+    if (ready && currentUser) router.replace(nextPath());
   }, [ready, currentUser, router]);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = login(email, password);
+    setBusy(true);
+    setError(null);
+    const result = await login(email, password);
+    setBusy(false);
     if (!result.ok) {
       setError(result.error ?? "Could not sign in.");
       return;
     }
-    setError(null);
-    router.replace("/dashboard");
+    router.replace(nextPath());
   };
 
-  const quickFill = (e: string, p: string) => {
-    setEmail(e);
-    setPassword(p);
-    setError(null);
-  };
+  if (!configured) return <SetupNotice />;
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
@@ -71,25 +75,12 @@ export default function LoginPage() {
             review submissions and keep vendor spend under control. The app
             adapts to your role the moment you sign in.
           </p>
-
-          <dl className="grid grid-cols-3 gap-3 pt-1">
-            {[
-              { k: db.projects.length, v: "Projects" },
-              { k: db.tasks.length, v: "Tasks" },
-              { k: db.users.length, v: "People" },
-            ].map((s) => (
-              <div key={s.v} className="rounded-xl border border-line bg-surface/60 px-3 py-2.5">
-                <dt className="text-lg font-semibold text-ink">{s.k}</dt>
-                <dd className="text-[11px] text-ink-faint">{s.v}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         <Card className="p-6">
-          <h2 className="text-base font-semibold tracking-tight">Sign in</h2>
+          <h2 className="text-base font-semibold tracking-tight text-ink">Sign in</h2>
           <p className="mt-0.5 mb-5 text-xs text-ink-muted">
-            Use your work email address.
+            Use your work email address. Accounts are created by your administrator.
           </p>
 
           <form onSubmit={submit} className="flex flex-col gap-4">
@@ -123,34 +114,15 @@ export default function LoginPage() {
               </p>
             ) : null}
 
-            <Button type="submit" variant="primary" className="mt-1 w-full">
-              Sign in
+            <Button type="submit" variant="primary" className="mt-1 w-full" disabled={busy}>
+              {busy ? "Signing in…" : "Sign in"}
             </Button>
           </form>
 
-          <div className="mt-6 border-t border-line-soft pt-4">
-            <p className="mb-2.5 text-[11px] font-medium tracking-wide text-ink-faint uppercase">
-              Demo accounts — tap to fill
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {DEMO_LOGINS.map((d) => (
-                <button
-                  key={d.email}
-                  type="button"
-                  onClick={() => quickFill(d.email, d.password)}
-                  className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-brand-bright/50 hover:text-ink"
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-ink-faint">
-              Each account demonstrates a different slice of the permission
-              matrix — menus, buttons and data all change with the role.
-              {" "}
-              {ROLE_LABEL.super_admin} sees everything.
-            </p>
-          </div>
+          <p className="mt-5 border-t border-line-soft pt-4 text-[11px] leading-relaxed text-ink-faint">
+            Forgot your password? Ask a Super Admin, Admin or HR Admin to reset it from
+            the Users page.
+          </p>
         </Card>
       </div>
     </main>
