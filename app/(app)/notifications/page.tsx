@@ -50,7 +50,7 @@ const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
 };
 
 const TYPE_TONE: Record<NotificationType, string> = {
-  task_assigned: "bg-brand/15 text-[#c9b6f2]",
+  task_assigned: "bg-brand/15 text-brand-ink",
   task_submitted: "bg-st-submitted/15 text-st-submitted",
   review_decision: "bg-st-approved/15 text-st-approved",
   remark_added: "bg-st-inprogress/15 text-st-inprogress",

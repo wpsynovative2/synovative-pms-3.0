@@ -5,14 +5,23 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { IconWarning } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, Select, cx } from "@/components/ui/primitives";
+import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import { DEPARTMENTS, PRIORITIES, TASK_STATUSES } from "@/lib/master-data";
 import { REVIEWER_ONLY_STATUSES } from "@/lib/master-data";
-import { canReviewTask } from "@/lib/permissions";
+import { canReviewTask, canSetRecurrence } from "@/lib/permissions";
+import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
-import type { Priority, Project, Task, TaskStatus, TaskTemplate } from "@/lib/types";
+import type {
+  Priority,
+  Project,
+  RecurrenceRule,
+  Task,
+  TaskStatus,
+  TaskTemplate,
+} from "@/lib/types";
 
 interface FormState {
   title: string;
@@ -69,7 +78,16 @@ export function TaskFormModal({
     tags: task?.tags ?? [],
   });
   const [templateId, setTemplateId] = useState("");
+  const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
   const [touched, setTouched] = useState(false);
+
+  // Individual tasks repeat on their own (project tasks repeat with their
+  // project); only the series source carries the rule.
+  const mayRepeat =
+    mode === "individual" &&
+    !!currentUser &&
+    canSetRecurrence(currentUser) &&
+    !task?.series;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -117,6 +135,7 @@ export function TaskFormModal({
       (form.dueDate < form.startDate
         ? "The due date must be on or after the start date."
         : undefined),
+    repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -155,6 +174,9 @@ export function TaskFormModal({
       dueDate: form.dueDate,
       estimatedHours: hours,
       tags: form.tags,
+      ...(mayRepeat
+        ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
+        : {}),
     };
     if (task) updateTask(task.id, payload);
     else createTask(payload);
@@ -336,6 +358,30 @@ export function TaskFormModal({
           </Field>
         </div>
 
+        {mayRepeat ? (
+          <Field
+            label="Repeat"
+            hint={
+              repeat
+                ? "Each repeat creates a fresh copy of this task for the same assignee, with the due date moved by the same amount."
+                : undefined
+            }
+          >
+            <RecurrencePicker
+              value={repeat}
+              onChange={setRepeat}
+              anchor={form.startDate}
+              config={calendar}
+              error={touched ? errors.repeat : undefined}
+            />
+          </Field>
+        ) : task?.series ? (
+          <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
+            Repeat #{task.series.index} of a repeating task. The repeat rule is edited on
+            the original task.
+          </p>
+        ) : null}
+
         <Field label="Tags" hint="Comma separated — stored as a list.">
           <TagsInput value={form.tags} onChange={(v) => set("tags", v)} />
         </Field>
@@ -353,7 +399,7 @@ export function TaskFormModal({
             <span>
               Task dates must sit inside the project window (
               {formatDate(project.startDate)} – {formatDate(project.deadline)}) and land
-              on a working day. Sundays, 2nd &amp; 4th Saturdays and company holidays
+              on a working day. Sundays and company holidays
               are disabled in the picker.
             </span>
           </p>

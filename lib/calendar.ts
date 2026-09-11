@@ -33,17 +33,9 @@ export function daysBetween(fromISO: string, toISO: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-/** Which Saturday of the month this is (1-based); 0 when not a Saturday. */
-export function saturdayOrdinal(iso: string): number {
-  const d = fromISODate(iso);
-  if (d.getDay() !== 6) return 0;
-  return Math.floor((d.getDate() - 1) / 7) + 1;
-}
-
 export type NonWorkingReason =
   | "past"
   | "sunday"
-  | "alternate-saturday"
   | "holiday";
 
 /**
@@ -61,11 +53,8 @@ export function nonWorkingReason(
   if (!opts.allowPast && iso < todayISO()) return "past";
   if (overridden) return null;
 
-  const d = fromISODate(iso);
-  if (d.getDay() === 0) return "sunday";
-
-  const sat = saturdayOrdinal(iso);
-  if (sat === 2 || sat === 4) return "alternate-saturday";
+  // Every Saturday is a working day; only Sundays are closed each week.
+  if (fromISODate(iso).getDay() === 0) return "sunday";
 
   if (config.holidays.some((h) => h.date === iso)) return "holiday";
 
@@ -83,7 +72,6 @@ export function isWorkingDay(
 export const NON_WORKING_LABEL: Record<NonWorkingReason, string> = {
   past: "Past date",
   sunday: "Sunday",
-  "alternate-saturday": "2nd / 4th Saturday",
   holiday: "Company holiday",
 };
 
@@ -109,6 +97,19 @@ export function addWorkingDays(
     cursor = addDays(cursor, 1);
     cursor = nextWorkingDay(cursor, config);
     left--;
+  }
+  return cursor;
+}
+
+/**
+ * Next working day at or after `iso`, without the "no past dates" rule — so
+ * generated recurring work keeps its real date even when it is caught up late.
+ */
+export function snapToWorkingDay(iso: string, config: CalendarConfig): string {
+  let cursor = iso;
+  for (let i = 0; i < 400; i++) {
+    if (isWorkingDay(cursor, config, { allowPast: true })) return cursor;
+    cursor = addDays(cursor, 1);
   }
   return cursor;
 }

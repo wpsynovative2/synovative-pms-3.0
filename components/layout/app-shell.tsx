@@ -25,6 +25,7 @@ import {
   IconWallet,
 } from "@/components/ui/icons";
 import { Avatar, cx } from "@/components/ui/primitives";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { relativeTime } from "@/lib/calendar";
 import { navGate } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
@@ -43,22 +44,72 @@ interface NavItem {
 function useNavItems(user: User): NavItem[] {
   const gate = navGate(user);
   return [
-    { href: "/dashboard", label: "Dashboard", icon: <IconDashboard size={18} />, show: true },
-    { href: "/projects", label: "Projects", icon: <IconProjects size={18} />, show: gate.projects },
-    { href: "/tasks", label: "Tasks", icon: <IconTasks size={18} />, show: gate.tasks },
+    {
+      href: "/dashboard",
+      label: "Dashboard",
+      icon: <IconDashboard size={18} />,
+      show: true,
+    },
+    {
+      href: "/projects",
+      label: "Projects",
+      icon: <IconProjects size={18} />,
+      show: gate.projects,
+    },
+    {
+      href: "/tasks",
+      label: "Tasks",
+      icon: <IconTasks size={18} />,
+      show: gate.tasks,
+    },
     {
       href: "/individual-tasks",
       label: "Individual Tasks",
       icon: <IconInbox size={18} />,
       show: gate.individualTasks,
     },
-    { href: "/expenses", label: "Expenses", icon: <IconWallet size={18} />, show: gate.expenses },
-    { href: "/workload", label: "Workload", icon: <IconUsers size={18} />, show: gate.workload },
-    { href: "/vendors", label: "Vendors", icon: <IconTruck size={18} />, show: gate.vendors },
-    { href: "/templates", label: "Templates", icon: <IconTemplate size={18} />, show: gate.templates },
-    { href: "/reports", label: "Reports", icon: <IconChart size={18} />, show: gate.reports },
-    { href: "/calendar", label: "Working Calendar", icon: <IconCalendar size={18} />, show: gate.calendar },
-    { href: "/users", label: "Users", icon: <IconUser size={18} />, show: gate.users },
+    {
+      href: "/expenses",
+      label: "Expenses",
+      icon: <IconWallet size={18} />,
+      show: gate.expenses,
+    },
+    {
+      href: "/workload",
+      label: "Workload",
+      icon: <IconUsers size={18} />,
+      show: gate.workload,
+    },
+    {
+      href: "/vendors",
+      label: "Vendors",
+      icon: <IconTruck size={18} />,
+      show: gate.vendors,
+    },
+    {
+      href: "/templates",
+      label: "Templates",
+      icon: <IconTemplate size={18} />,
+      show: gate.templates,
+    },
+    {
+      href: "/reports",
+      label: "Reports",
+      icon: <IconChart size={18} />,
+      show: gate.reports,
+    },
+    {
+      href: "/calendar",
+      label: "Working Calendar",
+      icon: <IconCalendar size={18} />,
+      show: gate.calendar,
+    },
+    {
+      href: "/users",
+      label: "Users",
+      icon: <IconUser size={18} />,
+      show: gate.users,
+    },
   ].filter((i) => i.show);
 }
 
@@ -81,7 +132,7 @@ function Sidebar({
   const items = useNavItems(user);
 
   const content = (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <div
         className={cx(
           "flex items-center gap-2.5 px-3 py-4",
@@ -93,10 +144,12 @@ function Sidebar({
         </span>
         {!collapsed ? (
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold tracking-tight">
+            <div className="truncate font-display text-[13px] font-semibold tracking-tight">
               Synovative PMS
             </div>
-            <div className="truncate text-[10px] text-ink-faint">Agency workspace</div>
+            <div className="truncate text-[10px] text-ink-faint">
+              Agency workspace
+            </div>
           </div>
         ) : null}
       </div>
@@ -120,7 +173,9 @@ function Sidebar({
               )}
             >
               <span className="shrink-0">{item.icon}</span>
-              {!collapsed ? <span className="truncate">{item.label}</span> : null}
+              {!collapsed ? (
+                <span className="truncate">{item.label}</span>
+              ) : null}
             </Link>
           );
         })}
@@ -148,7 +203,7 @@ function Sidebar({
           ) : null}
         </Link>
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -156,7 +211,7 @@ function Sidebar({
       {/* Desktop rail */}
       <aside
         className={cx(
-          "relative hidden shrink-0 flex-col border-r border-line bg-surface/60 transition-[width] duration-200 lg:flex",
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-surface/60 transition-[width] duration-200 lg:flex",
           collapsed ? "w-[68px]" : "w-60",
         )}
       >
@@ -164,7 +219,7 @@ function Sidebar({
         <button
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="absolute top-5 -right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-muted transition-colors hover:text-ink"
+          className="absolute top-5 -right-3 z-100 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-muted transition-colors hover:text-ink"
         >
           <IconChevronLeft
             size={13}
@@ -177,7 +232,7 @@ function Sidebar({
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
-            className="absolute inset-0 bg-base-deep/80"
+            className="absolute inset-0 bg-scrim/80"
             onClick={onMobileClose}
             aria-hidden="true"
           />
@@ -210,7 +265,8 @@ function NotificationBell({ user }: { user: User }) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -232,7 +288,7 @@ function NotificationBell({ user }: { user: User }) {
       </button>
 
       {open ? (
-        <div className="animate-fade-up absolute right-0 z-40 mt-2 w-[22rem] overflow-hidden rounded-xl border border-line bg-surface-2 shadow-2xl shadow-black/60">
+        <div className="animate-fade-up absolute right-0 z-40 mt-2 w-[22rem] overflow-hidden rounded-xl border border-line bg-surface-2 shadow-pop">
           <div className="flex items-center justify-between border-b border-line-soft px-4 py-3">
             <span className="text-[13px] font-semibold">Notifications</span>
             {unread > 0 ? (
@@ -325,12 +381,16 @@ function RunningTimerStrip({ user }: { user: User }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-brand/12 px-4 py-2 sm:px-6">
-        <span className="inline-flex items-center gap-2 text-[11px] font-medium tracking-wide text-[#c9b6f2] uppercase">
+        <span className="inline-flex items-center gap-2 text-[11px] font-medium tracking-wide text-brand-ink uppercase">
           <span className="animate-pulse-dot h-2 w-2 rounded-full bg-brand-bright" />
           Timer running
         </span>
         <Link
-          href={project ? `/projects/${project.id}?task=${task.id}` : `/individual-tasks?task=${task.id}`}
+          href={
+            project
+              ? `/projects/${project.id}?task=${task.id}`
+              : `/individual-tasks?task=${task.id}`
+          }
           className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink hover:underline"
         >
           {task.title}
@@ -357,8 +417,16 @@ function RunningTimerStrip({ user }: { user: User }) {
         </div>
       </div>
 
-      <PauseDialog open={pauseOpen} onClose={() => setPauseOpen(false)} task={task} />
-      <SubmitDialog open={submitOpen} onClose={() => setSubmitOpen(false)} task={task} />
+      <PauseDialog
+        open={pauseOpen}
+        onClose={() => setPauseOpen(false)}
+        task={task}
+      />
+      <SubmitDialog
+        open={submitOpen}
+        onClose={() => setSubmitOpen(false)}
+        task={task}
+      />
     </>
   );
 }
@@ -386,7 +454,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <RunningTimerStrip user={currentUser} />
 
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-base/85 px-4 py-3 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-canvas/85 px-4 py-3 backdrop-blur-md sm:px-6">
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
@@ -403,6 +471,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <IconClock size={14} /> My work
           </Link>
+
+          <ThemeToggle />
 
           <NotificationBell user={currentUser} />
           <UserMenu user={currentUser} />
@@ -423,7 +493,8 @@ function UserMenu({ user }: { user: User }) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -442,11 +513,13 @@ function UserMenu({ user }: { user: User }) {
       </button>
 
       {open ? (
-        <div className="animate-fade-up absolute right-0 z-40 mt-2 w-64 overflow-hidden rounded-xl border border-line bg-surface-2 shadow-2xl shadow-black/60">
+        <div className="animate-fade-up absolute right-0 z-40 mt-2 w-64 overflow-hidden rounded-xl border border-line bg-surface-2 shadow-pop">
           <div className="border-b border-line-soft px-4 py-3">
-            <div className="text-[13px] font-medium text-ink">{user.fullName}</div>
+            <div className="text-[13px] font-medium text-ink">
+              {user.fullName}
+            </div>
             <div className="text-[11px] text-ink-muted">{user.email}</div>
-            <div className="mt-1.5 inline-flex rounded-full border border-brand-bright/30 bg-brand/20 px-2 py-0.5 text-[10px] text-[#c9b6f2]">
+            <div className="mt-1.5 inline-flex rounded-full border border-brand-bright/30 bg-brand/20 px-2 py-0.5 text-[10px] text-brand-ink">
               {ROLE_LABEL[user.role]}
             </div>
           </div>

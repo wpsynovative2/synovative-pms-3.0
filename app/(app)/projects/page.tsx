@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ProjectFormModal } from "@/components/project/project-form";
+import { RecurrenceBadge } from "@/components/task/task-bits";
 import {
   IconFilter,
   IconPlus,
@@ -266,7 +267,7 @@ export default function ProjectsPage() {
                       style={{ background: p.color }}
                     />
                     <div className="min-w-0 flex-1">
-                      <h3 className="truncate text-[14px] font-semibold text-ink group-hover:text-white">
+                      <h3 className="truncate text-[14px] font-semibold text-ink group-hover:text-ink-strong">
                         {p.name}
                       </h3>
                       <p className="truncate text-[11px] text-ink-faint">{p.clientName}</p>
@@ -276,6 +277,7 @@ export default function ProjectsPage() {
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     <Badge className={PROJECT_STATUS_STYLE[p.status]}>{p.status}</Badge>
                     <Badge className={PRIORITY_STYLE[p.priority]}>{p.priority}</Badge>
+                    <RecurrenceBadge item={p} />
                     {stats.overdueTasks > 0 ? (
                       <Badge className="border-st-rejected/40 bg-st-rejected/20 text-st-rejected">
                         {stats.overdueTasks} overdue

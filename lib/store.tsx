@@ -1,8 +1,24 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
-import { addWorkingDays, toISODate, todayISO } from "./calendar";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
+import {
+  addDays,
+  addWorkingDays,
+  daysBetween,
+  formatDate,
+  snapToWorkingDay,
+  toISODate,
+  todayISO,
+} from "./calendar";
 import { FINANCE_DEPARTMENT } from "./master-data";
+import { occurrencesBetween, type Occurrence } from "./recurrence";
 import { seedDatabase } from "./seed";
 import { autoStopInstant } from "./time";
 import type {
@@ -14,6 +30,7 @@ import type {
   OutputLocation,
   Project,
   ProjectTemplate,
+  RecurrenceSeries,
   Remark,
   Review,
   ReviewDecision,
@@ -109,6 +126,173 @@ function applyAutoStop(db: Database): Database {
   };
 }
 
+/* ---------------------------------------------------------- recurrence */
+
+const TERMINAL_PROJECT_STATUSES: Project["status"][] = ["Completed", "Cancelled", "Archived"];
+
+const clampISO = (iso: string, min: string, max: string) =>
+  iso < min ? min : iso > max ? max : iso;
+
+/** A task copied into a new occurrence: same brief and assignee, clean slate. */
+function freshTaskCopy(source: Task, patch: Partial<Task>): Task {
+  return {
+    ...source,
+    id: uid("t"),
+    status: "Not Started",
+    tags: [...source.tags],
+    createdAt: now(),
+    sessions: [],
+    submissions: [],
+    reviews: [],
+    remarks: [],
+    recurrence: null,
+    series: null,
+    ...patch,
+  };
+}
+
+/**
+ * One occurrence of a repeating project: a copy of the source project and all
+ * of its current tasks, moved so the project starts on the occurrence date.
+ * Dates snap forward to working days (§5.4); when two occurrences snap onto the
+ * same day — a daily rule over a weekend — only one copy is made.
+ */
+function materializeProject(draft: Database, source: Project, occ: Occurrence): Database {
+  const start = snapToWorkingDay(occ.date, draft.calendar);
+  const taken =
+    start === source.startDate ||
+    draft.projects.some((p) => p.series?.sourceId === source.id && p.startDate === start);
+  if (taken) return draft;
+
+  const shift = daysBetween(source.startDate, start);
+  const deadline = addDays(source.deadline, shift);
+  const project: Project = {
+    ...source,
+    id: uid("p"),
+    name: `${source.name} · ${formatDate(start)}`,
+    startDate: start,
+    deadline,
+    status: TERMINAL_PROJECT_STATUSES.includes(source.status) ? "Planning" : source.status,
+    memberIds: [...source.memberIds],
+    services: [...source.services],
+    createdAt: now(),
+    recurrence: null,
+    series: { sourceId: source.id, index: occ.index, date: occ.date },
+  };
+
+  const tasks = draft.tasks
+    .filter((t) => t.projectId === source.id)
+    .map((t) => {
+      const taskStart = clampISO(
+        snapToWorkingDay(addDays(t.startDate, shift), draft.calendar),
+        start,
+        deadline,
+      );
+      const taskDue = clampISO(
+        snapToWorkingDay(addDays(t.dueDate, shift), draft.calendar),
+        taskStart,
+        deadline,
+      );
+      return freshTaskCopy(t, { projectId: project.id, startDate: taskStart, dueDate: taskDue });
+    });
+
+  let next: Database = {
+    ...draft,
+    projects: [project, ...draft.projects],
+    tasks: [...draft.tasks, ...tasks],
+  };
+  for (const t of tasks) {
+    next = pushNotifications(
+      next,
+      [t.assigneeId],
+      "task_assigned",
+      "New task assigned",
+      `“${t.title}” in ${project.name}.`,
+      `/projects/${project.id}?task=${t.id}`,
+    );
+  }
+  return next;
+}
+
+/** One occurrence of a repeating individual task (§10). */
+function materializeTask(draft: Database, source: Task, occ: Occurrence): Database {
+  const start = snapToWorkingDay(occ.date, draft.calendar);
+  const taken =
+    start === source.startDate ||
+    draft.tasks.some((t) => t.series?.sourceId === source.id && t.startDate === start);
+  if (taken) return draft;
+
+  const shift = daysBetween(source.startDate, start);
+  const due = snapToWorkingDay(addDays(source.dueDate, shift), draft.calendar);
+  const task = freshTaskCopy(source, {
+    projectId: null,
+    startDate: start,
+    dueDate: due < start ? start : due,
+    series: { sourceId: source.id, index: occ.index, date: occ.date },
+  });
+
+  return pushNotifications(
+    { ...draft, tasks: [...draft.tasks, task] },
+    [task.assigneeId],
+    "task_assigned",
+    "New task assigned",
+    `“${task.title}” — repeat #${occ.index}, due ${formatDate(task.dueDate)}.`,
+    `/individual-tasks?task=${task.id}`,
+  );
+}
+
+/**
+ * Create every repeating occurrence that has come due. In production this is
+ * `generate_recurring_occurrences()` on pg_cron (0004_recurrence.sql); here it
+ * runs on load, after saves, and whenever the date rolls over in an open tab.
+ * Returns `db` untouched when there is nothing to do.
+ */
+function applyRecurrence(db: Database): Database {
+  const today = todayISO();
+  let draft = db;
+
+  const advance = (series: RecurrenceSeries): RecurrenceSeries => ({ ...series, cursor: today });
+
+  for (const source of db.projects) {
+    const series = source.recurrence;
+    if (!series || series.cursor >= today) continue;
+    for (const occ of occurrencesBetween(series, series.cursor, today)) {
+      draft = materializeProject(draft, source, occ);
+    }
+    draft = {
+      ...draft,
+      projects: draft.projects.map((p) =>
+        p.id === source.id ? { ...p, recurrence: advance(series) } : p,
+      ),
+    };
+  }
+
+  for (const source of db.tasks) {
+    const series = source.recurrence;
+    if (!series || source.projectId !== null || series.cursor >= today) continue;
+    for (const occ of occurrencesBetween(series, series.cursor, today)) {
+      draft = materializeTask(draft, source, occ);
+    }
+    draft = {
+      ...draft,
+      tasks: draft.tasks.map((t) =>
+        t.id === source.id ? { ...t, recurrence: advance(series) } : t,
+      ),
+    };
+  }
+
+  return draft;
+}
+
+/** Moving a source's start date moves the series with it. */
+function followAnchor<T extends { startDate: string; recurrence?: RecurrenceSeries | null }>(
+  item: T,
+): T {
+  const series = item.recurrence;
+  if (!series || series.anchor === item.startDate) return item;
+  return { ...item, recurrence: { ...series, anchor: item.startDate } };
+}
+
 /* --------------------------------------------------------- external store */
 
 /*
@@ -137,7 +321,7 @@ function subscribe(listener: () => void): () => void {
 
 // Runs once when this client module is first evaluated — before any render.
 if (typeof window !== "undefined") {
-  const hydrated = applyAutoStop(loadDb());
+  const hydrated = applyRecurrence(applyAutoStop(loadDb()));
   dbState = hydrated;
   saveDb(hydrated);
   try {
@@ -347,6 +531,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
   const ready = useSyncExternalStore(subscribe, getReady, getServerReady);
 
+  // Pick up occurrences that come due while the tab stays open past midnight.
+  useEffect(() => {
+    const id = window.setInterval(() => mutate(applyRecurrence), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const currentUser = useMemo(
     () => db.users.find((u) => u.id === currentUserId) ?? null,
     [db.users, currentUserId],
@@ -425,7 +615,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         createdBy: sessionState ?? "system",
         createdAt: now(),
       };
-      mutate((d) => ({ ...d, projects: [project, ...d.projects] }));
+      mutate((d) => applyRecurrence({ ...d, projects: [project, ...d.projects] }));
       return project;
     },
     [],
@@ -485,7 +675,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             `/projects/${created.id}?task=${t.id}`,
           );
         }
-        return draft;
+        return applyRecurrence(draft);
       });
       return created;
     },
@@ -493,10 +683,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateProject = useCallback((id: string, patch: Partial<Project>) => {
-    mutate((d) => ({
-      ...d,
-      projects: d.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-    }));
+    mutate((d) =>
+      applyRecurrence({
+        ...d,
+        projects: d.projects.map((p) => (p.id === id ? followAnchor({ ...p, ...patch }) : p)),
+      }),
+    );
   }, []);
 
   const deleteProject = useCallback((id: string) => {
@@ -513,6 +705,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const createTask = useCallback((input: NewTaskInput) => {
     const task: Task = {
       ...input,
+      // Only individual tasks repeat on their own; project tasks repeat with their project.
+      recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
       id: uid("t"),
       createdBy: sessionState ?? "system",
       createdAt: now(),
@@ -526,13 +720,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const project = task.projectId
         ? d.projects.find((p) => p.id === task.projectId)
         : null;
-      return pushNotifications(
-        draft,
-        [task.assigneeId],
-        "task_assigned",
-        "New task assigned",
-        project ? `“${task.title}” in ${project.name}.` : `“${task.title}”.`,
-        taskHref(task),
+      return applyRecurrence(
+        pushNotifications(
+          draft,
+          [task.assigneeId],
+          "task_assigned",
+          "New task assigned",
+          project ? `“${task.title}” in ${project.name}.` : `“${task.title}”.`,
+          taskHref(task),
+        ),
       );
     });
     return task;
@@ -545,11 +741,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       const reassigned = !!patch.assigneeId && patch.assigneeId !== before.assigneeId;
       // Handing a task to someone else puts it back at the start (§12.2 parallel).
-      const merged: Task = {
+      const combined: Task = {
         ...before,
         ...patch,
         status: reassigned ? (patch.status ?? "Not Started") : (patch.status ?? before.status),
       };
+      const merged = followAnchor(
+        combined.projectId === null ? combined : { ...combined, recurrence: null },
+      );
 
       let draft: Database = {
         ...d,
@@ -569,7 +768,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           taskHref(merged),
         );
       }
-      return draft;
+      return applyRecurrence(draft);
     });
   }, []);
 

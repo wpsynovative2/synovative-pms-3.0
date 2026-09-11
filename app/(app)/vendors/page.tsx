@@ -115,7 +115,7 @@ export default function VendorsPage() {
             return (
               <Card key={v.id} className="flex flex-col p-4">
                 <div className="flex items-start gap-2.5">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand/15 text-[#c9b6f2]">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand/15 text-brand-ink">
                     <IconTruck size={17} />
                   </span>
                   <div className="min-w-0 flex-1">

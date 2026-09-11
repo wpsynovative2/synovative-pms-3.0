@@ -1,15 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Fredoka, JetBrains_Mono, Nunito } from "next/font/google";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { StoreProvider } from "@/lib/store";
 import "./globals.css";
 
 /*
- * PRD §3/§20 — the reference site's exact font is still to be confirmed.
- * Inter is the stand-in; swapping it is a one-line change here because every
- * surface reads the `--font-app-sans` token defined in globals.css.
+ * PRD §3/§20 — the reference site (synovative.vercel.app) sets its text in
+ * Nunito and its headings in Fredoka. globals.css maps them to `font-sans`
+ * and `font-display`.
  */
-const sans = Inter({
+const sans = Nunito({
   variable: "--font-app-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const display = Fredoka({
+  variable: "--font-app-display",
   subsets: ["latin"],
   display: "swap",
 });
@@ -30,18 +37,29 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#17131F",
+  // Same pairing as the reference site.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#5F3CA7" },
+    { media: "(prefers-color-scheme: dark)", color: "#17131F" },
+  ],
   width: "device-width",
   initialScale: 1,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // The inline script swaps data-theme to the saved / system choice before
+    // the first paint, so React must accept the DOM value on hydration.
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable} h-full antialiased`}
+      data-theme="dark"
+      suppressHydrationWarning
+      className={`${sans.variable} ${display.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-base text-ink">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
+      <body className="min-h-full bg-canvas text-ink">
         <StoreProvider>{children}</StoreProvider>
       </body>
     </html>

@@ -31,7 +31,7 @@ import {
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import type { Review, Submission } from "@/lib/types";
-import { OverdueBadge, PriorityBadge, ProjectChip, StatusBadge } from "./task-bits";
+import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
 import { TaskFormModal } from "./task-form";
 import { TimerControls } from "./timer-controls";
@@ -109,6 +109,7 @@ export function TaskDetailDrawer({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.status} task={task} />
             <PriorityBadge priority={task.priority} />
+            <RecurrenceBadge item={task} />
             <OverdueBadge task={task} />
             <div className="ml-auto flex items-center gap-1.5">
               {mayReview ? (

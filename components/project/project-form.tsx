@@ -5,6 +5,7 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { IconTemplate } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Avatar, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
+import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
@@ -14,8 +15,10 @@ import {
   PROJECT_STATUSES,
   SERVICES,
 } from "@/lib/master-data";
+import { canSetRecurrence } from "@/lib/permissions";
+import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
-import type { Priority, Project, ProjectStatus } from "@/lib/types";
+import type { Priority, Project, ProjectStatus, RecurrenceRule } from "@/lib/types";
 
 interface FormState {
   name: string;
@@ -42,7 +45,8 @@ export function ProjectFormModal({
   project?: Project;
   onCreated?: (p: Project) => void;
 }) {
-  const { db, createProject, createProjectFromTemplate, updateProject } = useStore();
+  const { db, currentUser, createProject, createProjectFromTemplate, updateProject } =
+    useStore();
 
   const defaultStart = nextWorkingDay(todayISO(), db.calendar);
   const [templateId, setTemplateId] = useState("");
@@ -61,7 +65,16 @@ export function ProjectFormModal({
     leaderId: project?.leaderId ?? "",
     memberIds: project?.memberIds ?? [],
   });
+  const [repeat, setRepeat] = useState<RecurrenceRule | null>(
+    project?.recurrence?.rule ?? null,
+  );
   const [touched, setTouched] = useState(false);
+
+  // Only the source of a series carries the rule; generated copies don't repeat.
+  const mayRepeat = !!currentUser && canSetRecurrence(currentUser) && !project?.series;
+  const seriesSource = project?.series
+    ? db.projects.find((p) => p.id === project.series!.sourceId)
+    : undefined;
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -114,6 +127,7 @@ export function ProjectFormModal({
       form.deadline < form.startDate
         ? "The deadline must be on or after the start date."
         : undefined,
+    repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -133,6 +147,9 @@ export function ProjectFormModal({
       priority: form.priority,
       leaderId: form.leaderId,
       memberIds: form.memberIds,
+      ...(mayRepeat
+        ? { recurrence: seriesFor(project?.recurrence, repeat, form.startDate) }
+        : {}),
     };
 
     if (project) {
@@ -259,6 +276,31 @@ export function ProjectFormModal({
           </Field>
         </div>
 
+        {mayRepeat ? (
+          <Field
+            label="Repeat"
+            hint={
+              repeat
+                ? "Each repeat creates a copy of this project and its tasks on that date — tasks start fresh as Not Started, with the same assignees."
+                : undefined
+            }
+          >
+            <RecurrencePicker
+              value={repeat}
+              onChange={setRepeat}
+              anchor={form.startDate}
+              config={db.calendar}
+              error={touched ? errors.repeat : undefined}
+            />
+          </Field>
+        ) : project?.series ? (
+          <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
+            Repeat #{project.series.index} of{" "}
+            <span className="text-ink-muted">{seriesSource?.name ?? "a deleted series"}</span>.
+            The repeat rule is edited on the original project.
+          </p>
+        ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Status" required>
             <Select
@@ -301,7 +343,10 @@ export function ProjectFormModal({
           />
         </Field>
 
-        <Field label="Team Members" hint="Optional — they see every task in the project.">
+        <Field
+          label="Team Members"
+          hint="Optional — for reference. Members see the project once they hold a task in it."
+        >
           <MultiSelect
             options={userOptions.filter((o) => o.value !== form.leaderId)}
             value={form.memberIds}
@@ -323,7 +368,7 @@ export function ProjectFormModal({
         {template && !project ? (
           <div className="rounded-xl border border-brand-bright/25 bg-brand/8 p-4">
             <div className="mb-3 flex items-center gap-2">
-              <IconTemplate size={15} className="text-[#c9b6f2]" />
+              <IconTemplate size={15} className="text-brand-ink" />
               <span className="text-[13px] font-semibold text-ink">
                 Tasks from “{template.name}”
               </span>

@@ -15,7 +15,14 @@ import { DEPARTMENTS, PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib
 import { useStore } from "@/lib/store";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
 import type { Priority, Task, TaskStatus, User } from "@/lib/types";
-import { DueDate, OverdueBadge, PriorityBadge, ProjectChip, StatusBadge } from "./task-bits";
+import {
+  DueDate,
+  OverdueBadge,
+  PriorityBadge,
+  ProjectChip,
+  RecurrenceBadge,
+  StatusBadge,
+} from "./task-bits";
 
 /* ---------------------------------------------------------------- filters */
 
@@ -239,9 +246,10 @@ export function TaskRow({
 
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-ink group-hover:text-white">
+          <span className="truncate text-[13px] font-medium text-ink group-hover:text-ink-strong">
             {task.title}
           </span>
+          <RecurrenceBadge item={task} />
           <OverdueBadge task={task} />
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -338,7 +346,7 @@ export function TaskTimeline({
           <li key={task.id} className="relative">
             <span
               className={cx(
-                "absolute top-4 -left-8 h-3.5 w-3.5 rounded-full border-2 border-base",
+                "absolute top-4 -left-8 h-3.5 w-3.5 rounded-full border-2 border-canvas",
                 TASK_STATUS_STYLE[task.status].dot,
                 running && "ring-2 ring-brand-bright/60",
               )}

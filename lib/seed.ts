@@ -1607,7 +1607,7 @@ export function seedDatabase(): Database {
     taskTemplates,
     calendar: {
       holidays,
-      // HR has made one alternate Saturday a working day as an example override.
+      // Days HR has forced back to working (§5.4.5) — none by default.
       workingOverrides: [],
     },
     notifications,

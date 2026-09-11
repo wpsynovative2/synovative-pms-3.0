@@ -47,7 +47,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
       <div
-        className="fixed inset-0 bg-base-deep/80 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-scrim/80 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -56,7 +56,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={cx(
-          "animate-fade-up relative my-auto w-full rounded-2xl border border-line bg-surface shadow-2xl shadow-black/50",
+          "animate-fade-up relative my-auto w-full rounded-2xl border border-line bg-surface shadow-pop",
           widths[size],
         )}
       >
@@ -123,18 +123,18 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-40">
       <div
-        className="absolute inset-0 bg-base-deep/75 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/80 backdrop-blur-[2px]"
         onClick={onClose}
         aria-hidden="true"
       />
       <aside
         role="dialog"
         aria-modal="true"
-        className="animate-fade-up absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-line bg-surface shadow-2xl shadow-black/60"
+        className="animate-fade-up absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-line bg-surface shadow-pop"
       >
         <div className="flex items-start justify-between gap-4 border-b border-line-soft px-5 py-4">
           <div className="min-w-0 flex-1">
-            <div className="text-base font-semibold tracking-tight text-ink">{title}</div>
+            <div className="font-display text-base font-semibold tracking-tight text-ink">{title}</div>
             {subtitle ? <div className="mt-1 text-xs text-ink-muted">{subtitle}</div> : null}
             {headerExtra}
           </div>

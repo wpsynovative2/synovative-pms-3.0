@@ -1,28 +1,47 @@
 @import "tailwindcss";
 
 /*
- * Design tokens.
- * Colour theme + font family are the only things borrowed from
- * https://synovative.vercel.app/ (see PRD §3). Layout is independent.
+ * Design tokens — colour theme and font family from https://synovative.vercel.app/
+ * (PRD §3). Layout is independent.
+ *
+ * Two themes, switched by `data-theme` on <html> (set before first paint by
+ * the inline script in app/layout.tsx):
+ *   dark  — the default below; #17131F ground, the site's dark palette.
+ *   light — the site's warm "paper" palette, overridden further down.
+ * Every component reads these tokens, so nothing else changes per theme.
  */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
-  /* Brand palette */
-  --color-base: #17131f;
-  --color-base-deep: #100d16;
+  /* Surfaces */
+  --color-canvas: #17131f;
+  --color-canvas-deep: #100d16;
   --color-surface: #1e1929;
   --color-surface-2: #262032;
   --color-surface-3: #2f2840;
   --color-line: #332b44;
   --color-line-soft: #2a2338;
 
+  /* Brand */
   --color-brand: #5f3ca7;
   --color-brand-bright: #7c55d6;
   --color-brand-soft: #3a2a5c;
   --color-brand-dim: #241c38;
+  /* Brand-coloured text and icons on a neutral surface. */
+  --color-brand-ink: #c9b6f2;
+  /* Text on a solid brand fill. */
+  --color-on-brand: #ffffff;
 
+  /* Text */
   --color-ink: #ede9f3;
   --color-ink-muted: #a79dbb;
   --color-ink-faint: #7a7090;
+  /* Strongest text — hover emphasis on titles. */
+  --color-ink-strong: #ffffff;
+
+  /* Overlays and shadows */
+  --color-scrim: #100d16;
+  --color-shade: #000000;
 
   /* Semantic status colours (PRD §5.3) */
   --color-st-notstarted: #8b8299;
@@ -38,26 +57,99 @@
   --color-pr-high: #e0a325;
   --color-pr-critical: #e04b4b;
 
+  /* Avatar tints: fill hue + readable text on it */
+  --color-pink: #d14fa0;
+  --color-teal: #2aa9b5;
+  --color-tint-violet: #c9b6f2;
+  --color-tint-blue: #a8cbf5;
+  --color-tint-green: #9adcc0;
+  --color-tint-amber: #f0d193;
+  --color-tint-orange: #f3bd94;
+  --color-tint-pink: #eeaad3;
+  --color-tint-teal: #9adde3;
+
+  --shadow-card: 0 0 #0000;
+  --shadow-pop: 0 24px 48px -12px rgb(0 0 0 / 0.6);
+
+  /* Nunito for text, Fredoka for headings — as on the reference site. */
   --font-sans: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-app-display), ui-rounded, "Segoe UI", system-ui, sans-serif;
   --font-mono: var(--font-app-mono), ui-monospace, monospace;
 
   --radius-card: 14px;
 }
 
-/* The app is dark-only by design; lock the scheme so form controls match. */
 :root {
   color-scheme: dark;
 }
 
+/* Light — the reference site's paper palette (--paper, --ink, --brand …). */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-canvas: #f6f2ea;
+  --color-canvas-deep: #ebe4d7;
+  --color-surface: #fffdf8;
+  --color-surface-2: #f9f6f0;
+  --color-surface-3: #efe9e0;
+  --color-line: #e2dad1;
+  --color-line-soft: #ece6de;
+
+  --color-brand: #5f3ca7;
+  --color-brand-bright: #6d4bc0;
+  --color-brand-soft: #b9a3e0;
+  --color-brand-dim: #ece5f7;
+  --color-brand-ink: #5f3ca7;
+  --color-on-brand: #ffffff;
+
+  --color-ink: #2a2135;
+  --color-ink-muted: #5b5169;
+  --color-ink-faint: #8d84a0;
+  --color-ink-strong: #17131f;
+
+  --color-scrim: #2a21358c;
+  --color-shade: #2a213559;
+
+  /* Deeper status hues so chip text stays readable on cream. */
+  --color-st-notstarted: #736a82;
+  --color-st-inprogress: #2f6fc4;
+  --color-st-submitted: #b07a0c;
+  --color-st-changes: #c65f12;
+  --color-st-rejected: #c93636;
+  --color-st-approved: #1f8f5f;
+
+  --color-pr-low: #56698a;
+  --color-pr-medium: #2f6fc4;
+  --color-pr-high: #b07a0c;
+  --color-pr-critical: #c93636;
+
+  --color-tint-violet: #5f3ca7;
+  --color-tint-blue: #2f6fc4;
+  --color-tint-green: #1f8f5f;
+  --color-tint-amber: #9a6a06;
+  --color-tint-orange: #b45309;
+  --color-tint-pink: #b03a84;
+  --color-tint-teal: #1b8591;
+
+  --shadow-card: 0 1px 1px #2a21350d, 0 2px 4px #2a21350f;
+  --shadow-pop: 0 2px 4px #2a213512, 0 16px 34px #2a213521;
+}
+
 html,
 body {
-  background: var(--color-base);
+  background: var(--color-canvas);
   color: var(--color-ink);
 }
 
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
 }
 
 /* Scrollbars that don't fight the dark surface */
@@ -80,8 +172,8 @@ body {
 }
 
 /* Native date/time pickers need a light icon on dark ground */
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator {
+:root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator,
+:root:not([data-theme="light"]) input[type="time"]::-webkit-calendar-picker-indicator {
   filter: invert(0.75);
   cursor: pointer;
 }

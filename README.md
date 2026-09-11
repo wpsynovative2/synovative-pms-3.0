@@ -55,10 +55,17 @@ Behaviour worth pointing at specifically:
 - **Auto-stop at 11:59 PM (§11.3.4).** Applied on load in this build; the
   `pg_cron` job is in `supabase/migrations/0003_jobs.sql` for the real backend.
 - **Working calendar (§5.4)** drives every task date picker — past dates,
-  Sundays, 2nd/4th Saturdays and holidays are disabled and labelled, and HR
+  Sundays and holidays are disabled and labelled, and HR
   overrides re-open specific days.
 - **Project date bounds (§9.1).** Task dates outside the project window are
   disabled in the picker, not just rejected on submit.
+- **Repeating projects and individual tasks.** Super Admin, Admin and Manager
+  can set a Google Calendar-style repeat — Daily, Weekly on a day, Monthly on a
+  date or the nth/last weekday, Annually, Every weekday, or Custom (every N
+  days/weeks/months/years, chosen weekdays, ending never / on a date / after N
+  times). The original is occurrence #1 and the template: each repeat is a fresh
+  copy of the project and its tasks (or of the task), with dates moved and
+  snapped to working days, created when its date arrives.
 - **Rejection reassigns (§12.2).** Status resets to Not Started, the due date can
   move, and every earlier submission, review and time log stays in the history.
 - **Expense authority comes from the department, not the role (§4.1)** — anyone
@@ -66,14 +73,21 @@ Behaviour worth pointing at specifically:
 
 ### Design
 
-Only the colour theme and font family come from the reference site (§3):
-`#17131F` base, `#5F3CA7` brand accent, with semantic status colours alongside.
-Everything is defined as Tailwind v4 tokens in [`app/globals.css`](app/globals.css).
+Only the colour theme and font family come from the reference site (§3),
+synovative.vercel.app. Everything is defined as Tailwind v4 tokens in
+[`app/globals.css`](app/globals.css); components never hard-code a colour.
 
-**Font (§20, still open):** the reference site's exact family was not confirmed,
-so Inter is the stand-in. It is one line to change — swap the `next/font` import
-in [`app/layout.tsx`](app/layout.tsx); every surface reads the `--font-app-sans`
-token, so nothing else needs touching.
+- **Light and dark themes.** The sun / moon button in the top bar (and on the
+  login screen) switches between them, like the reference site's toggle. Dark
+  uses the `#17131F` ground; light uses the site's warm paper palette
+  (`#F6F2EA` ground, `#2A2135` ink). Both share the `#5F3CA7` brand. The choice
+  is saved per browser; with none saved, the OS preference decides. An inline
+  script in `app/layout.tsx` applies it before first paint, so there is no flash.
+- **Fonts (§20, resolved):** Nunito for text and Fredoka for headings, as on the
+  reference site, plus JetBrains Mono for timers and figures.
+- **Dropdowns** (date pickers, selects) render through
+  [`components/ui/popover.tsx`](components/ui/popover.tsx) into the page root,
+  so no card, modal or drawer can clip or cover them.
 
 ---
 
@@ -94,12 +108,14 @@ lib/
   permissions.ts    The §4.2 matrix as functions
   calendar.ts       Working-calendar rules and date formatting (§5.4)
   time.ts           Session maths — start/stop only, elapsed computed (§11.3.5)
+  recurrence.ts     Repeat rules: matching, presets, descriptions
   analytics.ts      Project stats, workload, report aggregates (§7.2, §14, §16)
   store.tsx         State, mutations, notification fan-out
 supabase/migrations/
   0001_schema.sql   Tables, constraints, aggregate views and RPCs
   0002_rls.sql      Row Level Security — the §4.2 matrix, enforced
   0003_jobs.sql     pg_cron: 11:59 PM auto-stop, due/overdue, pruning
+  0004_recurrence.sql  Repeat columns, guard trigger, 00:05 IST generator job
 ```
 
 ### Data layer
@@ -123,8 +139,9 @@ maps to a table or RPC in `supabase/migrations/`:
 
 ### Moving to Supabase
 
-1. Create a project, then run the three migrations in order (SQL editor, or
-   `supabase db push`). `0003_jobs.sql` needs `pg_cron` enabled first.
+1. Create a project, then run the four migrations in order (SQL editor, or
+   `supabase db push`). `0003_jobs.sql` and `0004_recurrence.sql` need
+   `pg_cron` enabled first.
 2. Add `.env.local`:
    ```
    NEXT_PUBLIC_SUPABASE_URL=…

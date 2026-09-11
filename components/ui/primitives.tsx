@@ -17,7 +17,9 @@ export function Card({
   return (
     <div
       className={cx(
-        "rounded-card border border-line bg-surface/80 backdrop-blur-sm",
+        // Solid and unblurred on purpose: a backdrop-filter made every card
+        // its own stacking context, which hid open dropdowns behind the next card.
+        "rounded-card border border-line bg-surface shadow-card",
         className,
       )}
       {...rest}
@@ -255,13 +257,13 @@ export function SearchInput({
 /* --------------------------------------------------------------- Avatar */
 
 const AVATAR_TINTS = [
-  "bg-brand/30 text-[#c9b6f2]",
-  "bg-st-inprogress/25 text-[#a8cbf5]",
-  "bg-st-approved/25 text-[#9adcc0]",
-  "bg-st-submitted/25 text-[#f0d193]",
-  "bg-st-changes/25 text-[#f3bd94]",
-  "bg-[#d14fa0]/25 text-[#eeaad3]",
-  "bg-[#2aa9b5]/25 text-[#9adde3]",
+  "bg-brand/30 text-tint-violet",
+  "bg-st-inprogress/25 text-tint-blue",
+  "bg-st-approved/25 text-tint-green",
+  "bg-st-submitted/25 text-tint-amber",
+  "bg-st-changes/25 text-tint-orange",
+  "bg-pink/25 text-tint-pink",
+  "bg-teal/25 text-tint-teal",
 ];
 
 export function initials(name: string) {
@@ -347,7 +349,7 @@ export function StatTile({
   tone?: "brand" | "blue" | "green" | "amber" | "red" | "neutral";
 }) {
   const tones = {
-    brand: "bg-brand/15 text-[#c9b6f2]",
+    brand: "bg-brand/15 text-brand-ink",
     blue: "bg-st-inprogress/15 text-st-inprogress",
     green: "bg-st-approved/15 text-st-approved",
     amber: "bg-st-submitted/15 text-st-submitted",
@@ -467,7 +469,7 @@ export function PageHeader({
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div className="flex items-start gap-3">
         {icon ? (
-          <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand/15 text-[#c9b6f2]">
+          <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand/15 text-brand-ink">
             {icon}
           </span>
         ) : null}

@@ -180,7 +180,7 @@ export default function UsersPage() {
                     <Badge
                       className={cx(
                         u.role === "super_admin" &&
-                          "border-brand-bright/40 bg-brand/25 text-[#c9b6f2]",
+                          "border-brand-bright/40 bg-brand/25 text-brand-ink",
                       )}
                     >
                       {ROLE_LABEL[u.role]}

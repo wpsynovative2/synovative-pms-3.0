@@ -55,14 +55,14 @@ export const canViewAllProjects = (u: User) =>
   isGlobalManager(u) || isTeamLeader(u);
 
 /**
- * A user can open a project when they can see everything, or when they hold at
+ * A user can open a project when they can see everything, lead it, or hold at
  * least one task in it — in which case they see *all* of that project's tasks
- * (§4.2, "View projects where user has ≥ 1 task").
+ * (§4.2, "View projects where user has ≥ 1 task"). Being listed as a team
+ * member alone does not grant access.
  */
 export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   if (isGlobalManager(u)) return true;
   if (isProjectLeader(u, p)) return true;
-  if (p.memberIds.includes(u.id)) return true;
   const projectTasks = tasks.filter((t) => t.projectId === p.id);
   if (projectTasks.some((t) => t.assigneeId === u.id)) return true;
   if (isTeamLeader(u)) {
@@ -86,6 +86,13 @@ export function visibleProjects(
 export function canCreateTaskInProject(u: User, p: Project): boolean {
   return isGlobalManager(u) || isProjectLeader(u, p) || isTeamLeader(u);
 }
+
+/**
+ * Repeating projects and individual tasks are set up by Super Admin, Admin and
+ * Manager only — a Project Leader or Team Leader can edit the work but not the
+ * repeat rule.
+ */
+export const canSetRecurrence = (u: User) => isGlobalManager(u);
 
 /** §10 — Project Leaders explicitly cannot create individual tasks. */
 export const canManageIndividualTasks = (u: User) =>
@@ -165,7 +172,7 @@ export function visibleTasks(u: User, tasks: Task[], projects: Project[]) {
     tasks.filter((t) => t.assigneeId === u.id && t.projectId).map((t) => t.projectId!),
   );
   for (const p of projects) {
-    if (isProjectLeader(u, p) || p.memberIds.includes(u.id)) openProjectIds.add(p.id);
+    if (isProjectLeader(u, p)) openProjectIds.add(p.id);
   }
   return tasks.filter((t) => {
     const project = t.projectId ? byId.get(t.projectId) ?? null : null;

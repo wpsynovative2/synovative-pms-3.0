@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   NON_WORKING_LABEL,
   formatDate,
@@ -17,6 +17,7 @@ import {
   IconChevronRight,
   IconClose,
 } from "./icons";
+import { Popover } from "./popover";
 import { cx } from "./primitives";
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -84,20 +85,6 @@ export function DatePicker({
     month: anchorDate.getMonth(),
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("keydown", key);
-    };
-  }, [open]);
-
   const cells = useMemo(
     () => monthGrid(cursor.year, cursor.month),
     [cursor.year, cursor.month],
@@ -163,8 +150,12 @@ export function DatePicker({
         ) : null}
       </button>
 
-      {open && !disabled ? (
-        <div className="animate-fade-up absolute z-40 mt-1.5 w-72 rounded-xl border border-line bg-surface-2 p-3 shadow-2xl shadow-black/60">
+      <Popover
+        anchorRef={boxRef}
+        open={open && !disabled}
+        onClose={() => setOpen(false)}
+        className="w-72 rounded-xl p-3"
+      >
           <div className="mb-2 flex items-center justify-between">
             <button
               type="button"
@@ -220,7 +211,7 @@ export function DatePicker({
                     blocked
                       ? "cursor-not-allowed text-ink-faint line-through decoration-ink-faint/50"
                       : selected
-                        ? "bg-brand font-semibold text-white"
+                        ? "bg-brand font-semibold text-on-brand"
                         : "text-ink-muted hover:bg-surface-3 hover:text-ink",
                     iso === today && !selected && "ring-1 ring-brand-bright/50",
                   )}
@@ -238,10 +229,9 @@ export function DatePicker({
             <span className="inline-flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-st-rejected" /> Holiday
             </span>
-            <span>Sundays &amp; 2nd/4th Saturdays are closed</span>
+            <span>Sundays are closed</span>
           </div>
-        </div>
-      ) : null}
+      </Popover>
     </div>
   );
 }

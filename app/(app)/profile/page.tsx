@@ -81,7 +81,7 @@ export default function ProfilePage() {
                 <h2 className="truncate text-lg font-semibold text-ink">{user.fullName}</h2>
                 <p className="truncate text-[12px] text-ink-muted">{user.email}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge className="border-brand-bright/30 bg-brand/20 text-[#c9b6f2]">
+                  <Badge className="border-brand-bright/30 bg-brand/20 text-brand-ink">
                     {ROLE_LABEL[user.role]}
                   </Badge>
                   {ledProjects.length ? (

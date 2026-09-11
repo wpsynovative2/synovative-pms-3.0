@@ -60,8 +60,9 @@ returns boolean language sql stable security definer set search_path = public as
   );
 $$;
 
--- §4.2 — a user sees a project when they lead it, are a member, or hold at
--- least one task in it; global managers and team leaders see all of them.
+-- §4.2 — a user sees a project when they lead it or hold at least one task in
+-- it (team-member listing alone grants nothing); global managers and team
+-- leaders see all of them.
 create or replace function can_see_project(p_project_id uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select
@@ -69,8 +70,6 @@ returns boolean language sql stable security definer set search_path = public as
     or is_team_leader()
     or exists (select 1 from projects p
                where p.id = p_project_id and p.leader_id = auth.uid())
-    or exists (select 1 from project_members m
-               where m.project_id = p_project_id and m.profile_id = auth.uid())
     or exists (select 1 from tasks t
                where t.project_id = p_project_id and t.assignee_id = auth.uid());
 $$;

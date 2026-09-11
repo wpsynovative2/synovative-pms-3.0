@@ -204,8 +204,13 @@ export default function CalendarPage() {
                     className={cx(
                       "relative flex h-16 flex-col items-start gap-0.5 rounded-lg border p-1.5 text-left transition-colors",
                       !inMonth && "opacity-35",
+                      // Closed days get a dashed outline so they read as closed in
+                      // both themes, not just as a slightly different fill.
                       reason
-                        ? "border-line-soft bg-surface-2/50"
+                        ? cx(
+                            "border-dashed border-line bg-transparent",
+                            holiday && "border-st-rejected/40 bg-st-rejected/5",
+                          )
                         : "border-line bg-surface-2",
                       overridden && "border-st-submitted/50 bg-st-submitted/10",
                       isToday && "ring-1 ring-brand-bright",
@@ -240,18 +245,22 @@ export default function CalendarPage() {
 
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-line-soft pt-3 text-[10px] text-ink-faint">
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded border border-line bg-surface-2" /> Working
+                <span className="h-3 w-3 rounded border border-line bg-surface-2" /> Working
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded border border-line-soft bg-surface-2/50" />{" "}
+                <span className="h-3 w-3 rounded border border-dashed border-ink-faint/60" />{" "}
                 Closed
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded border border-st-submitted/50 bg-st-submitted/10" />{" "}
+                <span className="h-3 w-3 rounded border border-dashed border-st-rejected/40 bg-st-rejected/5" />{" "}
+                Holiday
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded border border-st-submitted/50 bg-st-submitted/10" />{" "}
                 HR override
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded ring-1 ring-brand-bright" /> Today
+                <span className="h-3 w-3 rounded ring-1 ring-brand-bright" /> Today
               </span>
             </div>
           </div>
@@ -263,8 +272,7 @@ export default function CalendarPage() {
             <ol className="space-y-2 px-5 py-4 text-[12px] leading-relaxed text-ink-muted">
               {[
                 "All past dates are disabled.",
-                "Every Sunday is closed.",
-                "The 2nd and 4th Saturday of each month are closed.",
+                "Every Sunday is closed — all Saturdays are working days.",
                 "Company holidays are closed.",
                 "HR Admin can force any closed day back to working, and can add holidays.",
               ].map((rule, i) => (

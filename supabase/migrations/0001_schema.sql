@@ -362,9 +362,7 @@ as $$
   select
     case
       when exists (select 1 from working_overrides w where w.override_date = d) then true
-      when extract(dow from d) = 0 then false                       -- Sunday
-      when extract(dow from d) = 6
-        and ((extract(day from d)::int - 1) / 7 + 1) in (2, 4) then false  -- 2nd/4th Sat
+      when extract(dow from d) = 0 then false                       -- Sunday (Saturdays work)
       when exists (select 1 from holidays h where h.holiday_date = d) then false
       else true
     end;

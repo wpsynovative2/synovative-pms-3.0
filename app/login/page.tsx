@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { IconSparkle } from "@/components/ui/icons";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Button, Card, Field, Input } from "@/components/ui/primitives";
 import { DEMO_LOGINS } from "@/lib/seed";
 import { useStore } from "@/lib/store";
@@ -39,6 +40,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      <ThemeToggle className="absolute top-4 right-4 z-10" />
       {/* Brand wash */}
       <div
         aria-hidden="true"
@@ -56,7 +58,7 @@ export default function LoginPage() {
               <IconSparkle size={20} />
             </span>
             <div>
-              <div className="text-lg font-semibold tracking-tight">Synovative PMS</div>
+              <div className="font-display text-lg font-semibold tracking-tight">Synovative PMS</div>
               <div className="text-[11px] text-ink-faint">Agency project management</div>
             </div>
           </div>

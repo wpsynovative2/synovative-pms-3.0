@@ -209,7 +209,7 @@ export default function WorkloadPage() {
                   className={cx(
                     r.openTasks.length === 0
                       ? "border-line bg-surface-2 text-ink-faint"
-                      : "border-brand-bright/30 bg-brand/20 text-[#c9b6f2]",
+                      : "border-brand-bright/30 bg-brand/20 text-brand-ink",
                   )}
                 >
                   {r.openTasks.length} active

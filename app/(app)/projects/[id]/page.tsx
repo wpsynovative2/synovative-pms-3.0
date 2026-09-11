@@ -6,6 +6,7 @@ import { use, useMemo, useState } from "react";
 import { ExpenseFormModal, ExpenseReviewModal } from "@/components/expense/expense-dialogs";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
+import { RecurrenceBadge } from "@/components/task/task-bits";
 import { TaskFormModal } from "@/components/task/task-form";
 import {
   TaskFilters,
@@ -41,7 +42,8 @@ import {
 } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatINR, projectStats } from "@/lib/analytics";
-import { formatDate, formatDateTime } from "@/lib/calendar";
+import { formatDate, formatDateTime, snapToWorkingDay } from "@/lib/calendar";
+import { describeRule, upcomingOccurrences } from "@/lib/recurrence";
 import {
   EXPENSE_STATUS_STYLE,
   PRIORITY_STYLE,
@@ -120,7 +122,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       <Card>
         <EmptyState
           title="You don't have access to this project"
-          body="You can open a project when you lead it, are a member, or hold at least one task in it."
+          body="You can open a project when you lead it or hold at least one task in it."
           action={<Button onClick={() => router.push("/projects")}>Back to projects</Button>}
         />
       </Card>
@@ -134,6 +136,15 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const mayCreateTask = canCreateTaskInProject(user, project);
   const mayAddExpense = canAddExpense(user, project);
   const mayReviewExpense = canReviewExpense(user);
+
+  // Repeating series (source) or one of its generated copies.
+  const series = project.recurrence;
+  const nextOccurrence = series
+    ? upcomingOccurrences(series.rule, series.anchor, series.cursor, 1)[0]
+    : undefined;
+  const seriesSource = project.series
+    ? db.projects.find((p) => p.id === project.series!.sourceId)
+    : undefined;
 
   const filteredTasks = applyTaskFilters(tasks, filters);
 
@@ -161,6 +172,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <Badge className={PROJECT_STATUS_STYLE[project.status]}>{project.status}</Badge>
               <Badge className={PRIORITY_STYLE[project.priority]}>{project.priority}</Badge>
+              <RecurrenceBadge item={project} />
               {stats.overdueTasks > 0 ? (
                 <Badge className="border-st-rejected/40 bg-st-rejected/20 text-st-rejected">
                   {stats.overdueTasks} overdue
@@ -170,6 +182,34 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                 {formatDate(project.startDate)} → {formatDate(project.deadline)}
               </Badge>
             </div>
+            {series ? (
+              <p className="mt-2.5 text-[12px] text-ink-muted">
+                Repeats {describeRule(series.rule, series.anchor).replace(/^./, (c) => c.toLowerCase())}.{" "}
+                {nextOccurrence ? (
+                  <span className="text-ink-faint">
+                    Next copy on {formatDate(snapToWorkingDay(nextOccurrence.date, db.calendar))}{" "}
+                    (repeat #{nextOccurrence.index}).
+                  </span>
+                ) : (
+                  <span className="text-ink-faint">No more repeats to come.</span>
+                )}
+              </p>
+            ) : project.series ? (
+              <p className="mt-2.5 text-[12px] text-ink-muted">
+                Repeat #{project.series.index} of{" "}
+                {seriesSource ? (
+                  <Link
+                    href={`/projects/${seriesSource.id}`}
+                    className="text-brand-ink hover:underline"
+                  >
+                    {seriesSource.name}
+                  </Link>
+                ) : (
+                  "a series whose original was deleted"
+                )}
+                .
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-col items-end gap-3">
@@ -355,7 +395,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                       <div className="truncate text-[13px] text-ink">{leader.fullName}</div>
                       <div className="text-[11px] text-ink-faint">{leader.email}</div>
                     </div>
-                    <Badge className="border-brand-bright/30 bg-brand/20 text-[#c9b6f2]">
+                    <Badge className="border-brand-bright/30 bg-brand/20 text-brand-ink">
                       Leader
                     </Badge>
                   </li>
@@ -620,7 +660,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                     <div className="truncate text-[11px] text-ink-faint">{m!.email}</div>
                   </div>
                   {m!.id === project.leaderId ? (
-                    <Badge className="border-brand-bright/30 bg-brand/20 text-[#c9b6f2]">
+                    <Badge className="border-brand-bright/30 bg-brand/20 text-brand-ink">
                       Leader
                     </Badge>
                   ) : null}
@@ -708,7 +748,11 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           router.push("/projects");
         }}
         title="Delete this project?"
-        body="Its tasks, time logs and expenses are removed too. This cannot be undone."
+        body={
+          series
+            ? "Its tasks, time logs and expenses are removed too, and the series stops repeating. Copies already created are kept. This cannot be undone."
+            : "Its tasks, time logs and expenses are removed too. This cannot be undone."
+        }
       />
     </div>
   );

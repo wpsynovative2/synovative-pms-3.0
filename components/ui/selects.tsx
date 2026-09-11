@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { IconChevronDown, IconClose, IconSearch } from "./icons";
+import { Popover } from "./popover";
 import { Avatar, cx } from "./primitives";
 
 export interface Option {
@@ -11,21 +12,6 @@ export interface Option {
   /** Renders an avatar chip instead of a plain label — used for people. */
   avatarName?: string;
   disabled?: boolean;
-}
-
-function useOutsideClose(
-  ref: React.RefObject<HTMLElement | null>,
-  onClose: () => void,
-  active: boolean,
-) {
-  useEffect(() => {
-    if (!active) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [ref, onClose, active]);
 }
 
 /* ---------------------------------------------------------- MultiSelect */
@@ -50,8 +36,7 @@ export function MultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const boxRef = useRef<HTMLDivElement>(null);
-  useOutsideClose(boxRef, () => setOpen(false), open);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   const byValue = useMemo(
     () => new Map(options.map((o) => [o.value, o])),
@@ -73,7 +58,7 @@ export function MultiSelect({
     onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
 
   return (
-    <div ref={boxRef} className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       <div className="min-h-11 rounded-[10px] border border-line bg-surface-2 px-2.5 py-2">
         {selected.length === 0 ? (
           <span className="text-[13px] text-ink-faint">{emptyLabel}</span>
@@ -108,8 +93,8 @@ export function MultiSelect({
       </div>
 
       {!disabled ? (
-        <div className="relative">
-          <div className="relative">
+        <div>
+          <div ref={searchRef} className="relative">
             <IconSearch
               size={15}
               className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
@@ -134,8 +119,14 @@ export function MultiSelect({
             </button>
           </div>
 
-          {open ? (
-            <div className="animate-fade-up absolute z-30 mt-1.5 max-h-64 w-full overflow-y-auto rounded-[10px] border border-line bg-surface-2 p-1 shadow-2xl shadow-black/50">
+          <Popover
+            anchorRef={searchRef}
+            open={open}
+            onClose={() => setOpen(false)}
+            matchWidth
+            maxHeight={256}
+            className="rounded-[10px] p-1"
+          >
               {filtered.length === 0 ? (
                 <p className="px-3 py-3 text-center text-xs text-ink-faint">No matches</p>
               ) : (
@@ -163,7 +154,7 @@ export function MultiSelect({
                         )}
                       >
                         {on ? (
-                          <svg viewBox="0 0 12 12" className="h-3 w-3 text-white">
+                          <svg viewBox="0 0 12 12" className="h-3 w-3 text-on-brand">
                             <path
                               d="m2.5 6.2 2.2 2.3L9.5 3.6"
                               fill="none"
@@ -188,8 +179,7 @@ export function MultiSelect({
                   );
                 })
               )}
-            </div>
-          ) : null}
+          </Popover>
         </div>
       ) : null}
     </div>
@@ -217,7 +207,6 @@ export function SearchSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
-  useOutsideClose(boxRef, () => setOpen(false), open);
 
   const current = options.find((o) => o.value === value);
   const filtered = useMemo(() => {
@@ -269,8 +258,13 @@ export function SearchSelect({
         <IconChevronDown size={15} className="shrink-0 text-ink-faint" />
       </button>
 
-      {open && !disabled ? (
-        <div className="animate-fade-up absolute z-30 mt-1.5 w-full rounded-[10px] border border-line bg-surface-2 p-1 shadow-2xl shadow-black/50">
+      <Popover
+        anchorRef={boxRef}
+        open={open && !disabled}
+        onClose={() => setOpen(false)}
+        matchWidth
+        className="rounded-[10px] p-1"
+      >
           {options.length > 6 ? (
             <div className="relative p-1">
               <IconSearch
@@ -319,8 +313,7 @@ export function SearchSelect({
               ))
             )}
           </div>
-        </div>
-      ) : null}
+      </Popover>
     </div>
   );
 }

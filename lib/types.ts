@@ -36,6 +36,50 @@ export interface User {
   createdAt: string;
 }
 
+/* ----------------------------------------------------------- Recurrence */
+
+export type RecurrenceFreq = "daily" | "weekly" | "monthly" | "yearly";
+
+/** How a monthly rule picks its day — modelled on Google Calendar's options. */
+export type MonthlyMode = "monthday" | "nthWeekday" | "lastWeekday";
+
+export type RecurrenceEnd =
+  | { type: "never" }
+  | { type: "on"; date: string }
+  | { type: "after"; count: number };
+
+export interface RecurrenceRule {
+  freq: RecurrenceFreq;
+  /** Every N days / weeks / months / years. */
+  interval: number;
+  /** Weekly only: 0 = Sunday … 6 = Saturday. Absent → the anchor's weekday. */
+  weekdays?: number[];
+  /** Monthly only. Absent → "monthday". */
+  monthlyMode?: MonthlyMode;
+  ends: RecurrenceEnd;
+}
+
+/**
+ * Stored on the *source* project or individual task. The source is occurrence
+ * #1 and doubles as the template every later occurrence is copied from.
+ */
+export interface RecurrenceSeries {
+  rule: RecurrenceRule;
+  /** First occurrence (the source's start date) — the rule is evaluated from here. */
+  anchor: string;
+  /** Last date already materialised; occurrences after it are still to come. */
+  cursor: string;
+}
+
+/** Stored on each generated occurrence, pointing back at its source. */
+export interface SeriesLink {
+  sourceId: string;
+  /** 1-based position in the series (the source itself is #1). */
+  index: number;
+  /** The date the rule produced, before snapping to a working day. */
+  date: string;
+}
+
 /* ------------------------------------------------------------- Projects */
 
 export type ProjectStatus =
@@ -63,6 +107,10 @@ export interface Project {
   memberIds: string[];
   createdBy: string;
   createdAt: string;
+  /** Set on a repeating project's source. */
+  recurrence?: RecurrenceSeries | null;
+  /** Set on a project generated from a repeating source. */
+  series?: SeriesLink | null;
 }
 
 /* ---------------------------------------------------------------- Tasks */
@@ -145,6 +193,10 @@ export interface Task {
   submissions: Submission[];
   reviews: Review[];
   remarks: Remark[];
+  /** Set on a repeating individual task's source (§10 tasks only). */
+  recurrence?: RecurrenceSeries | null;
+  /** Set on an individual task generated from a repeating source. */
+  series?: SeriesLink | null;
 }
 
 /* ------------------------------------------------------------- Expenses */
