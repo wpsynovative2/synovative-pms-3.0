@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/server";
 import { fail, requireCaller } from "@/lib/supabase/route-auth";
+import { outranksAccount } from "@/lib/permissions";
 import type { Role } from "@/lib/types";
 import {
   USER_MANAGERS,
@@ -13,7 +14,8 @@ import {
 
 /**
  * §6 — edit a user: name, email, role, departments, active, or reset password.
- * Super Admin, Admin and HR Admin; a Super Admin account only by a Super Admin.
+ * Super Admin, Admin and HR Admin, each only for accounts at or below their own
+ * level: an Admin account takes an Admin, a Super Admin account a Super Admin.
  */
 export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/admin/users/[id]">) {
   const caller = await requireCaller(USER_MANAGERS);
@@ -32,8 +34,13 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/admin/
   if (!target) return fail(404, "That user no longer exists.");
 
   const previous = target.role as Role;
-  if (previous === "super_admin" && caller.role !== "super_admin") {
-    return fail(403, "Only a Super Admin can change a Super Admin account.");
+  if (!outranksAccount(caller.role, previous)) {
+    return fail(
+      403,
+      previous === "super_admin"
+        ? "Only a Super Admin can change a Super Admin account."
+        : "Only a Super Admin or an Admin can change an Admin account.",
+    );
   }
 
   const profile: Record<string, unknown> = {};

@@ -33,6 +33,32 @@ export function assignableRoles(u: User): Role[] {
   return canAssignAdminRole(u) ? ["admin", ...base] : base;
 }
 
+/**
+ * Seniority for account management (§4.2). Someone may only edit accounts at or
+ * below their own level: an HR Admin cannot touch an Admin or a Super Admin,
+ * and an Admin cannot touch a Super Admin. Everyone else manages no accounts at
+ * all, so their rank never comes into play.
+ */
+const ACCOUNT_RANK: Record<Role, number> = {
+  super_admin: 3,
+  admin: 2,
+  hr_admin: 1,
+  manager: 0,
+  team_leader: 0,
+  team_member: 0,
+};
+
+export const outranksAccount = (actor: Role, target: Role) =>
+  ACCOUNT_RANK[actor] >= ACCOUNT_RANK[target];
+
+/** Whether this user may edit that account — name, email, role, password or status. */
+export const canEditUser = (u: User, target: User) =>
+  canEditUsers(u) && outranksAccount(u.role, target.role);
+
+/** Hard delete stays Super Admin only, and never your own account. */
+export const canDeleteUser = (u: User, target: User) =>
+  canDeleteUsers(u) && target.id !== u.id;
+
 /* --------------------------------------------------------------- calendar */
 
 export const canManageCalendar = (u: User) =>

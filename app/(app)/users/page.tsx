@@ -23,8 +23,8 @@ import { DEPARTMENTS } from "@/lib/master-data";
 import {
   assignableRoles,
   canAddUsers,
-  canDeleteUsers,
-  canEditUsers,
+  canDeleteUser,
+  canEditUser,
 } from "@/lib/permissions";
 import { MIN_PASSWORD } from "@/components/layout/first-sign-in";
 import { useStore, type UserPatch } from "@/lib/store";
@@ -223,7 +223,10 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
-                      {canEditUsers(user) ? (
+                      {/* Seniority decides this: an HR Admin can't touch an
+                          Admin or a Super Admin, an Admin can't touch a Super
+                          Admin (§4.2). */}
+                      {canEditUser(user, u) ? (
                         <Button
                           size="sm"
                           onClick={() => {
@@ -234,7 +237,7 @@ export default function UsersPage() {
                           <IconEdit size={13} />
                         </Button>
                       ) : null}
-                      {canEditUsers(user) && u.id !== user.id ? (
+                      {canEditUser(user, u) && u.id !== user.id ? (
                         <Button
                           size="sm"
                           onClick={async () => {
@@ -248,7 +251,7 @@ export default function UsersPage() {
                         </Button>
                       ) : null}
                       {/* Hard delete is Super Admin only (§4.2). */}
-                      {canDeleteUsers(user) && u.id !== user.id ? (
+                      {canDeleteUser(user, u) ? (
                         <Button size="sm" variant="danger" onClick={() => setDeleting(u)}>
                           <IconTrash size={13} />
                         </Button>
@@ -265,7 +268,9 @@ export default function UsersPage() {
       <Card className="px-4 py-3 text-[11px] leading-relaxed text-ink-faint">
         Deactivating is preferred over deletion — task history, time logs and reviews stay
         intact, and the person can no longer sign in. Only a Super Admin can delete an
-        account outright, or grant the Admin role.
+        account outright, or grant the Admin role. An HR Admin manages staff accounts but
+        not Admins or Super Admins, and a Super Admin account can only be edited by a
+        Super Admin.
       </Card>
 
       {formOpen ? (

@@ -46,6 +46,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0004_recurrence.sql` | Repeating projects & individual tasks, and their daily generator |
 | `0005_app_support.sql` | Profile-edit guard, server-side notifications, members-only reads, Realtime |
 | `0006_operational_links.sql` | Operational links: groups and links, managers edit / everyone reads |
+| `0007_account_guards.sql` | Account seniority: an HR Admin can't edit an Admin or a Super Admin, an Admin can't edit a Super Admin |
 
 ### 4. The first Super Admin
 
