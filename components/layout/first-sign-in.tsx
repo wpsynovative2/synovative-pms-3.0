@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input } from "@/components/ui/primitives";
+import { Button, Field, PasswordInput } from "@/components/ui/primitives";
 import { useStore } from "@/lib/store";
 import type { User } from "@/lib/types";
 
@@ -60,8 +60,7 @@ export function FirstSignInPassword({ user }: { user: User }) {
         }}
       >
         <Field label="New password" required hint={`At least ${MIN_PASSWORD} characters.`}>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -69,8 +68,7 @@ export function FirstSignInPassword({ user }: { user: User }) {
           />
         </Field>
         <Field label="Confirm password" required error={error ?? undefined}>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}

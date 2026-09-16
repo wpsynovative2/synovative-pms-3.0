@@ -83,19 +83,14 @@ export const canViewAllProjects = (u: User) =>
 /**
  * A user can open a project when they can see everything, lead it, or hold at
  * least one task in it — in which case they see *all* of that project's tasks
- * (§4.2, "View projects where user has ≥ 1 task"). Being listed as a team
- * member alone does not grant access.
+ * (§4.2, "View projects where user has ≥ 1 task"). Neither being listed as a
+ * team member nor leading a department grants access: a Team Leader sees a
+ * project only once they actually hold a task in it.
  */
 export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   if (isGlobalManager(u)) return true;
   if (isProjectLeader(u, p)) return true;
-  const projectTasks = tasks.filter((t) => t.projectId === p.id);
-  if (projectTasks.some((t) => t.assigneeId === u.id)) return true;
-  if (isTeamLeader(u)) {
-    // Team Leaders see all projects, and every task of their departments.
-    return true;
-  }
-  return false;
+  return tasks.some((t) => t.projectId === p.id && t.assigneeId === u.id);
 }
 
 export function visibleProjects(
@@ -182,7 +177,6 @@ export function canViewTask(
   if (isGlobalManager(u)) return true;
   if (isAssignee(u, task)) return true;
   if (task.createdBy === u.id) return true;
-  if (isTeamLeader(u) && u.departments.includes(task.department)) return true;
   if (task.projectId && project) {
     if (isProjectLeader(u, project)) return true;
     // Anyone holding a task in the project sees every task in it.
@@ -205,6 +199,18 @@ export function visibleTasks(u: User, tasks: Task[], projects: Project[]) {
     if (canViewTask(u, t, project)) return true;
     return !!t.projectId && openProjectIds.has(t.projectId);
   });
+}
+
+/**
+ * What the Tasks page lists. Global managers keep the company-wide view;
+ * everyone else — Team Leaders and Project Leaders included — sees only the
+ * tasks assigned to them. Wider access still exists where the work needs it:
+ * a project's own page lists all of that project's tasks, and reviewers still
+ * get their review queue.
+ */
+export function assignedTaskScope(u: User, tasks: Task[], projects: Project[]): Task[] {
+  const visible = visibleTasks(u, tasks, projects);
+  return isGlobalManager(u) ? visible : visible.filter((t) => t.assigneeId === u.id);
 }
 
 /* --------------------------------------------------------------- expenses */

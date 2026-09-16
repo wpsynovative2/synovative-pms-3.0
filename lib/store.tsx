@@ -292,13 +292,21 @@ function resetSession() {
   setState({ db: EMPTY_DB, auth: "signed-out", userId: null });
 }
 
-/** Load everything for this user and check their profile may use the app. */
+/**
+ * Scopes the first screen actually needs. The rest — expenses, vendors,
+ * templates, notifications, links — arrive straight after in the background,
+ * so signing in doesn't wait on tables the dashboard never reads.
+ */
+const CORE_SCOPES: Scope[] = ["users", "projects", "tasks", "calendar"];
+const DEFERRED_SCOPES: Scope[] = ALL_SCOPES.filter((s) => !CORE_SCOPES.includes(s));
+
+/** Load this user's workspace and check their profile may use the app. */
 async function activate(userId: string): Promise<{ ok: boolean; error?: string }> {
   if (activating === userId) return { ok: true };
   activating = userId;
   setState({ auth: "loading", userId });
   try {
-    const db = await loadScopes(sb(), ALL_SCOPES);
+    const db = await loadScopes(sb(), CORE_SCOPES);
     const full = { ...EMPTY_DB, ...db };
     const me = full.users.find((u) => u.id === userId);
     if (!me) {
@@ -311,9 +319,11 @@ async function activate(userId: string): Promise<{ ok: boolean; error?: string }
       resetSession();
       return { ok: false, error: "This account is deactivated." };
     }
-    lastFullRefresh = Date.now();
     setState({ db: full, auth: "signed-in", userId });
     subscribeToNotifications(userId);
+    // Everything else streams in behind the first render; the queue applies it
+    // only once no optimistic write is in flight.
+    requestRefresh(DEFERRED_SCOPES);
     return { ok: true };
   } catch (err) {
     resetSession();

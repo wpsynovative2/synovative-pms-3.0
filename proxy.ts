@@ -25,10 +25,13 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // getUser() validates the token with Supabase and refreshes it when needed.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() reads the session (refreshing it when expired) and then
+  // verifies the token against the project's public signing key, cached in the
+  // process. getUser() would instead call the Auth server on *every* page
+  // navigation, which is pure latency in front of each render. Routing only —
+  // Row Level Security remains the real boundary.
+  const { data: verified } = await supabase.auth.getClaims();
+  const user = verified?.claims.sub ? verified.claims : null;
 
   const { pathname, search } = request.nextUrl;
   const onLogin = pathname === "/login";

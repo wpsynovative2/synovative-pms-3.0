@@ -13,7 +13,7 @@ import { IconTasks } from "@/components/ui/icons";
 import { PageHeader, StatTile, Tabs } from "@/components/ui/primitives";
 import { isOverdue } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/calendar";
-import { visibleTasks } from "@/lib/permissions";
+import { assignedTaskScope, isGlobalManager, visibleTasks } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
 
@@ -30,15 +30,28 @@ export default function TasksPage() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(searchParams.get("task"));
   const [filters, setFilters] = useState(emptyTaskFilters);
 
-  /** Project tasks only — individual tasks have their own page (§10). */
+  /**
+   * What this page lists: your own tasks, unless you are a global manager.
+   * Project tasks only — individual tasks have their own page (§10).
+   */
   const scoped = useMemo(
+    () => assignedTaskScope(user, db.tasks, db.projects).filter((t) => t.projectId !== null),
+    [user, db.tasks, db.projects],
+  );
+
+  /**
+   * The review queue is drawn from everything the user may see, not from the
+   * narrowed list above — a Project Leader reviews submissions on tasks that
+   * are assigned to other people.
+   */
+  const reviewable = useMemo(
     () => visibleTasks(user, db.tasks, db.projects).filter((t) => t.projectId !== null),
     [user, db.tasks, db.projects],
   );
 
   const forReview = useMemo(
     () =>
-      scoped.filter((t) => {
+      reviewable.filter((t) => {
         if (t.status !== "Submitted") return false;
         const p = t.projectId ? projectById(t.projectId) : null;
         if (!p) return false;
@@ -46,7 +59,7 @@ export default function TasksPage() {
           p.leaderId === user.id || ["super_admin", "admin", "manager"].includes(user.role)
         );
       }),
-    [scoped, user, projectById],
+    [reviewable, user, projectById],
   );
 
   const base =
@@ -69,7 +82,11 @@ export default function TasksPage() {
       <PageHeader
         title="Tasks"
         icon={<IconTasks size={20} />}
-        subtitle="Every project task you can see, across all projects"
+        subtitle={
+          isGlobalManager(user)
+            ? "Every project task you can see, across all projects"
+            : "Your project tasks, soonest due first"
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -113,12 +130,18 @@ export default function TasksPage() {
         active={scope}
         onChange={setScope}
         tabs={[
-          { id: "all", label: "All tasks", count: scoped.length },
-          {
-            id: "mine",
-            label: "Assigned to me",
-            count: scoped.filter((t) => t.assigneeId === user.id).length,
-          },
+          // For everyone but a global manager the list is already just their
+          // own tasks, so a separate "All tasks" tab would only repeat it.
+          ...(isGlobalManager(user)
+            ? [
+                { id: "all" as const, label: "All tasks", count: scoped.length },
+                {
+                  id: "mine" as const,
+                  label: "Assigned to me",
+                  count: scoped.filter((t) => t.assigneeId === user.id).length,
+                },
+              ]
+            : [{ id: "all" as const, label: "My tasks", count: scoped.length }]),
           { id: "review", label: "Awaiting my review", count: forReview.length },
         ]}
       />

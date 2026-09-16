@@ -48,9 +48,15 @@ export const emptyTaskFilters: TaskFilterState = {
   tag: "all",
 };
 
+/**
+ * Filters, then orders the list the way the work actually queues up: soonest
+ * due date first, with finished (Approved) tasks pushed to the bottom so they
+ * stop competing with what still needs doing.
+ */
 export function applyTaskFilters(tasks: Task[], f: TaskFilterState): Task[] {
   const q = f.query.trim().toLowerCase();
-  return tasks.filter((t) => {
+  const done = (t: Task) => (t.status === "Approved" ? 1 : 0);
+  const matched = tasks.filter((t) => {
     if (q && !t.title.toLowerCase().includes(q) && !t.tags.some((x) => x.toLowerCase().includes(q)))
       return false;
     if (f.status === "open") {
@@ -64,6 +70,12 @@ export function applyTaskFilters(tasks: Task[], f: TaskFilterState): Task[] {
     if (f.to && t.dueDate > f.to) return false;
     return true;
   });
+  return matched.sort(
+    (a, b) =>
+      done(a) - done(b) ||
+      a.dueDate.localeCompare(b.dueDate) ||
+      a.title.localeCompare(b.title),
+  );
 }
 
 export function TaskFilters({

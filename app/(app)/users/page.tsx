@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   PageHeader,
+  PasswordInput,
   SearchInput,
   Select,
   StatTile,
@@ -433,8 +434,10 @@ function UserFormModal({
           }
           error={touched ? errors.password : undefined}
         >
-          <Input
-            type="text"
+          <PasswordInput
+            // Shown by default: whoever creates the account has to read this
+            // out or copy it before the person can sign in.
+            defaultVisible
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={`At least ${MIN_PASSWORD} characters`}

@@ -14,8 +14,8 @@ import {
   CardHeader,
   EmptyState,
   Field,
-  Input,
   PageHeader,
+  PasswordInput,
   StatTile,
 } from "@/components/ui/primitives";
 import { isOverdue } from "@/lib/analytics";
@@ -153,8 +153,7 @@ export default function ProfilePage() {
             <CardHeader title="Change password" />
             <form onSubmit={submit} className="flex flex-col gap-4 px-5 py-4">
               <Field label="New password" required>
-                <Input
-                  type="password"
+                <PasswordInput
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
@@ -162,8 +161,7 @@ export default function ProfilePage() {
                 />
               </Field>
               <Field label="Confirm new password" required error={error ?? undefined}>
-                <Input
-                  type="password"
+                <PasswordInput
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   autoComplete="new-password"

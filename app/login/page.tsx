@@ -4,7 +4,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { IconSparkle } from "@/components/ui/icons";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { Button, Card, Field, Input } from "@/components/ui/primitives";
+import {
+  Button,
+  Card,
+  Field,
+  Input,
+  PasswordInput,
+} from "@/components/ui/primitives";
 import { SetupNotice } from "@/components/layout/setup-notice";
 import { useStore } from "@/lib/store";
 
@@ -97,9 +103,8 @@ export default function LoginPage() {
             </Field>
 
             <Field label="Password" required htmlFor="password">
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

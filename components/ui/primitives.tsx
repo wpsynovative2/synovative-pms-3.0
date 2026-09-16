@@ -1,7 +1,7 @@
 "use client";
 
-import { forwardRef } from "react";
-import { IconChevronDown, IconSearch } from "./icons";
+import { forwardRef, useState } from "react";
+import { IconChevronDown, IconEye, IconEyeOff, IconSearch } from "./icons";
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(" ");
@@ -203,6 +203,46 @@ export const Input = forwardRef<
   React.InputHTMLAttributes<HTMLInputElement>
 >(function Input({ className, ...rest }, ref) {
   return <input ref={ref} className={cx(CONTROL_BASE, "h-9.5", className)} {...rest} />;
+});
+
+/**
+ * A password box with a reveal toggle, so someone can check what they typed
+ * before committing to it. Masked by default; `defaultVisible` starts it shown,
+ * which is what an administrator handing over a temporary password needs.
+ */
+export const PasswordInput = forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> & { defaultVisible?: boolean }
+>(function PasswordInput({ className, defaultVisible = false, ...rest }, ref) {
+  const [visible, setVisible] = useState(defaultVisible);
+  const label = visible ? "Hide password" : "Show password";
+  return (
+    <div className="relative">
+      <input
+        ref={ref}
+        type={visible ? "text" : "password"}
+        className={cx(CONTROL_BASE, "h-9.5 pr-10", className)}
+        {...rest}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        aria-label={label}
+        aria-pressed={visible}
+        title={label}
+        // Never a form submit, and skipped by tab order: the toggle is a
+        // convenience, not a step in filling the form in.
+        tabIndex={-1}
+        className={cx(
+          "absolute top-1/2 right-1.5 -translate-y-1/2 rounded-md p-1.5 text-ink-faint",
+          "transition-colors hover:bg-surface-3 hover:text-ink",
+          "focus-visible:ring-2 focus-visible:ring-brand-bright/40 focus-visible:outline-none",
+        )}
+      >
+        {visible ? <IconEyeOff size={15} /> : <IconEye size={15} />}
+      </button>
+    </div>
+  );
 });
 
 export const Textarea = forwardRef<
