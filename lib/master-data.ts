@@ -89,6 +89,7 @@ export const TASK_STATUSES: TaskStatus[] = [
   "Not Started",
   "In Progress",
   "Submitted",
+  "Waiting for Client Response",
   "Changes Required",
   "Rejected",
   "Approved",
@@ -99,6 +100,7 @@ export const REVIEWER_ONLY_STATUSES: TaskStatus[] = [
   "Approved",
   "Changes Required",
   "Rejected",
+  "Waiting for Client Response",
 ];
 
 interface StatusStyle {
@@ -145,6 +147,12 @@ export const TASK_STATUS_STYLE: Record<TaskStatus, StatusStyle> = {
     chip: "bg-st-approved/15 text-st-approved border-st-approved/30",
     text: "text-st-approved",
     bar: "bg-st-approved",
+  },
+  "Waiting for Client Response": {
+    dot: "bg-st-waiting",
+    chip: "bg-st-waiting/15 text-st-waiting border-st-waiting/30",
+    text: "text-st-waiting",
+    bar: "bg-st-waiting",
   },
 };
 

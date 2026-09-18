@@ -102,7 +102,8 @@ export interface Project {
   description: string;
   status: ProjectStatus;
   priority: Priority;
-  leaderId: string;
+  /** null — nobody leads it yet (§7.1). */
+  leaderId: string | null;
   memberIds: string[];
   createdBy: string;
   createdAt: string;
@@ -118,6 +119,8 @@ export type TaskStatus =
   | "Not Started"
   | "In Progress"
   | "Submitted"
+  /** Reviewed, passed to the client, and waiting on their answer. */
+  | "Waiting for Client Response"
   | "Changes Required"
   | "Rejected"
   | "Approved";
@@ -149,7 +152,12 @@ export interface Submission {
   description: string;
 }
 
-export type ReviewDecision = "Approved" | "Changes Required" | "Rejected";
+export type ReviewDecision =
+  | "Approved"
+  | "Changes Required"
+  | "Rejected"
+  /** Parked with the client; the reviewer settles it once they answer. */
+  | "Waiting for Client Response";
 export type ReviewSource = "Client" | "Project Leader";
 
 export interface Review {
@@ -179,7 +187,8 @@ export interface Task {
   title: string;
   description: string;
   department: string;
-  assigneeId: string;
+  /** null — planned but not handed to anyone yet. */
+  assigneeId: string | null;
   status: TaskStatus;
   priority: Priority;
   startDate: string;

@@ -48,8 +48,11 @@ export function TimerControls({
   const mine = canRunTimer(currentUser, task);
   const elapsed = taskElapsedMs(task);
 
-  // Terminal states have no timer affordance.
-  const finished = task.status === "Approved" || task.status === "Submitted";
+  // Nothing to time while the work sits with a reviewer, the client, or is done.
+  const finished =
+    task.status === "Approved" ||
+    task.status === "Submitted" ||
+    task.status === "Waiting for Client Response";
 
   const tryStart = () => {
     const other = findRunningTaskForUser(db.tasks, currentUser.id);
@@ -91,7 +94,11 @@ export function TimerControls({
         <span className="text-[11px] text-ink-faint">Assignee only</span>
       ) : finished ? (
         <span className="text-[11px] text-ink-faint">
-          {task.status === "Submitted" ? "Awaiting review" : "Complete"}
+          {task.status === "Submitted"
+            ? "Awaiting review"
+            : task.status === "Waiting for Client Response"
+              ? "With the client"
+              : "Complete"}
         </span>
       ) : (
         <div className="flex shrink-0 items-center gap-1.5">

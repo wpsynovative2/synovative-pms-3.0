@@ -11,8 +11,21 @@ import type {
 
 /** Derived figures for the project header, workload and reports (§7.2, §14, §16). */
 
-export const isOverdue = (t: Task) =>
-  t.status !== "Approved" && t.dueDate < todayISO();
+/**
+ * A task is late only while the delay is still ours. Approved work is done,
+ * work parked with the client is waiting on them, and work submitted on or
+ * before its due date is waiting on a reviewer — none of those are the
+ * assignee's to answer for. Mirrors task_is_overdue() in the database.
+ */
+export function isOverdue(t: Task): boolean {
+  if (t.status === "Approved" || t.status === "Waiting for Client Response") return false;
+  if (t.dueDate >= todayISO()) return false;
+  if (t.status === "Submitted") {
+    const latest = t.submissions.reduce((at, s) => (s.at > at ? s.at : at), "");
+    if (latest && latest.slice(0, 10) <= t.dueDate) return false;
+  }
+  return true;
+}
 
 export const isOpen = (t: Task) => t.status !== "Approved";
 
@@ -190,16 +203,15 @@ export function timeByProject(
 export function timeByUser(tasks: Task[], users: User[]): Bucket[] {
   const map = new Map<string, Bucket>();
   for (const t of tasks) {
-    const label = users.find((u) => u.id === t.assigneeId)?.fullName ?? "Unknown";
-    const b = map.get(t.assigneeId) ?? {
-      key: t.assigneeId,
-      label,
-      hours: 0,
-      count: 0,
-    };
+    // Work that has not been handed out yet still has to show up somewhere.
+    const key = t.assigneeId ?? "unassigned";
+    const label = t.assigneeId
+      ? (users.find((u) => u.id === t.assigneeId)?.fullName ?? "Unknown")
+      : "Unassigned";
+    const b = map.get(key) ?? { key, label, hours: 0, count: 0 };
     b.hours += hoursFromMs(taskElapsedMs(t));
     b.count += 1;
-    map.set(t.assigneeId, b);
+    map.set(key, b);
   }
   return [...map.values()].sort((a, b) => b.hours - a.hours);
 }

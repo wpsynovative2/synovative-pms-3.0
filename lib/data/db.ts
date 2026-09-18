@@ -105,6 +105,8 @@ function groupBy<T>(rows: Row[], key: string, map: (r: Row) => T): Map<string, T
 
 const str = (v: unknown) => (v ?? "") as string;
 const opt = (v: unknown) => (v === null || v === undefined ? undefined : (v as string));
+/** For columns that are genuinely nullable: an unled project, an unassigned task. */
+const nullable = (v: unknown) => (v === null || v === undefined ? null : (v as string));
 const num = (v: unknown) => Number(v ?? 0);
 const dateOnly = (v: unknown) => str(v).slice(0, 10);
 
@@ -177,7 +179,7 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       description: str(r.description),
       status: r.status as Project["status"],
       priority: r.priority as Project["priority"],
-      leaderId: str(r.leader_id),
+      leaderId: nullable(r.leader_id),
       memberIds: mem.get(str(r.id)) ?? [],
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),
@@ -241,7 +243,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       title: str(r.title),
       description: str(r.description),
       department: str(r.department),
-      assigneeId: str(r.assignee_id),
+      assigneeId: nullable(r.assignee_id),
       status: r.status as Task["status"],
       priority: r.priority as Task["priority"],
       startDate: dateOnly(r.start_date),

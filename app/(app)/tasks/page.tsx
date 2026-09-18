@@ -13,11 +13,20 @@ import { IconTasks } from "@/components/ui/icons";
 import { PageHeader, StatTile, Tabs } from "@/components/ui/primitives";
 import { isOverdue } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/calendar";
-import { assignedTaskScope, isGlobalManager, visibleTasks } from "@/lib/permissions";
+import {
+  assignedTaskScope,
+  canReviewTask,
+  isGlobalManager,
+  visibleTasks,
+} from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
+import type { TaskStatus } from "@/lib/types";
 
-type Scope = "mine" | "all" | "review";
+type Scope = "mine" | "all" | "review" | "under-review";
+
+/** Work that has been handed in and is waiting on a reviewer or the client. */
+const UNDER_REVIEW: TaskStatus[] = ["Submitted", "Waiting for Client Response"];
 
 export default function TasksPage() {
   const { db, currentUser, projectById } = useStore();
@@ -49,17 +58,17 @@ export default function TasksPage() {
     [user, db.tasks, db.projects],
   );
 
+  const underReview = useMemo(
+    () => reviewable.filter((t) => UNDER_REVIEW.includes(t.status)),
+    [reviewable],
+  );
+
   const forReview = useMemo(
     () =>
-      reviewable.filter((t) => {
-        if (t.status !== "Submitted") return false;
-        const p = t.projectId ? projectById(t.projectId) : null;
-        if (!p) return false;
-        return (
-          p.leaderId === user.id || ["super_admin", "admin", "manager"].includes(user.role)
-        );
-      }),
-    [reviewable, user, projectById],
+      underReview.filter((t) =>
+        canReviewTask(user, t, t.projectId ? (projectById(t.projectId) ?? null) : null),
+      ),
+    [underReview, user, projectById],
   );
 
   const base =
@@ -67,7 +76,9 @@ export default function TasksPage() {
       ? scoped.filter((t) => t.assigneeId === user.id)
       : scope === "review"
         ? forReview
-        : scoped;
+        : scope === "under-review"
+          ? underReview
+          : scoped;
 
   const tags = useMemo(
     () => Array.from(new Set(scoped.flatMap((t) => t.tags))).sort(),
@@ -143,6 +154,7 @@ export default function TasksPage() {
               ]
             : [{ id: "all" as const, label: "My tasks", count: scoped.length }]),
           { id: "review", label: "Awaiting my review", count: forReview.length },
+          { id: "under-review", label: "All under review", count: underReview.length },
         ]}
       />
 
@@ -154,7 +166,9 @@ export default function TasksPage() {
         emptyTitle={
           scope === "review"
             ? "Nothing waiting on your review"
-            : "No tasks match these filters"
+            : scope === "under-review"
+              ? "Nothing is under review"
+              : "No tasks match these filters"
         }
         emptyBody={
           scope === "review"

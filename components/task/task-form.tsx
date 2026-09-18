@@ -124,7 +124,6 @@ export function TaskFormModal({
   const hours = Number(form.estimatedHours);
   const errors = {
     title: !form.title.trim() ? "A title is required." : undefined,
-    assigneeId: !form.assigneeId ? "Pick who this is for." : undefined,
     estimatedHours:
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
@@ -167,7 +166,7 @@ export function TaskFormModal({
       title: form.title.trim(),
       description: form.description,
       department: form.department,
-      assigneeId: form.assigneeId,
+      assigneeId: form.assigneeId || null,
       status: form.status,
       priority: form.priority,
       startDate: form.startDate,
@@ -255,19 +254,17 @@ export function TaskFormModal({
 
           <Field
             label="Assigned to"
-            required
             hint={
               assigneeOptions.length === 0
                 ? "Nobody is in this department yet."
-                : `${assigneeOptions.length} available`
+                : `Optional — ${assigneeOptions.length} available`
             }
-            error={touched ? errors.assigneeId : undefined}
           >
             <SearchSelect
               options={assigneeOptions}
               value={form.assigneeId}
               onChange={(v) => set("assigneeId", v)}
-              placeholder="Select a team member"
+              placeholder="Nobody yet"
             />
           </Field>
         </div>

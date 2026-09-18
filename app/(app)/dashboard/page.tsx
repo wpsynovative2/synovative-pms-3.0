@@ -29,6 +29,7 @@ import { addDays, formatShortDate, todayISO } from "@/lib/calendar";
 import { PROJECT_STATUS_STYLE, TASK_STATUS_STYLE } from "@/lib/master-data";
 import {
   canReviewExpense,
+  canReviewTask,
   isFinance,
   visibleProjects,
   visibleTasks,
@@ -64,21 +65,17 @@ export default function DashboardPage() {
     [user, db.tasks, db.projects],
   );
 
-  /** Submissions this user is entitled to review (§12.2). */
+  /**
+   * Submissions this user is entitled to review (§12.2), including work parked
+   * with the client that they need to come back and settle.
+   */
   const awaitingMyReview = useMemo(
     () =>
-      db.tasks.filter((t) => {
-        if (t.status !== "Submitted") return false;
-        if (t.projectId === null) {
-          return ["super_admin", "admin", "manager"].includes(user.role);
-        }
-        const p = projectById(t.projectId);
-        if (!p) return false;
-        return (
-          p.leaderId === user.id ||
-          ["super_admin", "admin", "manager"].includes(user.role)
-        );
-      }),
+      db.tasks.filter(
+        (t) =>
+          (t.status === "Submitted" || t.status === "Waiting for Client Response") &&
+          canReviewTask(user, t, t.projectId ? (projectById(t.projectId) ?? null) : null),
+      ),
     [db.tasks, user, projectById],
   );
 

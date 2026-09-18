@@ -48,6 +48,8 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0006_operational_links.sql` | Operational links: groups and links, managers edit / everyone reads |
 | `0007_account_guards.sql` | Account seniority: an HR Admin can't edit an Admin or a Super Admin, an Admin can't edit a Super Admin |
 | `0008_task_visibility.sql` | Team Leaders lose blanket read access: a project needs at least one of your tasks in it |
+| `0009_review_outcomes.sql` | The "Waiting for Client Response" review outcome and task status |
+| `0010_flexible_assignment.sql` | Optional Project Leader and assignee, department-wide Team Leader visibility, and the new overdue rule |
 
 ### 4. The first Super Admin
 

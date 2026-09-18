@@ -21,6 +21,7 @@ import {
   ProgressBar,
   SearchInput,
   Select,
+  Tabs,
   cx,
 } from "@/components/ui/primitives";
 import { formatINR, projectStats } from "@/lib/analytics";
@@ -32,7 +33,12 @@ import {
   PROJECT_STATUS_STYLE,
   SERVICES,
 } from "@/lib/master-data";
-import { canCreateProjects, visibleProjects } from "@/lib/permissions";
+import {
+  canCreateProjects,
+  isTeamLeader,
+  myProjects,
+  visibleProjects,
+} from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration } from "@/lib/time";
 
@@ -65,11 +71,28 @@ export default function ProjectsPage() {
   const user = currentUser!;
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [createOpen, setCreateOpen] = useState(false);
+  const [scope, setScope] = useState<"all" | "mine">("all");
 
-  const scoped = useMemo(
+  const everything = useMemo(
     () => visibleProjects(user, db.projects, db.tasks),
     [user, db.projects, db.tasks],
   );
+
+  /**
+   * Projects this person is personally on. A Team Leader sees their whole
+   * department's work, so the two differ and the tabs below appear; for anyone
+   * whose scope is already just their own projects they are identical and the
+   * tabs stay hidden.
+   */
+  const mine = useMemo(
+    () => myProjects(user, db.projects, db.tasks),
+    [user, db.projects, db.tasks],
+  );
+  // A Team Leader always gets the choice, even when their department's
+  // projects happen to be exactly the ones they hold a task in today -
+  // otherwise the tabs would appear out of nowhere the first time they differ.
+  const splitScope = isTeamLeader(user) || mine.length !== everything.length;
+  const scoped = splitScope && scope === "mine" ? mine : everything;
 
   const clients = useMemo(
     () => Array.from(new Set(scoped.map((p) => p.clientName))).sort(),
@@ -103,7 +126,11 @@ export default function ProjectsPage() {
       <PageHeader
         title="Projects"
         icon={<IconProjects size={20} />}
-        subtitle={`${filtered.length} of ${scoped.length} project${scoped.length === 1 ? "" : "s"} in your scope`}
+        subtitle={
+          isTeamLeader(user)
+            ? `${filtered.length} of ${scoped.length} project${scoped.length === 1 ? "" : "s"} across ${user.departments.join(", ")}`
+            : `${filtered.length} of ${scoped.length} project${scoped.length === 1 ? "" : "s"} in your scope`
+        }
         actions={
           canCreateProjects(user) ? (
             <Button variant="primary" onClick={() => setCreateOpen(true)}>
@@ -112,6 +139,17 @@ export default function ProjectsPage() {
           ) : null
         }
       />
+
+      {splitScope ? (
+        <Tabs<"all" | "mine">
+          active={scope}
+          onChange={setScope}
+          tabs={[
+            { id: "all", label: "All projects", count: everything.length },
+            { id: "mine", label: "My projects", count: mine.length },
+          ]}
+        />
+      ) : null}
 
       <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
         <SearchInput

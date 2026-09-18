@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/primitives";
 import { DEPARTMENTS, PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
+import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
 import type { Priority, Task, TaskStatus, User } from "@/lib/types";
 import {
@@ -28,10 +29,13 @@ import {
 
 export interface TaskFilterState {
   query: string;
-  status: TaskStatus | "all" | "open";
+  /** "overdue" is not a stored status — it is the same rule the badges use. */
+  status: TaskStatus | "all" | "open" | "overdue";
   priority: Priority | "all";
   department: string;
   assigneeId: string;
+  /** Who allotted the task, i.e. who created it. */
+  createdById: string;
   from: string;
   to: string;
   tag: string;
@@ -40,6 +44,7 @@ export interface TaskFilterState {
 export const emptyTaskFilters: TaskFilterState = {
   query: "",
   status: "all",
+  createdById: "all",
   priority: "all",
   department: "all",
   assigneeId: "all",
@@ -61,10 +66,13 @@ export function applyTaskFilters(tasks: Task[], f: TaskFilterState): Task[] {
       return false;
     if (f.status === "open") {
       if (t.status === "Approved") return false;
+    } else if (f.status === "overdue") {
+      if (!isOverdue(t)) return false;
     } else if (f.status !== "all" && t.status !== f.status) return false;
     if (f.priority !== "all" && t.priority !== f.priority) return false;
     if (f.department !== "all" && t.department !== f.department) return false;
     if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId) return false;
+    if (f.createdById !== "all" && t.createdBy !== f.createdById) return false;
     if (f.tag !== "all" && !t.tags.includes(f.tag)) return false;
     if (f.from && t.dueDate < f.from) return false;
     if (f.to && t.dueDate > f.to) return false;
@@ -118,6 +126,7 @@ export function TaskFilters({
       >
         <option value="all">All statuses</option>
         <option value="open">Open (not approved)</option>
+        <option value="overdue">Overdue</option>
         {TASK_STATUSES.map((s) => (
           <option key={s} value={s}>
             {s}
@@ -170,6 +179,20 @@ export function TaskFilters({
           ))}
         </Select>
       ) : null}
+
+      <Select
+        className="w-auto min-w-36"
+        value={value.createdById}
+        onChange={(e) => set("createdById", e.target.value)}
+        aria-label="Allotted by"
+      >
+        <option value="all">Allotted by anyone</option>
+        {users.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.fullName}
+          </option>
+        ))}
+      </Select>
 
       {showTags && tags && tags.length ? (
         <Select

@@ -53,7 +53,8 @@ export function PauseDialog({
           t.assigneeId === currentUser?.id &&
           t.id !== task.id &&
           t.status !== "Approved" &&
-          t.status !== "Submitted",
+          t.status !== "Submitted" &&
+          t.status !== "Waiting for Client Response",
       ),
     [db.tasks, currentUser?.id, task.id],
   );
@@ -302,7 +303,11 @@ export function SubmitDialog({
 
 /* ------------------------------------------------------ Review dialog */
 
-/** §12.2 — Approve / Changes Required / Reject (which reassigns). */
+/**
+ * §12.2 — Approve / Changes Required / Reject (which reassigns), plus
+ * "Waiting for Client Response", which parks the task until the client
+ * answers and leaves it for the same reviewer to settle.
+ */
 export function ReviewDialog({
   open,
   onClose,
@@ -317,7 +322,7 @@ export function ReviewDialog({
   const [source, setSource] = useState<ReviewSource>("Client");
   const [remarks, setRemarks] = useState("");
   const [department, setDepartment] = useState(task.department);
-  const [newAssigneeId, setNewAssigneeId] = useState(task.assigneeId);
+  const [newAssigneeId, setNewAssigneeId] = useState(task.assigneeId ?? "");
   const [newDueDate, setNewDueDate] = useState(task.dueDate);
   const [touched, setTouched] = useState(false);
 
@@ -345,7 +350,7 @@ export function ReviewDialog({
     setSource("Client");
     setRemarks("");
     setDepartment(task.department);
-    setNewAssigneeId(task.assigneeId);
+    setNewAssigneeId(task.assigneeId ?? "");
     setNewDueDate(task.dueDate);
     setTouched(false);
     onClose();
@@ -356,6 +361,11 @@ export function ReviewDialog({
       id: "Approved",
       blurb: "Accepted — the task is complete.",
       tone: "border-st-approved bg-st-approved/15",
+    },
+    {
+      id: "Waiting for Client Response",
+      blurb: "Sent to the client — come back once they reply.",
+      tone: "border-st-waiting bg-st-waiting/15",
     },
     {
       id: "Changes Required",
@@ -386,7 +396,10 @@ export function ReviewDialog({
               if (!valid) return;
               reviewTask(task.id, {
                 decision,
-                source: decision === "Approved" ? undefined : source,
+                // Neither an approval nor a hand-off to the client is
+                // feedback, so neither carries a source.
+                source:
+                  decision === "Approved" || decision === "Waiting for Client Response" ? undefined : source,
                 remarks,
                 newAssigneeId: decision === "Rejected" ? newAssigneeId : undefined,
                 newDueDate: decision === "Rejected" ? newDueDate : undefined,
@@ -398,6 +411,8 @@ export function ReviewDialog({
               <>
                 <IconCheck size={14} /> Approve
               </>
+            ) : decision === "Waiting for Client Response" ? (
+              "Park with the client"
             ) : decision === "Changes Required" ? (
               "Send back for changes"
             ) : (
@@ -411,7 +426,7 @@ export function ReviewDialog({
     >
       <div className="flex flex-col gap-4">
         <Field label="Decision" required>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {options.map((o) => (
               <button
                 key={o.id}
@@ -433,7 +448,7 @@ export function ReviewDialog({
           </div>
         </Field>
 
-        {decision !== "Approved" ? (
+        {decision !== "Approved" && decision !== "Waiting for Client Response" ? (
           <Field label="Source of the feedback" required>
             <div className="flex gap-2">
               {(["Client", "Project Leader"] as ReviewSource[]).map((s) => (
@@ -466,7 +481,9 @@ export function ReviewDialog({
             placeholder={
               decision === "Approved"
                 ? "Anything worth noting for the record?"
-                : "What exactly needs to change?"
+                : decision === "Waiting for Client Response"
+                  ? "What was sent to the client, and what are we waiting on?"
+                  : "What exactly needs to change?"
             }
           />
         </Field>

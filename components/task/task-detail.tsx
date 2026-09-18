@@ -77,8 +77,11 @@ export function TaskDetailDrawer({
 
   const mayEdit = canEditTaskFully(currentUser, task, project ?? null);
   const mayDelete = canDeleteTask(currentUser, task, project ?? null);
+  // A task parked with the client is still open for review: whoever parked it
+  // comes back and settles it once the client answers.
   const mayReview =
-    canReviewTask(currentUser, task, project ?? null) && task.status === "Submitted";
+    canReviewTask(currentUser, task, project ?? null) &&
+    (task.status === "Submitted" || task.status === "Waiting for Client Response");
   const mayRemark = canAddRemark(currentUser, task, project ?? null);
   const assignee = userById(task.assigneeId);
   const creator = userById(task.createdBy);

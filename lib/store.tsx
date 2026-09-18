@@ -408,7 +408,7 @@ export interface ReviewInput {
 export interface ProjectFromTemplateInput {
   templateId: string;
   project: Omit<Project, "id" | "createdAt" | "createdBy">;
-  /** template task id → assignee id */
+  /** template task id → assignee id; missing or empty means nobody yet */
   assignments: Record<string, string>;
 }
 
@@ -456,7 +456,8 @@ interface StoreValue {
   logout: () => Promise<void>;
   changePassword: (password: string) => Result;
 
-  userById: (id: string) => User | undefined;
+  /** Accepts null: a project may have no leader and a task no assignee. */
+  userById: (id: string | null | undefined) => User | undefined;
   projectById: (id: string) => Project | undefined;
   taskById: (id: string) => Task | undefined;
   vendorById: (id: string) => Vendor | undefined;
@@ -580,10 +581,10 @@ const actions = {
     const template = state.db.projectTemplates.find((t) => t.id === templateId);
     const calendar = state.db.calendar;
 
-    // Tasks left unassigned are skipped (§13); dates follow working days.
+    // Every template task is created, assigned or not - the work is planned
+    // here and handed out later (§13). Dates follow working days.
     const tasks: Task[] = (template?.tasks ?? []).flatMap((item) => {
-      const assigneeId = assignments[item.id];
-      if (!assigneeId) return [];
+      const assigneeId = assignments[item.id] || null;
       let startDate = addWorkingDays(created.startDate, item.startOffsetDays, calendar);
       if (startDate > created.deadline) startDate = created.deadline;
       let dueDate = addWorkingDays(startDate, item.durationDays, calendar);
@@ -848,6 +849,8 @@ const actions = {
           const reviewed = { ...task, reviews: [...task.reviews, review] };
           if (input.decision === "Approved") return { ...reviewed, status: "Approved" };
           if (input.decision === "Changes Required") return { ...reviewed, status: "Changes Required" };
+          // Parked with the client: the reviewer settles it once they answer.
+          if (input.decision === "Waiting for Client Response") return { ...reviewed, status: "Waiting for Client Response" };
           // Reject → reassign, reset to Not Started, optionally move the due date.
           return {
             ...reviewed,
@@ -1233,7 +1236,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [auth, db.users, userId],
   );
 
-  const userById = useCallback((id: string) => db.users.find((u) => u.id === id), [db.users]);
+  const userById = useCallback(
+    (id: string | null | undefined) => (id ? db.users.find((u) => u.id === id) : undefined),
+    [db.users],
+  );
   const projectById = useCallback((id: string) => db.projects.find((p) => p.id === id), [db.projects]);
   const taskById = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
   const vendorById = useCallback((id: string) => db.vendors.find((v) => v.id === id), [db.vendors]);

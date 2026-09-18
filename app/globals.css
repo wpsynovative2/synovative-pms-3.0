@@ -50,6 +50,7 @@
   --color-st-changes: #ec7c2a;
   --color-st-rejected: #e04b4b;
   --color-st-approved: #35b37e;
+  --color-st-waiting: #2aa9b5;
 
   /* Priority */
   --color-pr-low: #6b7f9e;
@@ -117,6 +118,7 @@
   --color-st-changes: #c65f12;
   --color-st-rejected: #c93636;
   --color-st-approved: #1f8f5f;
+  --color-st-waiting: #127d87;
 
   --color-pr-low: #56698a;
   --color-pr-medium: #2f6fc4;

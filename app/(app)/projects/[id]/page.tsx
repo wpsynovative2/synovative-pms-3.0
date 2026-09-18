@@ -60,13 +60,18 @@ import {
   canDeleteProject,
   canEditProject,
   canReviewExpense,
+  canReviewTask,
   canViewProject,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
-import type { Expense } from "@/lib/types";
+import type { Expense, TaskStatus } from "@/lib/types";
 
 type TabId = "overview" | "tasks" | "time" | "expenses" | "team" | "activity";
+type TaskScope = "all" | "review" | "under-review";
+
+/** Work handed in and waiting on a reviewer or the client. */
+const UNDER_REVIEW: TaskStatus[] = ["Submitted", "Waiting for Client Response"];
 
 export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
   const { id } = use(params);
@@ -87,6 +92,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const [reviewingExpense, setReviewingExpense] = useState<Expense | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [filters, setFilters] = useState(emptyTaskFilters);
+  const [taskScope, setTaskScope] = useState<TaskScope>("all");
 
   const tasks = useMemo(
     () => db.tasks.filter((t) => t.projectId === id),
@@ -150,7 +156,11 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     ? db.projects.find((p) => p.id === project.series!.sourceId)
     : undefined;
 
-  const filteredTasks = applyTaskFilters(tasks, filters);
+  const underReview = tasks.filter((t) => UNDER_REVIEW.includes(t.status));
+  const forReview = underReview.filter((t) => canReviewTask(user, t, project));
+  const scopedTasks =
+    taskScope === "review" ? forReview : taskScope === "under-review" ? underReview : tasks;
+  const filteredTasks = applyTaskFilters(scopedTasks, filters);
 
   return (
     <div className="flex flex-col gap-5">
@@ -431,8 +441,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] text-ink-muted">
-              {filteredTasks.length} of {tasks.length} task
-              {tasks.length === 1 ? "" : "s"}
+              {filteredTasks.length} of {scopedTasks.length} task
+              {scopedTasks.length === 1 ? "" : "s"}
             </p>
             {mayCreateTask ? (
               <Button variant="primary" onClick={() => setTaskFormOpen(true)}>
@@ -440,6 +450,16 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
               </Button>
             ) : null}
           </div>
+
+          <Tabs<TaskScope>
+            active={taskScope}
+            onChange={setTaskScope}
+            tabs={[
+              { id: "all", label: "All tasks", count: tasks.length },
+              { id: "review", label: "Awaiting my review", count: forReview.length },
+              { id: "under-review", label: "All under review", count: underReview.length },
+            ]}
+          />
 
           <TaskFilters
             value={filters}

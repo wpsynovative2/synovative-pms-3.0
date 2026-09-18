@@ -13,7 +13,12 @@ import {
 import { IconInbox, IconPlus } from "@/components/ui/icons";
 import { Button, Card, PageHeader, StatTile, Tabs } from "@/components/ui/primitives";
 import { isOverdue } from "@/lib/analytics";
-import { canManageIndividualTasks, isGlobalManager, visibleTasks } from "@/lib/permissions";
+import {
+  canManageIndividualTasks,
+  canReviewTask,
+  isGlobalManager,
+  visibleTasks,
+} from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 
 type Scope = "mine" | "all" | "review";
@@ -36,7 +41,12 @@ export default function IndividualTasksPage() {
 
   // Individual tasks are reviewed by Super Admin, Admin or Manager (§12.2).
   const forReview = useMemo(
-    () => (isGlobalManager(user) ? scoped.filter((t) => t.status === "Submitted") : []),
+    () =>
+      scoped.filter(
+        (t) =>
+          (t.status === "Submitted" || t.status === "Waiting for Client Response") &&
+          canReviewTask(user, t, null),
+      ),
     [scoped, user],
   );
 

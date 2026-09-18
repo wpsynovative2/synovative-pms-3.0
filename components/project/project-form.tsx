@@ -121,7 +121,6 @@ export function ProjectFormModal({
     name: !form.name.trim() ? "A project name is required." : undefined,
     clientName: !form.clientName.trim() ? "A client name is required." : undefined,
     services: form.services.length === 0 ? "Pick at least one service." : undefined,
-    leaderId: !form.leaderId ? "Every project needs a leader." : undefined,
     startDate: startBlocked ?? undefined,
     deadline:
       form.deadline < form.startDate
@@ -145,7 +144,7 @@ export function ProjectFormModal({
       description: form.description,
       status: form.status,
       priority: form.priority,
-      leaderId: form.leaderId,
+      leaderId: form.leaderId || null,
       memberIds: form.memberIds,
       ...(mayRepeat
         ? { recurrence: seriesFor(project?.recurrence, repeat, form.startDate) }
@@ -331,15 +330,13 @@ export function ProjectFormModal({
 
         <Field
           label="Project Leader"
-          required
-          hint="Any user, from Super Admin to Team Member."
-          error={touched ? errors.leaderId : undefined}
+          hint="Optional — leave it empty until someone takes it on. The leader reviews the project's work and files its expenses."
         >
           <SearchSelect
             options={userOptions}
             value={form.leaderId}
             onChange={(v) => set("leaderId", v)}
-            placeholder="Who owns this project?"
+            placeholder="Nobody yet"
           />
         </Field>
 
@@ -379,7 +376,7 @@ export function ProjectFormModal({
             </div>
             <p className="mb-3 text-[11px] leading-relaxed text-ink-faint">
               Dates are calculated from the project start using working days only.
-              Tasks left unassigned are skipped.
+              Tasks you leave unassigned are still created — hand them out later.
             </p>
 
             <ul className="flex flex-col gap-2.5">

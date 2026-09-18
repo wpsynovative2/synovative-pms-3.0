@@ -83,14 +83,33 @@ export const canViewAllProjects = (u: User) =>
 /**
  * A user can open a project when they can see everything, lead it, or hold at
  * least one task in it — in which case they see *all* of that project's tasks
- * (§4.2, "View projects where user has ≥ 1 task"). Neither being listed as a
- * team member nor leading a department grants access: a Team Leader sees a
- * project only once they actually hold a task in it.
+ * (§4.2, "View projects where user has ≥ 1 task"). Being listed as a team
+ * member grants nothing on its own. A Team Leader additionally sees every
+ * project their department is working on.
  */
 export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   if (isGlobalManager(u)) return true;
   if (isProjectLeader(u, p)) return true;
-  return tasks.some((t) => t.projectId === p.id && t.assigneeId === u.id);
+  if (tasks.some((t) => t.projectId === p.id && t.assigneeId === u.id)) return true;
+  // A Team Leader follows every project their department is working on, even
+  // when none of its tasks is theirs. Seeing it does not make them its
+  // reviewer - see canReviewTask.
+  return (
+    isTeamLeader(u) &&
+    tasks.some((t) => t.projectId === p.id && u.departments.includes(t.department))
+  );
+}
+
+/**
+ * The narrower set behind the "My projects" tab: projects this person is
+ * personally on, rather than every project their department touches.
+ */
+export function myProjects(u: User, projects: Project[], tasks: Task[]): Project[] {
+  return projects.filter(
+    (p) =>
+      isProjectLeader(u, p) ||
+      tasks.some((t) => t.projectId === p.id && t.assigneeId === u.id),
+  );
 }
 
 export function visibleProjects(
@@ -159,11 +178,13 @@ export function canReviewTask(
   task: Task,
   project: Project | null,
 ): boolean {
-  if (task.projectId === null) {
-    // Individual tasks: Super Admin, Admin or Manager only (§12.2).
-    return isGlobalManager(u);
-  }
   if (isGlobalManager(u)) return true;
+  // A Team Leader reviews the work they allotted, wherever it sits - that is
+  // the only review right the role carries. Seeing their department's other
+  // projects does not extend it.
+  if (isTeamLeader(u) && task.createdBy === u.id) return true;
+  // Individual tasks otherwise belong to Super Admin, Admin or Manager (§12.2).
+  if (task.projectId === null) return false;
   return !!project && isProjectLeader(u, project);
 }
 
