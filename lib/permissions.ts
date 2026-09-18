@@ -1,5 +1,9 @@
-import { FINANCE_DEPARTMENT } from "./master-data";
-import type { Project, Role, Task, User } from "./types";
+import {
+  BUSINESS_DEV_DEPARTMENT,
+  CONTENT_WRITER_DEPARTMENT,
+  FINANCE_DEPARTMENT,
+} from "./master-data";
+import type { CollabEntity, ContentEntry, Project, Role, Task, User } from "./types";
 
 /**
  * Permission matrix from PRD §4.2.
@@ -15,6 +19,12 @@ export const isSuperAdmin = (u: User) => u.role === "super_admin";
 export const isGlobalManager = (u: User) => GLOBAL_MANAGERS.includes(u.role);
 export const isTeamLeader = (u: User) => u.role === "team_leader";
 export const isFinance = (u: User) => u.departments.includes(FINANCE_DEPARTMENT);
+
+/** Like Finance, these two rights come from the department, not the role. */
+export const isBusinessExec = (u: User) =>
+  u.departments.includes(BUSINESS_DEV_DEPARTMENT);
+export const isContentWriter = (u: User) =>
+  u.departments.includes(CONTENT_WRITER_DEPARTMENT);
 
 /* ------------------------------------------------------- user management */
 
@@ -283,6 +293,72 @@ export const canManageVendors = (u: User) => isGlobalManager(u) || isFinance(u);
 /** Super Admin, Admin and Manager manage links; everyone else reads them. */
 export const canManageLinks = (u: User) => isGlobalManager(u);
 
+/* --------------------------------------------------------------- CRM */
+
+/**
+ * Companies, Clients, Properties and OBCs are the sales team's records, so
+ * Business Development Executives keep them alongside the global managers.
+ */
+export const canManageCrm = (u: User) => isGlobalManager(u) || isBusinessExec(u);
+
+/**
+ * Deleting is narrower than editing: these records are referenced by projects
+ * that may already be running, so only Super Admin and Admin may remove one.
+ */
+export const canDeleteCrm = (u: User) =>
+  u.role === "super_admin" || u.role === "admin";
+
+/** A Business Executive raises the OBC; only a manager turns it into work. */
+export const canConvertObc = (u: User) => isGlobalManager(u);
+
+/* ------------------------------------------------------- Content Bank */
+
+/** Writing content is the Content Writers' own — no role overrides it. */
+export const canWriteContent = (u: User) => isContentWriter(u);
+
+/** A writer edits their own copy; nobody else rewrites it. */
+export const canEditContentEntry = (u: User, entry: ContentEntry) =>
+  isContentWriter(u) && entry.createdBy === u.id;
+
+export const canDeleteContentEntry = (u: User, entry: ContentEntry) =>
+  canEditContentEntry(u, entry) || canDeleteCrm(u);
+
+/**
+ * Reading follows the project: anyone holding at least one task on it — plus
+ * its leader, its department's Team Leader and the global managers — sees the
+ * content written for it.
+ */
+export const canViewContentEntry = (
+  u: User,
+  entry: ContentEntry,
+  projects: Project[],
+  tasks: Task[],
+) => {
+  const project = projects.find((p) => p.id === entry.projectId);
+  return !!project && canViewProject(u, project, tasks);
+};
+
+/* -------------------------------------------------- Comments & Minutes */
+
+/**
+ * The collaboration log is open to whoever can open the record it hangs off:
+ * the CRM master records are visible to every active member, while projects
+ * and tasks keep the rules they already have. `canSeeRecord` is that answer,
+ * worked out by the page that holds the record.
+ */
+export function canCollaborate(
+  _entity: CollabEntity,
+  canSeeRecord: boolean,
+): boolean {
+  return canSeeRecord;
+}
+
+/** Your own entries, plus an admin's clean-up right. */
+export const canEditCollabEntry = (u: User, authorId: string) => authorId === u.id;
+
+export const canDeleteCollabEntry = (u: User, authorId: string) =>
+  authorId === u.id || canDeleteCrm(u);
+
 /* ------------------------------------------------------------ navigation */
 
 export interface NavGate {
@@ -298,6 +374,11 @@ export interface NavGate {
   calendar: boolean;
   links: boolean;
   recurrence: boolean;
+  companies: boolean;
+  clients: boolean;
+  properties: boolean;
+  obcs: boolean;
+  contentBank: boolean;
 }
 
 export function navGate(u: User): NavGate {
@@ -315,5 +396,15 @@ export function navGate(u: User): NavGate {
     links: true,
     // Everyone can see what repeats; only managers can change it.
     recurrence: true,
+    // The CRM master records are read by everyone — a designer opening a
+    // project wants to know whose property it is — and written by the sales
+    // side. The OBC pipeline is narrower: it is a sales screen.
+    companies: true,
+    clients: true,
+    properties: true,
+    obcs: canManageCrm(u),
+    // Writers need it to write; everyone else reaches their project's content
+    // through the task that carries it, but the library itself stays open.
+    contentBank: true,
   };
 }

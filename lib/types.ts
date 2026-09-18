@@ -118,6 +118,14 @@ export interface Project {
   recurrence?: RecurrenceSeries | null;
   /** Set on a project generated from a repeating source. */
   series?: SeriesLink | null;
+  /**
+   * The CRM chain this project came from. All null for work raised by hand;
+   * filled in when a New OBC is converted (§CRM).
+   */
+  companyId: string | null;
+  clientId: string | null;
+  propertyId: string | null;
+  obcId: string | null;
 }
 
 /* ---------------------------------------------------------------- Tasks */
@@ -311,6 +319,227 @@ export interface OperationalLink {
   createdAt: string;
 }
 
+/* ------------------------------------------------------------------ CRM */
+
+/**
+ * Company → Client → Property → OBC → Project. Each record keeps the whole
+ * chain above it, so a running project can always be traced back to the
+ * developer who paid for it.
+ */
+
+export type PartyStatus = "active" | "inactive";
+
+export const PARTY_STATUSES: PartyStatus[] = ["active", "inactive"];
+
+export interface Company {
+  id: string;
+  name: string;
+  legalName: string;
+  gstin: string;
+  pan: string;
+  reraPromoterId: string;
+  address: string;
+  city: string;
+  website: string;
+  phone: string;
+  email: string;
+  logoUrl: string;
+  /** Who owns the relationship on the agency side. */
+  accountOwnerId: string | null;
+  status: PartyStatus;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type ClientRole = "Decision Maker" | "Influencer" | "Coordinator";
+
+export const CLIENT_ROLES: ClientRole[] = [
+  "Decision Maker",
+  "Influencer",
+  "Coordinator",
+];
+
+export interface Client {
+  id: string;
+  companyId: string;
+  fullName: string;
+  designation: string;
+  mobile: string;
+  whatsapp: string;
+  email: string;
+  /** null — nobody has said what part they play yet. */
+  role: ClientRole | null;
+  status: PartyStatus;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type ConfigStatus = "Open" | "Sold out";
+
+export const CONFIG_STATUSES: ConfigStatus[] = ["Open", "Sold out"];
+
+/** One line of the unit mix: "2 BHK · 720 sq.ft · ₹1.05 Cr · Open". */
+export interface PropertyConfig {
+  id: string;
+  config: string;
+  sqFt: number;
+  price: number;
+  status: ConfigStatus;
+}
+
+/** A media folder created on Google Drive for a property. */
+export interface DriveFolder {
+  id: string;
+  name: string;
+  folderId: string;
+  url: string;
+}
+
+export interface Property {
+  id: string;
+  companyId: string;
+  /** null — the property exists before anyone is named as its contact. */
+  clientId: string | null;
+  name: string;
+  description: string;
+  address: string;
+  mapsUrl: string;
+  maharera: string;
+  /** Empty until "Create Directory" has run; set once, never twice. */
+  driveFolderId: string;
+  driveFolderUrl: string;
+  configs: PropertyConfig[];
+  folders: DriveFolder[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export type ObcStatus = "Draft" | "Submitted" | "Converted";
+
+export const OBC_STATUSES: ObcStatus[] = ["Draft", "Submitted", "Converted"];
+
+/**
+ * A quoted line as the delivery team needs it: what was sold, how much of it,
+ * and the brief that came with it. Pricing stays in Zoho.
+ */
+export interface ObcItem {
+  id: string;
+  service: string;
+  quantity: number;
+  /** Zoho's line-level "Description". */
+  description: string;
+  /** Zoho's line-level "Brief Description". */
+  briefDescription: string;
+}
+
+export interface Obc {
+  id: string;
+  /** Human-readable handle for the sales team, e.g. "OBC-0007". */
+  code: string;
+  companyId: string;
+  clientId: string | null;
+  propertyId: string | null;
+  /** What the lines were pulled from, kept for traceability. */
+  zohoQuoteId: string;
+  zohoQuoteNumber: string;
+  notes: string;
+  status: ObcStatus;
+  submittedAt?: string;
+  convertedAt?: string;
+  /** Set once a manager has turned this OBC into real work. */
+  projectId: string | null;
+  items: ObcItem[];
+  createdBy: string;
+  createdAt: string;
+}
+
+/* --------------------------------------------------------- Content Bank */
+
+export type ContentType =
+  | "Static Design"
+  | "Reel Editing"
+  | "Influencer Script"
+  | "Drone Script"
+  | "OOH"
+  | "Site Branding"
+  | "Website Content"
+  | "Brochure Content";
+
+export const CONTENT_TYPES: ContentType[] = [
+  "Static Design",
+  "Reel Editing",
+  "Influencer Script",
+  "Drone Script",
+  "OOH",
+  "Site Branding",
+  "Website Content",
+  "Brochure Content",
+];
+
+export type ContentBillingType = "Count" | "Extra";
+
+export const CONTENT_BILLING_TYPES: ContentBillingType[] = ["Count", "Extra"];
+
+/**
+ * One piece of content, written by a Content Writer against a project — and
+ * usually against the one task they were given. A task can carry several
+ * entries, which is why the link points this way.
+ */
+export interface ContentEntry {
+  id: string;
+  projectId: string;
+  /** The writer's task, when the piece was written for one. */
+  taskId: string | null;
+  date: string;
+  type: ContentType;
+  /** Rich text — what appears on the creative itself. */
+  onPic: string;
+  caption: string;
+  /** Rich text — the brief or body copy. */
+  description: string;
+  referenceLinks: string[];
+  billingType: ContentBillingType;
+  /** The team member the piece is for. */
+  allottedTo: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+/* ------------------------------------------------- Comments & Minutes */
+
+/** Everything a comment or a set of minutes can be filed against. */
+export type CollabEntity =
+  | "company"
+  | "client"
+  | "property"
+  | "obc"
+  | "project"
+  | "task";
+
+/** A quick internal note on a record. Plain text; @mentions are highlighted. */
+export interface Comment {
+  id: string;
+  entityType: CollabEntity;
+  entityId: string;
+  body: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** Formal minutes of a client meeting, kept as a history log per record. */
+export interface MeetingMinutes {
+  id: string;
+  entityType: CollabEntity;
+  entityId: string;
+  title: string;
+  meetingDate: string;
+  attendees: string;
+  /** Rich text. */
+  body: string;
+  createdBy: string;
+  createdAt: string;
+}
+
 /* --------------------------------------------------------- Notifications */
 
 export type NotificationType =
@@ -322,7 +551,8 @@ export type NotificationType =
   | "expense_reviewed"
   | "due_soon"
   | "overdue"
-  | "timer_autostop";
+  | "timer_autostop"
+  | "content_allotted";
 
 export interface AppNotification {
   id: string;
@@ -353,4 +583,11 @@ export interface Database {
   notifications: AppNotification[];
   linkGroups: LinkGroup[];
   operationalLinks: OperationalLink[];
+  companies: Company[];
+  clients: Client[];
+  properties: Property[];
+  obcs: Obc[];
+  contentEntries: ContentEntry[];
+  comments: Comment[];
+  minutes: MeetingMinutes[];
 }

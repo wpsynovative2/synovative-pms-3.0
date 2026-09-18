@@ -301,3 +301,59 @@ export const IconEyeOff = (p: IconProps) => (
     <path d="m3 3 18 18" />
   </Svg>
 );
+
+/* -------------------------------------------------------------- CRM --- */
+
+export const IconBuilding = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16" />
+    <path d="M15 9h3a2 2 0 0 1 2 2v10" />
+    <path d="M2 21h20" />
+    <path d="M8 7h3M8 11h3M8 15h3" />
+  </Svg>
+);
+
+export const IconContact = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <circle cx="12" cy="10.5" r="2.5" />
+    <path d="M7.5 17a4.5 4.5 0 0 1 9 0" />
+  </Svg>
+);
+
+export const IconProperty = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9.5V20h14V9.5" />
+    <path d="M10 20v-5h4v5" />
+  </Svg>
+);
+
+export const IconQuote = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 2.5h8L19 7v14.5H6Z" />
+    <path d="M14 2.5V7h5" />
+    <path d="M9 12h6M9 16h4" />
+  </Svg>
+);
+
+export const IconContent = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15.5H6.5A2.5 2.5 0 0 0 4 21Z" />
+    <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H19" />
+    <path d="M8.5 7.5h6" />
+  </Svg>
+);
+
+export const IconComment = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H9l-5 4.5Z" />
+  </Svg>
+);
+
+export const IconMinutes = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 3.5h14v17l-3.5-2.2-3.5 2.2-3.5-2.2L5 20.5Z" />
+    <path d="M9 8h6M9 12h6" />
+  </Svg>
+);

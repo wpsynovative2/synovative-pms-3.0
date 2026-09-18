@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconClock,
   IconSend,
+  IconSparkle,
   IconTasks,
   IconWallet,
   IconWarning,
@@ -35,6 +36,7 @@ const TYPE_LABEL: Record<NotificationType, string> = {
   due_soon: "Due soon",
   overdue: "Overdue",
   timer_autostop: "Timer auto-stopped",
+  content_allotted: "Content allotted",
 };
 
 const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
@@ -47,6 +49,7 @@ const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
   due_soon: <IconClock size={15} />,
   overdue: <IconWarning size={15} />,
   timer_autostop: <IconClock size={15} />,
+  content_allotted: <IconSparkle size={15} />,
 };
 
 const TYPE_TONE: Record<NotificationType, string> = {
@@ -59,6 +62,7 @@ const TYPE_TONE: Record<NotificationType, string> = {
   due_soon: "bg-st-submitted/15 text-st-submitted",
   overdue: "bg-st-rejected/15 text-st-rejected",
   timer_autostop: "bg-st-changes/15 text-st-changes",
+  content_allotted: "bg-brand/15 text-brand-ink",
 };
 
 /** §17 — in-app only: list, filter, mark as read. */

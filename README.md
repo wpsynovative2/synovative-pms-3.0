@@ -29,6 +29,8 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Project Settings → API (`anon` key) | browser + server |
 | `SUPABASE_SERVICE_ROLE_KEY` | Project Settings → API (`service_role`) — **secret** | server only: user management, `create-admin` |
 | `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | Cloudinary dashboard — optional | server only: signing bill uploads |
+| `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_DRIVE_PARENT_FOLDER_ID` | Google Cloud service account — optional | server only: creating a property's Drive folders |
+| `ZOHO_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Zoho API console — optional | server only: reading quotes onto an OBC |
 
 Without the Supabase values the app shows a setup screen instead of failing.
 Without Cloudinary, everything works except attaching bills to expenses.
@@ -52,6 +54,9 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0010_flexible_assignment.sql` | Optional Project Leader and assignee, department-wide Team Leader visibility, and the new overdue rule |
 | `0011_capacity_and_task_home.sql` | Per-person daily capacity, and individual tasks moving under `/tasks` |
 | `0012_recurrence_pause.sql` | Pausing a repeat, which skips the dates it covers rather than banking them |
+| `0013_crm_enums.sql` | The `content_allotted` notification type (its own file — Postgres can't use a new enum value in the transaction that adds it) |
+| `0014_crm_modules.sql` | Companies, Clients, Properties, OBCs and the Content Bank, plus Comments and Minutes of Meeting, and their RLS |
+| `0015_obc_line_details.sql` | OBC lines carry Zoho's short and brief descriptions instead of rate and amount — pricing stays in Zoho |
 
 ### 4. The first Super Admin
 
@@ -101,6 +106,11 @@ All ten modules from the PRD:
 | In-app notifications | `/notifications` | §17 |
 | Operational links — shared Google Drive links in groups | `/links` | — |
 | Recurrence — every repeating project and individual task | `/recurrence` | — |
+| Companies — the real-estate developer master | `/companies` | — |
+| Clients — the people at each company | `/clients` | — |
+| Real estate properties — unit mix and Google Drive media folders | `/properties` | — |
+| New OBCs — sales orders from Zoho quotes, converted into projects | `/obcs` | — |
+| Content Bank — written by Content Writers, read by their project's team | `/content-bank` | — |
 
 Behaviour worth pointing at specifically:
 

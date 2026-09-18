@@ -1,4 +1,11 @@
-import type { Priority, ProjectStatus, TaskStatus } from "./types";
+import type {
+  ConfigStatus,
+  ObcStatus,
+  PartyStatus,
+  Priority,
+  ProjectStatus,
+  TaskStatus,
+} from "./types";
 
 /** PRD §5.1 */
 export const DEPARTMENTS = [
@@ -18,6 +25,15 @@ export const DEPARTMENTS = [
 
 /** Department that approves expenses (§4.1, §8). */
 export const FINANCE_DEPARTMENT = "Accounts & Finance";
+
+/**
+ * Two more departments carry rights of their own, the same way Finance does.
+ * Business Development Executives keep the CRM master records; Content Writers
+ * are the only people who may write in the Content Bank.
+ */
+export const BUSINESS_DEV_DEPARTMENT = "Business Development Executives";
+export const CONTENT_WRITER_DEPARTMENT =
+  "Content Writers / Copywriters / Brand Strategists";
 
 /** PRD §5.2 — de-duplicated list. */
 export const SERVICES = [
@@ -184,6 +200,35 @@ export const EXPENSE_STATUS_STYLE: Record<string, string> = {
   Approved: "bg-st-approved/15 text-st-approved border-st-approved/30",
   Rejected: "bg-st-rejected/15 text-st-rejected border-st-rejected/30",
 };
+
+/* --------------------------------------------------------------- CRM --- */
+
+/** Draft → Submitted → Converted, the OBC's whole life. */
+export const OBC_STATUS_STYLE: Record<ObcStatus, string> = {
+  Draft: "bg-ink-faint/15 text-ink-faint border-ink-faint/30",
+  Submitted: "bg-st-submitted/15 text-st-submitted border-st-submitted/30",
+  Converted: "bg-st-approved/15 text-st-approved border-st-approved/30",
+};
+
+export const PARTY_STATUS_STYLE: Record<PartyStatus, string> = {
+  active: "bg-st-approved/15 text-st-approved border-st-approved/30",
+  inactive: "bg-ink-faint/15 text-ink-faint border-ink-faint/30",
+};
+
+export const CONFIG_STATUS_STYLE: Record<ConfigStatus, string> = {
+  Open: "bg-st-approved/15 text-st-approved border-st-approved/30",
+  "Sold out": "bg-st-rejected/15 text-st-rejected border-st-rejected/30",
+};
+
+/**
+ * The media folders "Create Directory" makes under a property. Changing this
+ * list only affects properties whose directory has not been created yet.
+ */
+export const PROPERTY_MEDIA_FOLDERS = [
+  "Property Brochure",
+  "3D Walkthrough Video",
+  "Drone Video",
+] as const;
 
 /** Preset project colours for the colour picker (§7.1). */
 export const PROJECT_COLORS = [

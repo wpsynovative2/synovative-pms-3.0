@@ -12,12 +12,19 @@ import {
 import { addWorkingDays } from "./calendar";
 import {
   ALL_SCOPES,
+  CLIENT_COLUMNS,
+  COMPANY_COLUMNS,
+  CONTENT_COLUMNS,
   EMPTY_DB,
   EXPENSE_COLUMNS,
+  OBC_COLUMNS,
   PROJECT_COLUMNS,
+  PROPERTY_COLUMNS,
   TASK_COLUMNS,
   VENDOR_COLUMNS,
+  configRow,
   loadScopes,
+  obcItemRow,
   patchColumns,
   projectRow,
   seriesColumns,
@@ -30,13 +37,24 @@ import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
 import type {
   CalendarConfig,
+  Client,
+  CollabEntity,
+  Comment,
+  Company,
+  ContentEntry,
   Database,
+  DriveFolder,
   Expense,
   LinkGroup,
+  MeetingMinutes,
+  Obc,
+  ObcItem,
   OperationalLink,
   OutputLocation,
   Project,
   ProjectTemplate,
+  Property,
+  PropertyConfig,
   RecurrenceSeries,
   Remark,
   Review,
@@ -405,9 +423,19 @@ export interface ReviewInput {
   newDueDate?: string;
 }
 
+/**
+ * A project to create. The CRM chain is optional: only a project converted
+ * from an OBC carries one, and everything raised by hand leaves it empty.
+ */
+export type NewProjectInput = Omit<
+  Project,
+  "id" | "createdAt" | "createdBy" | "companyId" | "clientId" | "propertyId" | "obcId"
+> &
+  Partial<Pick<Project, "companyId" | "clientId" | "propertyId" | "obcId">>;
+
 export interface ProjectFromTemplateInput {
   templateId: string;
-  project: Omit<Project, "id" | "createdAt" | "createdBy">;
+  project: NewProjectInput;
   /** template task id → assignee id; missing or empty means nobody yet */
   assignments: Record<string, string>;
 }
@@ -446,6 +474,33 @@ export interface LinkInput {
   url: string;
 }
 
+/* ------------------------------------------------------------- CRM inputs */
+
+export type CompanyInput = Omit<Company, "id" | "createdBy" | "createdAt">;
+export type ClientInput = Omit<Client, "id" | "createdBy" | "createdAt">;
+
+/** Configs come in with the property; the whole list is rewritten on save. */
+export type PropertyInput = Omit<
+  Property,
+  "id" | "createdBy" | "createdAt" | "folders" | "driveFolderId" | "driveFolderUrl"
+>;
+
+export type ObcInput = Omit<
+  Obc,
+  "id" | "code" | "createdBy" | "createdAt" | "status" | "projectId" | "submittedAt" | "convertedAt"
+>;
+
+export type ContentInput = Omit<ContentEntry, "id" | "createdBy" | "createdAt">;
+
+export type MinutesInput = Omit<MeetingMinutes, "id" | "createdBy" | "createdAt">;
+
+/** What the Drive route hands back once the folder tree exists. */
+export interface DriveResult {
+  folderId: string;
+  url: string;
+  folders: { name: string; folderId: string; url: string }[];
+}
+
 type Result = Promise<{ ok: boolean; error?: string }>;
 
 interface StoreValue {
@@ -473,7 +528,7 @@ interface StoreValue {
   updateUser: (id: string, patch: UserPatch) => Result;
   deleteUser: (id: string) => Result;
 
-  createProject: (input: Omit<Project, "id" | "createdAt" | "createdBy">) => Project;
+  createProject: (input: NewProjectInput) => Project;
   createProjectFromTemplate: (input: ProjectFromTemplateInput) => Project;
   updateProject: (id: string, patch: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -513,6 +568,41 @@ interface StoreValue {
   deleteLink: (id: string) => void;
   renameLinkGroup: (id: string, name: string) => void;
   deleteLinkGroup: (id: string) => void;
+
+  companyById: (id: string | null | undefined) => Company | undefined;
+  clientById: (id: string | null | undefined) => Client | undefined;
+  propertyById: (id: string | null | undefined) => Property | undefined;
+  obcById: (id: string | null | undefined) => Obc | undefined;
+
+  createCompany: (input: CompanyInput) => Company;
+  updateCompany: (id: string, patch: Partial<CompanyInput>) => void;
+  deleteCompany: (id: string) => void;
+
+  createClient: (input: ClientInput) => Client;
+  updateClient: (id: string, patch: Partial<ClientInput>) => void;
+  deleteClient: (id: string) => void;
+
+  createProperty: (input: PropertyInput) => Property;
+  updateProperty: (id: string, patch: Partial<PropertyInput>) => void;
+  deleteProperty: (id: string) => void;
+  /** Records the folder tree the Drive route just created. */
+  saveDriveFolders: (propertyId: string, result: DriveResult) => void;
+
+  createObc: (input: ObcInput) => Obc;
+  updateObc: (id: string, patch: Partial<ObcInput>) => void;
+  deleteObc: (id: string) => void;
+  submitObc: (id: string) => void;
+  /** Creates the project an OBC describes and marks the OBC converted. */
+  convertObc: (id: string, project: NewProjectInput) => Project;
+
+  createContentEntry: (input: ContentInput) => ContentEntry;
+  updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
+  deleteContentEntry: (id: string) => void;
+
+  addComment: (entityType: CollabEntity, entityId: string, body: string) => void;
+  deleteComment: (id: string) => void;
+  saveMinutes: (input: MinutesInput, id?: string) => void;
+  deleteMinutes: (id: string) => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -571,8 +661,8 @@ const actions = {
 
   /* -------------------------------------------------------- projects */
 
-  createProject(input: Omit<Project, "id" | "createdAt" | "createdBy">): Project {
-    const project: Project = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+  createProject(input: NewProjectInput): Project {
+    const project: Project = { ...withoutCrmChain(input), id: newId(), createdBy: me(), createdAt: now() };
     void commit(
       ["projects"],
       (db) => ({ ...db, projects: [project, ...db.projects] }),
@@ -584,7 +674,12 @@ const actions = {
   },
 
   createProjectFromTemplate({ templateId, project, assignments }: ProjectFromTemplateInput): Project {
-    const created: Project = { ...project, id: newId(), createdBy: me(), createdAt: now() };
+    const created: Project = {
+      ...withoutCrmChain(project),
+      id: newId(),
+      createdBy: me(),
+      createdAt: now(),
+    };
     const template = state.db.projectTemplates.find((t) => t.id === templateId);
     const calendar = state.db.calendar;
 
@@ -1209,6 +1304,414 @@ const linkActions = {
   },
 };
 
+/* ----------------------------------------------------------------- CRM */
+
+/** A project raised by hand has no company, client, property or OBC behind it. */
+function withoutCrmChain(input: NewProjectInput) {
+  return {
+    ...input,
+    companyId: input.companyId ?? null,
+    clientId: input.clientId ?? null,
+    propertyId: input.propertyId ?? null,
+    obcId: input.obcId ?? null,
+  };
+}
+
+/**
+ * Line items belong to their parent, so they are rewritten wholesale rather
+ * than diffed: the form always hands back the complete list.
+ */
+async function rewriteConfigs(c: SupabaseClient, propertyId: string, configs: PropertyConfig[]) {
+  await run(c.from("property_configs").delete().eq("property_id", propertyId));
+  if (configs.length) {
+    await run(c.from("property_configs").insert(configs.map((x, i) => configRow(propertyId, x, i))));
+  }
+}
+
+async function rewriteObcItems(c: SupabaseClient, obcId: string, items: ObcItem[]) {
+  await run(c.from("obc_items").delete().eq("obc_id", obcId));
+  if (items.length) {
+    await run(c.from("obc_items").insert(items.map((x, i) => obcItemRow(obcId, x, i))));
+  }
+}
+
+const crmActions = {
+  /* ------------------------------------------------------- companies */
+
+  createCompany(input: CompanyInput): Company {
+    const company: Company = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, companies: [...db.companies, company] }),
+      (c) =>
+        run(
+          c.from("companies").insert({
+            id: company.id,
+            ...patchColumns(input, COMPANY_COLUMNS),
+          }),
+        ),
+    );
+    return company;
+  },
+
+  updateCompany(id: string, patch: Partial<CompanyInput>) {
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        companies: db.companies.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      }),
+      (c) => run(c.from("companies").update(patchColumns(patch, COMPANY_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  /** Cascades in the database to the company's clients and their properties. */
+  deleteCompany(id: string) {
+    void commit(
+      ["crm", "projects"],
+      (db) => {
+        const clientIds = new Set(db.clients.filter((x) => x.companyId === id).map((x) => x.id));
+        return {
+          ...db,
+          companies: db.companies.filter((x) => x.id !== id),
+          clients: db.clients.filter((x) => !clientIds.has(x.id)),
+          properties: db.properties.filter((x) => x.companyId !== id),
+          obcs: db.obcs.filter((x) => x.companyId !== id),
+        };
+      },
+      (c) => run(c.from("companies").delete().eq("id", id)),
+    );
+  },
+
+  /* --------------------------------------------------------- clients */
+
+  createClient(input: ClientInput): Client {
+    const client: Client = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, clients: [...db.clients, client] }),
+      (c) =>
+        run(c.from("clients").insert({ id: client.id, ...patchColumns(input, CLIENT_COLUMNS) })),
+    );
+    return client;
+  },
+
+  updateClient(id: string, patch: Partial<ClientInput>) {
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, clients: db.clients.map((x) => (x.id === id ? { ...x, ...patch } : x)) }),
+      (c) => run(c.from("clients").update(patchColumns(patch, CLIENT_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteClient(id: string) {
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        clients: db.clients.filter((x) => x.id !== id),
+        // The property survives its contact; it just loses the link.
+        properties: db.properties.map((p) => (p.clientId === id ? { ...p, clientId: null } : p)),
+      }),
+      (c) => run(c.from("clients").delete().eq("id", id)),
+    );
+  },
+
+  /* ------------------------------------------------------ properties */
+
+  createProperty(input: PropertyInput): Property {
+    const property: Property = {
+      ...input,
+      id: newId(),
+      driveFolderId: "",
+      driveFolderUrl: "",
+      folders: [],
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, properties: [...db.properties, property] }),
+      async (c) => {
+        await run(
+          c.from("properties").insert({
+            id: property.id,
+            ...patchColumns(input, PROPERTY_COLUMNS),
+          }),
+        );
+        await rewriteConfigs(c, property.id, property.configs);
+      },
+    );
+    return property;
+  },
+
+  updateProperty(id: string, patch: Partial<PropertyInput>) {
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        properties: db.properties.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      }),
+      async (c) => {
+        const columns = patchColumns(patch, PROPERTY_COLUMNS);
+        if (Object.keys(columns).length) {
+          await run(c.from("properties").update(columns).eq("id", id));
+        }
+        if (patch.configs) await rewriteConfigs(c, id, patch.configs);
+      },
+    );
+  },
+
+  deleteProperty(id: string) {
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, properties: db.properties.filter((x) => x.id !== id) }),
+      (c) => run(c.from("properties").delete().eq("id", id)),
+    );
+  },
+
+  /**
+   * Stores what the Drive route created. The folder id on the property is what
+   * stops a second click from building a second tree.
+   */
+  saveDriveFolders(propertyId: string, result: DriveResult) {
+    const folders: DriveFolder[] = result.folders.map((f) => ({
+      id: newId(),
+      name: f.name,
+      folderId: f.folderId,
+      url: f.url,
+    }));
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        properties: db.properties.map((p) =>
+          p.id === propertyId
+            ? { ...p, driveFolderId: result.folderId, driveFolderUrl: result.url, folders }
+            : p,
+        ),
+      }),
+      async (c) => {
+        await run(
+          c
+            .from("properties")
+            .update({ drive_folder_id: result.folderId, drive_folder_url: result.url })
+            .eq("id", propertyId),
+        );
+        await run(c.from("property_drive_folders").delete().eq("property_id", propertyId));
+        if (folders.length) {
+          await run(
+            c.from("property_drive_folders").insert(
+              folders.map((f) => ({
+                id: f.id,
+                property_id: propertyId,
+                name: f.name,
+                folder_id: f.folderId,
+                url: f.url,
+              })),
+            ),
+          );
+        }
+      },
+    );
+  },
+
+  /* ------------------------------------------------------------ OBCs */
+
+  createObc(input: ObcInput): Obc {
+    const obc: Obc = {
+      ...input,
+      id: newId(),
+      // The database assigns the real code; this placeholder only lives until
+      // the refetch that follows the insert.
+      code: "OBC-…",
+      status: "Draft",
+      projectId: null,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, obcs: [obc, ...db.obcs] }),
+      async (c) => {
+        await run(c.from("obcs").insert({ id: obc.id, ...patchColumns(input, OBC_COLUMNS) }));
+        await rewriteObcItems(c, obc.id, obc.items);
+      },
+    );
+    return obc;
+  },
+
+  updateObc(id: string, patch: Partial<ObcInput>) {
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, obcs: db.obcs.map((x) => (x.id === id ? { ...x, ...patch } : x)) }),
+      async (c) => {
+        const columns = patchColumns(patch, OBC_COLUMNS);
+        if (Object.keys(columns).length) {
+          await run(c.from("obcs").update(columns).eq("id", id));
+        }
+        if (patch.items) await rewriteObcItems(c, id, patch.items);
+      },
+    );
+  },
+
+  deleteObc(id: string) {
+    void commit(
+      ["crm"],
+      (db) => ({ ...db, obcs: db.obcs.filter((x) => x.id !== id) }),
+      (c) => run(c.from("obcs").delete().eq("id", id)),
+    );
+  },
+
+  /** Locks the quoted services in; the database stamps the time. */
+  submitObc(id: string) {
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        obcs: db.obcs.map((x) =>
+          x.id === id ? { ...x, status: "Submitted" as const, submittedAt: now() } : x,
+        ),
+      }),
+      (c) => run(c.from("obcs").update({ status: "Submitted" }).eq("id", id)),
+    );
+  },
+
+  convertObc(id: string, project: NewProjectInput): Project {
+    const created: Project = {
+      ...withoutCrmChain({ ...project, obcId: id }),
+      id: newId(),
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["crm", "projects"],
+      (db) => ({
+        ...db,
+        projects: [created, ...db.projects],
+        obcs: db.obcs.map((x) =>
+          x.id === id
+            ? { ...x, status: "Converted" as const, projectId: created.id, convertedAt: now() }
+            : x,
+        ),
+      }),
+      async (c) => {
+        // The project has to exist before the OBC can point at it.
+        await insertProject(c, created);
+        await run(
+          c.from("obcs").update({ status: "Converted", project_id: created.id }).eq("id", id),
+        );
+      },
+    );
+    return created;
+  },
+
+  /* ---------------------------------------------------- content bank */
+
+  createContentEntry(input: ContentInput): ContentEntry {
+    const entry: ContentEntry = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["content", "notifications"],
+      (db) => ({ ...db, contentEntries: [entry, ...db.contentEntries] }),
+      (c) =>
+        run(c.from("content_bank").insert({ id: entry.id, ...patchColumns(input, CONTENT_COLUMNS) })),
+    );
+    return entry;
+  },
+
+  updateContentEntry(id: string, patch: Partial<ContentInput>) {
+    void commit(
+      ["content", "notifications"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      }),
+      (c) => run(c.from("content_bank").update(patchColumns(patch, CONTENT_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteContentEntry(id: string) {
+    void commit(
+      ["content"],
+      (db) => ({ ...db, contentEntries: db.contentEntries.filter((x) => x.id !== id) }),
+      (c) => run(c.from("content_bank").delete().eq("id", id)),
+    );
+  },
+
+  /* ------------------------------------------------ comments & minutes */
+
+  addComment(entityType: CollabEntity, entityId: string, body: string) {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+    const comment: Comment = {
+      id: newId(),
+      entityType,
+      entityId,
+      body: trimmed,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["collab"],
+      (db) => ({ ...db, comments: [...db.comments, comment] }),
+      (c) =>
+        run(
+          c.from("comments").insert({
+            id: comment.id,
+            entity_type: entityType,
+            entity_id: entityId,
+            body: trimmed,
+          }),
+        ),
+    );
+  },
+
+  deleteComment(id: string) {
+    void commit(
+      ["collab"],
+      (db) => ({ ...db, comments: db.comments.filter((x) => x.id !== id) }),
+      (c) => run(c.from("comments").delete().eq("id", id)),
+    );
+  },
+
+  /** Creates a new set of minutes, or rewrites the one whose id is given. */
+  saveMinutes(input: MinutesInput, id?: string) {
+    const row = {
+      entity_type: input.entityType,
+      entity_id: input.entityId,
+      title: input.title.trim(),
+      meeting_date: input.meetingDate,
+      attendees: input.attendees,
+      body: input.body,
+    };
+    if (id) {
+      void commit(
+        ["collab"],
+        (db) => ({
+          ...db,
+          minutes: db.minutes.map((x) => (x.id === id ? { ...x, ...input } : x)),
+        }),
+        (c) => run(c.from("minutes").update(row).eq("id", id)),
+      );
+      return;
+    }
+    const entry: MeetingMinutes = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["collab"],
+      (db) => ({ ...db, minutes: [entry, ...db.minutes] }),
+      (c) => run(c.from("minutes").insert({ id: entry.id, ...row })),
+    );
+  },
+
+  deleteMinutes(id: string) {
+    void commit(
+      ["collab"],
+      (db) => ({ ...db, minutes: db.minutes.filter((x) => x.id !== id) }),
+      (c) => run(c.from("minutes").delete().eq("id", id)),
+    );
+  },
+};
+
 async function insertProject(c: SupabaseClient, p: Project) {
   await run(
     c.from("projects").insert({
@@ -1250,6 +1753,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const projectById = useCallback((id: string) => db.projects.find((p) => p.id === id), [db.projects]);
   const taskById = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
   const vendorById = useCallback((id: string) => db.vendors.find((v) => v.id === id), [db.vendors]);
+  const companyById = useCallback(
+    (id: string | null | undefined) => (id ? db.companies.find((x) => x.id === id) : undefined),
+    [db.companies],
+  );
+  const clientById = useCallback(
+    (id: string | null | undefined) => (id ? db.clients.find((x) => x.id === id) : undefined),
+    [db.clients],
+  );
+  const propertyById = useCallback(
+    (id: string | null | undefined) => (id ? db.properties.find((x) => x.id === id) : undefined),
+    [db.properties],
+  );
+  const obcById = useCallback(
+    (id: string | null | undefined) => (id ? db.obcs.find((x) => x.id === id) : undefined),
+    [db.obcs],
+  );
 
   const value = useMemo<StoreValue>(
     () => ({
@@ -1264,10 +1783,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       projectById,
       taskById,
       vendorById,
+      companyById,
+      clientById,
+      propertyById,
+      obcById,
       ...actions,
       ...linkActions,
+      ...crmActions,
     }),
-    [db, auth, currentUser, toasts, userById, projectById, taskById, vendorById],
+    [
+      db,
+      auth,
+      currentUser,
+      toasts,
+      userById,
+      projectById,
+      taskById,
+      vendorById,
+      companyById,
+      clientById,
+      propertyById,
+      obcById,
+    ],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

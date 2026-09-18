@@ -8,6 +8,8 @@ import {
   ExpenseFormModal,
   ExpenseReviewModal,
 } from "@/components/expense/expense-dialogs";
+import { CollabPanel } from "@/components/collab/collab-panel";
+import { ContentDetail, ContentLinkRow } from "@/components/content/content-view";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -24,6 +26,12 @@ import {
   IconCheck,
   IconChart,
   IconClock,
+  IconBuilding,
+  IconComment,
+  IconContact,
+  IconContent,
+  IconProperty,
+  IconQuote,
   IconEdit,
   IconPlus,
   IconTasks,
@@ -31,7 +39,7 @@ import {
   IconUsers,
   IconWallet,
 } from "@/components/ui/icons";
-import { ConfirmDialog } from "@/components/ui/modal";
+import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import {
   Avatar,
   Badge,
@@ -67,7 +75,23 @@ import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
 import type { Expense, TaskStatus } from "@/lib/types";
 
-type TabId = "overview" | "tasks" | "time" | "expenses" | "team" | "activity";
+/** One hop of the Company → Client → Property → OBC chain behind a project. */
+interface CrmLink {
+  kind: string;
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+}
+
+type TabId =
+  | "overview"
+  | "tasks"
+  | "content"
+  | "time"
+  | "expenses"
+  | "team"
+  | "collab"
+  | "activity";
 type TaskScope = "all" | "review" | "under-review";
 
 /** Work handed in and waiting on a reviewer or the client. */
@@ -77,11 +101,23 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { db, currentUser, projectById, userById, vendorById, deleteProject } = useStore();
+  const {
+    db,
+    currentUser,
+    projectById,
+    userById,
+    vendorById,
+    companyById,
+    clientById,
+    propertyById,
+    obcById,
+    deleteProject,
+  } = useStore();
   const user = currentUser!;
 
   const project = projectById(id);
   const [tab, setTab] = useState<TabId>("overview");
+  const [openContentId, setOpenContentId] = useState<string | null>(null);
   const [openTaskId, setOpenTaskId] = useState<string | null>(
     searchParams.get("task"),
   );
@@ -101,6 +137,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const expenses = useMemo(
     () => db.expenses.filter((e) => e.projectId === id),
     [db.expenses, id],
+  );
+  const content = useMemo(
+    () => db.contentEntries.filter((e) => e.projectId === id),
+    [db.contentEntries, id],
   );
 
   const stats = useMemo(
@@ -137,6 +177,47 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         />
       </Card>
     );
+  }
+
+  const company = companyById(project.companyId);
+  const client = clientById(project.clientId);
+  const property = propertyById(project.propertyId);
+  const obc = obcById(project.obcId);
+
+  // Only a project converted from an OBC carries a chain; anything raised by
+  // hand shows nothing here rather than a row of blanks.
+  const crmChain: CrmLink[] = [];
+  if (company) {
+    crmChain.push({
+      kind: "Company",
+      label: company.name,
+      href: `/companies?company=${company.id}`,
+      icon: <IconBuilding size={14} />,
+    });
+  }
+  if (client) {
+    crmChain.push({
+      kind: "Client",
+      label: client.fullName,
+      href: `/clients?client=${client.id}`,
+      icon: <IconContact size={14} />,
+    });
+  }
+  if (property) {
+    crmChain.push({
+      kind: "Property",
+      label: property.name,
+      href: `/properties?property=${property.id}`,
+      icon: <IconProperty size={14} />,
+    });
+  }
+  if (obc) {
+    crmChain.push({
+      kind: "OBC",
+      label: obc.code,
+      href: `/obcs?obc=${obc.id}`,
+      icon: <IconQuote size={14} />,
+    });
   }
 
   const leader = userById(project.leaderId);
@@ -307,6 +388,12 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         tabs={[
           { id: "overview", label: "Overview", icon: <IconChart size={14} /> },
           { id: "tasks", label: "Tasks", icon: <IconTasks size={14} />, count: tasks.length },
+          {
+            id: "content",
+            label: "Content Bank",
+            icon: <IconContent size={14} />,
+            count: content.length,
+          },
           { id: "time", label: "Time", icon: <IconClock size={14} /> },
           {
             id: "expenses",
@@ -320,6 +407,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
             icon: <IconUsers size={14} />,
             count: members.length + 1,
           },
+          { id: "collab", label: "Comments & MOM", icon: <IconComment size={14} /> },
           { id: "activity", label: "Activity", icon: <IconCheck size={14} /> },
         ]}
       />
@@ -338,6 +426,29 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                 )}
               </div>
             </Card>
+
+            {crmChain.length ? (
+              <Card>
+                <CardHeader
+                  title="Where this came from"
+                  subtitle="The CRM record behind the work"
+                />
+                <ul className="flex flex-col gap-1.5 px-5 py-4">
+                  {crmChain.map((link) => (
+                    <li key={link.href}>
+                      <Link
+                        href={link.href}
+                        className="flex items-center gap-2.5 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px] hover:border-brand-bright/40"
+                      >
+                        {link.icon}
+                        <span className="min-w-0 flex-1 truncate text-ink">{link.label}</span>
+                        <span className="shrink-0 text-ink-faint">{link.kind}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
 
             <Card>
               <CardHeader
@@ -720,6 +831,36 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         </div>
       ) : null}
 
+      {/* ------------------------------------------------------ Content Bank */}
+      {tab === "content" ? (
+        <Card>
+          <CardHeader
+            title="Content Bank"
+            subtitle="Written by the Content Writers on this project; everyone here can read it"
+          />
+          <div className="px-5 py-4">
+            {content.length === 0 ? (
+              <EmptyState
+                icon={<IconContent size={28} />}
+                title="No content written yet"
+                body="Pieces filed against this project's tasks appear here."
+              />
+            ) : (
+              <ul className="grid gap-2 md:grid-cols-2">
+                {content.map((entry) => (
+                  <li key={entry.id}>
+                    <ContentLinkRow entry={entry} onOpen={() => setOpenContentId(entry.id)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+      ) : null}
+
+      {/* -------------------------------------------------- Comments & MOM */}
+      {tab === "collab" ? <CollabPanel entityType="project" entityId={project.id} /> : null}
+
       {/* ----------------------------------------------------------- Activity */}
       {tab === "activity" ? (
         <Card>
@@ -729,6 +870,21 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       ) : null}
 
       {/* Modals */}
+      {openContentId && content.some((e) => e.id === openContentId) ? (
+        <Modal
+          open
+          onClose={() => setOpenContentId(null)}
+          size="lg"
+          title={(() => {
+            const entry = content.find((e) => e.id === openContentId)!;
+            return entry.caption.trim() || entry.type;
+          })()}
+          subtitle="From the Content Bank"
+        >
+          <ContentDetail entry={content.find((e) => e.id === openContentId)!} />
+        </Modal>
+      ) : null}
+
       {editOpen ? (
         <ProjectFormModal open onClose={() => setEditOpen(false)} project={project} />
       ) : null}

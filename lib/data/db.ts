@@ -1,13 +1,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   AppNotification,
+  Client,
+  CollabEntity,
+  Comment,
+  Company,
+  ContentEntry,
   Database,
+  DriveFolder,
   Expense,
   Holiday,
   LinkGroup,
+  MeetingMinutes,
+  Obc,
+  ObcItem,
   OperationalLink,
   Project,
   ProjectTemplate,
+  Property,
+  PropertyConfig,
   RecurrenceRule,
   RecurrenceSeries,
   Review,
@@ -41,7 +52,10 @@ export type Scope =
   | "templates"
   | "calendar"
   | "notifications"
-  | "links";
+  | "links"
+  | "crm"
+  | "content"
+  | "collab";
 
 export const ALL_SCOPES: Scope[] = [
   "users",
@@ -53,6 +67,9 @@ export const ALL_SCOPES: Scope[] = [
   "calendar",
   "notifications",
   "links",
+  "crm",
+  "content",
+  "collab",
 ];
 
 export const EMPTY_DB: Database = {
@@ -67,6 +84,13 @@ export const EMPTY_DB: Database = {
   notifications: [],
   linkGroups: [],
   operationalLinks: [],
+  companies: [],
+  clients: [],
+  properties: [],
+  obcs: [],
+  contentEntries: [],
+  comments: [],
+  minutes: [],
 };
 
 /** How many of the newest notifications the bell and inbox keep in memory. */
@@ -189,6 +213,10 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       createdAt: str(r.created_at),
       recurrence: readSeries(r),
       series: readLink(r),
+      companyId: nullable(r.company_id),
+      clientId: nullable(r.client_id),
+      propertyId: nullable(r.property_id),
+      obcId: nullable(r.obc_id),
     }))
     // Newest first, as the lists expect.
     .reverse();
@@ -407,6 +435,171 @@ async function loadLinks(sb: SupabaseClient): Promise<Partial<Database>> {
   };
 }
 
+/* -------------------------------------------------------------- CRM */
+
+async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
+  const [companyRows, clientRows, propertyRows, configRows, folderRows, obcRows, itemRows] =
+    await Promise.all([
+      fetchAll(sb, "companies", "name", "id"),
+      fetchAll(sb, "clients", "full_name", "id"),
+      fetchAll(sb, "properties", "name", "id"),
+      fetchAll(sb, "property_configs", "property_id", "position", "id"),
+      fetchAll(sb, "property_drive_folders", "property_id", "name"),
+      fetchAll(sb, "obcs", "created_at", "id"),
+      fetchAll(sb, "obc_items", "obc_id", "position", "id"),
+    ]);
+
+  const companies: Company[] = companyRows.map((r) => ({
+    id: str(r.id),
+    name: str(r.name),
+    legalName: str(r.legal_name),
+    gstin: str(r.gstin),
+    pan: str(r.pan),
+    reraPromoterId: str(r.rera_promoter_id),
+    address: str(r.address),
+    city: str(r.city),
+    website: str(r.website),
+    phone: str(r.phone),
+    email: str(r.email),
+    logoUrl: str(r.logo_url),
+    accountOwnerId: nullable(r.account_owner_id),
+    status: r.status as Company["status"],
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+
+  const clients: Client[] = clientRows.map((r) => ({
+    id: str(r.id),
+    companyId: str(r.company_id),
+    fullName: str(r.full_name),
+    designation: str(r.designation),
+    mobile: str(r.mobile),
+    whatsapp: str(r.whatsapp),
+    email: str(r.email),
+    role: (r.role as Client["role"]) ?? null,
+    status: r.status as Client["status"],
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+
+  const configs = groupBy<PropertyConfig>(configRows, "property_id", (r) => ({
+    id: str(r.id),
+    config: str(r.config),
+    sqFt: num(r.sq_ft),
+    price: num(r.price),
+    status: r.status as PropertyConfig["status"],
+  }));
+  const folders = groupBy<DriveFolder>(folderRows, "property_id", (r) => ({
+    id: str(r.id),
+    name: str(r.name),
+    folderId: str(r.folder_id),
+    url: str(r.url),
+  }));
+
+  const properties: Property[] = propertyRows.map((r) => {
+    const id = str(r.id);
+    return {
+      id,
+      companyId: str(r.company_id),
+      clientId: nullable(r.client_id),
+      name: str(r.name),
+      description: str(r.description),
+      address: str(r.address),
+      mapsUrl: str(r.maps_url),
+      maharera: str(r.maharera_number),
+      driveFolderId: str(r.drive_folder_id),
+      driveFolderUrl: str(r.drive_folder_url),
+      configs: configs.get(id) ?? [],
+      folders: folders.get(id) ?? [],
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    };
+  });
+
+  const items = groupBy<ObcItem>(itemRows, "obc_id", (r) => ({
+    id: str(r.id),
+    service: str(r.service),
+    quantity: num(r.quantity),
+    description: str(r.description),
+    briefDescription: str(r.brief_description),
+  }));
+
+  const obcs: Obc[] = obcRows
+    .map((r) => ({
+      id: str(r.id),
+      code: str(r.code),
+      companyId: str(r.company_id),
+      clientId: nullable(r.client_id),
+      propertyId: nullable(r.property_id),
+      zohoQuoteId: str(r.zoho_quote_id),
+      zohoQuoteNumber: str(r.zoho_quote_number),
+      notes: str(r.notes),
+      status: r.status as Obc["status"],
+      submittedAt: opt(r.submitted_at),
+      convertedAt: opt(r.converted_at),
+      projectId: nullable(r.project_id),
+      items: items.get(str(r.id)) ?? [],
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    }))
+    // Newest first, as the lists expect.
+    .reverse();
+
+  return { companies, clients, properties, obcs };
+}
+
+async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
+  const rows = await fetchAll(sb, "content_bank", "created_at", "id");
+  const contentEntries: ContentEntry[] = rows
+    .map((r) => ({
+      id: str(r.id),
+      projectId: str(r.project_id),
+      taskId: nullable(r.task_id),
+      date: dateOnly(r.entry_date),
+      type: r.type as ContentEntry["type"],
+      onPic: str(r.on_pic),
+      caption: str(r.caption),
+      description: str(r.description),
+      referenceLinks: (r.reference_links as string[]) ?? [],
+      billingType: r.billing_type as ContentEntry["billingType"],
+      allottedTo: nullable(r.allotted_to),
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    }))
+    .reverse();
+  return { contentEntries };
+}
+
+async function loadCollab(sb: SupabaseClient): Promise<Partial<Database>> {
+  const [commentRows, minuteRows] = await Promise.all([
+    fetchAll(sb, "comments", "created_at", "id"),
+    fetchAll(sb, "minutes", "meeting_date", "id"),
+  ]);
+  const comments: Comment[] = commentRows.map((r) => ({
+    id: str(r.id),
+    entityType: r.entity_type as CollabEntity,
+    entityId: str(r.entity_id),
+    body: str(r.body),
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+  const minutes: MeetingMinutes[] = minuteRows
+    .map((r) => ({
+      id: str(r.id),
+      entityType: r.entity_type as CollabEntity,
+      entityId: str(r.entity_id),
+      title: str(r.title),
+      meetingDate: dateOnly(r.meeting_date),
+      attendees: str(r.attendees),
+      body: str(r.body),
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    }))
+    // Most recent meeting first.
+    .reverse();
+  return { comments, minutes };
+}
+
 const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>> = {
   users: loadUsers,
   projects: loadProjects,
@@ -417,6 +610,9 @@ const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>>
   calendar: loadCalendar,
   notifications: loadNotifications,
   links: loadLinks,
+  crm: loadCrm,
+  content: loadContent,
+  collab: loadCollab,
 };
 
 /** Fetch the given scopes in parallel and return the slices to merge in. */
@@ -442,6 +638,10 @@ export function projectRow(p: Omit<Project, "services" | "memberIds" | "recurren
     status: p.status,
     priority: p.priority,
     leader_id: p.leaderId,
+    company_id: p.companyId,
+    client_id: p.clientId,
+    property_id: p.propertyId,
+    obc_id: p.obcId,
   };
 }
 
@@ -498,6 +698,10 @@ export const PROJECT_COLUMNS: Record<string, string> = {
   status: "status",
   priority: "priority",
   leaderId: "leader_id",
+  companyId: "company_id",
+  clientId: "client_id",
+  propertyId: "property_id",
+  obcId: "obc_id",
 };
 
 export const TASK_COLUMNS: Record<string, string> = {
@@ -533,6 +737,88 @@ export const VENDOR_COLUMNS: Record<string, string> = {
   rate: "rate",
   notes: "notes",
 };
+
+export const COMPANY_COLUMNS: Record<string, string> = {
+  name: "name",
+  legalName: "legal_name",
+  gstin: "gstin",
+  pan: "pan",
+  reraPromoterId: "rera_promoter_id",
+  address: "address",
+  city: "city",
+  website: "website",
+  phone: "phone",
+  email: "email",
+  logoUrl: "logo_url",
+  accountOwnerId: "account_owner_id",
+  status: "status",
+};
+
+export const CLIENT_COLUMNS: Record<string, string> = {
+  companyId: "company_id",
+  fullName: "full_name",
+  designation: "designation",
+  mobile: "mobile",
+  whatsapp: "whatsapp",
+  email: "email",
+  role: "role",
+  status: "status",
+};
+
+export const PROPERTY_COLUMNS: Record<string, string> = {
+  companyId: "company_id",
+  clientId: "client_id",
+  name: "name",
+  description: "description",
+  address: "address",
+  mapsUrl: "maps_url",
+  maharera: "maharera_number",
+};
+
+export const OBC_COLUMNS: Record<string, string> = {
+  companyId: "company_id",
+  clientId: "client_id",
+  propertyId: "property_id",
+  zohoQuoteId: "zoho_quote_id",
+  zohoQuoteNumber: "zoho_quote_number",
+  notes: "notes",
+  status: "status",
+  projectId: "project_id",
+};
+
+export const CONTENT_COLUMNS: Record<string, string> = {
+  projectId: "project_id",
+  taskId: "task_id",
+  date: "entry_date",
+  type: "type",
+  onPic: "on_pic",
+  caption: "caption",
+  description: "description",
+  referenceLinks: "reference_links",
+  billingType: "billing_type",
+  allottedTo: "allotted_to",
+};
+
+/** Line items are rewritten wholesale whenever their parent is saved. */
+export const configRow = (propertyId: string, c: PropertyConfig, position: number) => ({
+  id: c.id,
+  property_id: propertyId,
+  position,
+  config: c.config,
+  sq_ft: c.sqFt,
+  price: c.price,
+  status: c.status,
+});
+
+export const obcItemRow = (obcId: string, i: ObcItem, position: number) => ({
+  id: i.id,
+  obc_id: obcId,
+  position,
+  service: i.service,
+  quantity: i.quantity,
+  description: i.description,
+  brief_description: i.briefDescription,
+});
 
 export function templateItemRow(item: TaskTemplateItem) {
   return {

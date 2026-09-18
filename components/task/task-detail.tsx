@@ -31,6 +31,7 @@ import {
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import type { Review, Submission } from "@/lib/types";
+import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
 import { TaskFormModal } from "./task-form";
@@ -177,6 +178,9 @@ export function TaskDetailDrawer({
               <RichText html={task.description} />
             </Section>
           ) : null}
+
+          {/* Content Bank — the writer's interface, and everyone else's link */}
+          <TaskContentSection task={task} project={project ?? null} />
 
           {/* Submission & review history (§12.3) */}
           <Section
