@@ -124,7 +124,7 @@ export default function ProfilePage() {
                 [
                   ["Projects", gate.projects],
                   ["Tasks", gate.tasks],
-                  ["Individual tasks", gate.individualTasks],
+                  ["Individual tasks (under Tasks)", gate.individualTasks],
                   ["Expenses", gate.expenses],
                   ["Workload", gate.workload],
                   ["Vendors", gate.vendors],

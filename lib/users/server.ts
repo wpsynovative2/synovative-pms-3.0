@@ -10,6 +10,19 @@ export const USER_MANAGERS: Role[] = ["super_admin", "admin", "hr_admin"];
 
 export const MIN_PASSWORD = 8;
 
+/** Matches the profiles_capacity_sane constraint in 0011. */
+export const MAX_CAPACITY = 24;
+
+/** Hours per working day. Absent means "leave it as it is" (§14). */
+export function capacityError(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0 || hours > MAX_CAPACITY) {
+    return `Daily capacity must be between 0 and ${MAX_CAPACITY} hours.`;
+  }
+  return null;
+}
+
 const ASSIGNABLE: Role[] = ["admin", "manager", "hr_admin", "team_leader", "team_member"];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

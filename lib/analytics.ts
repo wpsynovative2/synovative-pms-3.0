@@ -98,8 +98,6 @@ export interface WorkloadRow {
   overAllocated: boolean;
 }
 
-const HOURS_PER_DAY = 8;
-
 export function workloadRows(
   users: User[],
   tasks: Task[],
@@ -107,10 +105,12 @@ export function workloadRows(
   range: { from: string; to: string },
 ): WorkloadRow[] {
   const workingDays = workingDaysInRange(range.from, range.to, calendar);
-  const capacityHours = workingDays.length * HOURS_PER_DAY;
   const weekEnd = range.to;
 
   return users.map((user) => {
+    // Capacity belongs to the person, not the calendar: part-timers and
+    // shared resources carry a smaller day than everyone else.
+    const capacityHours = workingDays.length * user.capacityHoursPerDay;
     const mine = tasks.filter((t) => t.assigneeId === user.id);
     // A task loads the window when its [start, due] span overlaps it.
     const overlapping = mine.filter(

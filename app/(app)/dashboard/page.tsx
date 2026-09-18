@@ -29,8 +29,8 @@ import { addDays, formatShortDate, todayISO } from "@/lib/calendar";
 import { PROJECT_STATUS_STYLE, TASK_STATUS_STYLE } from "@/lib/master-data";
 import {
   canReviewExpense,
-  canReviewTask,
   isFinance,
+  isMyReviewQueue,
   visibleProjects,
   visibleTasks,
 } from "@/lib/permissions";
@@ -74,7 +74,7 @@ export default function DashboardPage() {
       db.tasks.filter(
         (t) =>
           (t.status === "Submitted" || t.status === "Waiting for Client Response") &&
-          canReviewTask(user, t, t.projectId ? (projectById(t.projectId) ?? null) : null),
+          isMyReviewQueue(user, t, t.projectId ? (projectById(t.projectId) ?? null) : null),
       ),
     [db.tasks, user, projectById],
   );

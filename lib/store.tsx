@@ -424,9 +424,16 @@ export interface NewUserInput {
   password: string;
   role: Role;
   departments: string[];
+  /** Hours per working day; defaults to a standard day when left out. */
+  capacityHoursPerDay?: number;
 }
 
-export type UserPatch = Partial<Pick<User, "fullName" | "email" | "role" | "departments" | "active">> & {
+export type UserPatch = Partial<
+  Pick<
+    User,
+    "fullName" | "email" | "role" | "departments" | "active" | "capacityHoursPerDay"
+  >
+> & {
   /** Resets the password and asks the user to change it again. */
   password?: string;
 };

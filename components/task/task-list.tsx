@@ -336,11 +336,24 @@ export function TaskListCard({
   }
   return (
     <Card className="overflow-hidden">
-      {tasks.map((t) => (
-        <TaskRow key={t.id} task={t} onOpen={onOpen} showProject={showProject} />
-      ))}
+      {/* Re-keying on the visible set restarts the entrance animation whenever
+          a filter changes which rows are shown. */}
+      <div key={signatureOf(tasks)} className="rows-in">
+        {tasks.map((t) => (
+          <TaskRow key={t.id} task={t} onOpen={onOpen} showProject={showProject} />
+        ))}
+      </div>
     </Card>
   );
+}
+
+/** Cheap stable hash of the visible rows, used only as an animation key. */
+function signatureOf(tasks: Task[]): string {
+  let h = 0;
+  for (const t of tasks) {
+    for (let i = 0; i < t.id.length; i++) h = (Math.imul(h, 31) + t.id.charCodeAt(i)) | 0;
+  }
+  return `${tasks.length}:${h}`;
 }
 
 /* -------------------------------------------------------------- timeline */

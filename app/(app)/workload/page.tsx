@@ -126,7 +126,7 @@ export default function WorkloadPage() {
           icon={<IconWarning size={17} />}
           label="Over-allocated"
           value={overAllocated}
-          hint="Above an 8h/working-day capacity"
+          hint="Above their own daily capacity"
           tone={overAllocated ? "red" : "green"}
         />
       </div>

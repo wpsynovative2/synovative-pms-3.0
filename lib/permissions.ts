@@ -188,6 +188,17 @@ export function canReviewTask(
   return !!project && isProjectLeader(u, project);
 }
 
+/**
+ * The "Awaiting my review" queue. Being *allowed* to review something is not the
+ * same as it being yours to chase: a Super Admin may review anything in the
+ * company, but their queue is the work they allotted themselves plus the
+ * projects they lead. Opening someone else's task and reviewing it still works.
+ */
+export function isMyReviewQueue(u: User, task: Task, project: Project | null): boolean {
+  if (!canReviewTask(u, task, project)) return false;
+  return task.createdBy === u.id || (!!project && isProjectLeader(u, project));
+}
+
 /* -------------------------------------------------------------- task view */
 
 export function canViewTask(
@@ -286,6 +297,7 @@ export interface NavGate {
   users: boolean;
   calendar: boolean;
   links: boolean;
+  recurrence: boolean;
 }
 
 export function navGate(u: User): NavGate {
@@ -301,5 +313,7 @@ export function navGate(u: User): NavGate {
     users: canAddUsers(u),
     calendar: true,
     links: true,
+    // Everyone can see what repeats; only managers can change it.
+    recurrence: true,
   };
 }

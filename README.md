@@ -50,6 +50,8 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0008_task_visibility.sql` | Team Leaders lose blanket read access: a project needs at least one of your tasks in it |
 | `0009_review_outcomes.sql` | The "Waiting for Client Response" review outcome and task status |
 | `0010_flexible_assignment.sql` | Optional Project Leader and assignee, department-wide Team Leader visibility, and the new overdue rule |
+| `0011_capacity_and_task_home.sql` | Per-person daily capacity, and individual tasks moving under `/tasks` |
+| `0012_recurrence_pause.sql` | Pausing a repeat, which skips the dates it covers rather than banking them |
 
 ### 4. The first Super Admin
 
@@ -88,7 +90,7 @@ All ten modules from the PRD:
 | Dashboard (running timer, your week, review queue) | `/dashboard` | §11.4 |
 | Projects + project detail with tasks, time, expenses, team, activity | `/projects` | §7 |
 | Project tasks with the full submission/review lifecycle | `/tasks` | §9, §12 |
-| Individual tasks | `/individual-tasks` | §10 |
+| Individual tasks — under Tasks, via its type filter | `/tasks?type=individual` | §10 |
 | Project expenses and the Accounts & Finance verification queue | `/expenses` | §8 |
 | Workload with per-person capacity | `/workload` | §14 |
 | Vendors directory | `/vendors` | §15 |
@@ -98,6 +100,7 @@ All ten modules from the PRD:
 | Users | `/users` | §6 |
 | In-app notifications | `/notifications` | §17 |
 | Operational links — shared Google Drive links in groups | `/links` | — |
+| Recurrence — every repeating project and individual task | `/recurrence` | — |
 
 Behaviour worth pointing at specifically:
 

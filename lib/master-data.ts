@@ -83,6 +83,13 @@ export const PROJECT_STATUSES: ProjectStatus[] = [
   "Archived",
 ];
 
+/**
+ * A standard working day. It is the default capacity for a new account, and
+ * the fixed rate the estimate picker converts days and weeks at — so an
+ * estimate means the same thing no matter who the task is assigned to.
+ */
+export const WORKDAY_HOURS = 8;
+
 export const PRIORITIES: Priority[] = ["Low", "Medium", "High", "Critical"];
 
 export const TASK_STATUSES: TaskStatus[] = [

@@ -32,6 +32,8 @@ export interface User {
   departments: string[];
   active: boolean;
   mustChangePassword: boolean;
+  /** Hours this person can take on per working day; drives Workload (§14). */
+  capacityHoursPerDay: number;
   createdAt: string;
 }
 
@@ -68,6 +70,11 @@ export interface RecurrenceSeries {
   anchor: string;
   /** Last date already materialised; occurrences after it are still to come. */
   cursor: string;
+  /**
+   * Paused series keep their rule and their history but produce nothing. The
+   * dates that pass while paused are skipped, not banked (0012).
+   */
+  paused: boolean;
 }
 
 /** Stored on each generated occurrence, pointing back at its source. */

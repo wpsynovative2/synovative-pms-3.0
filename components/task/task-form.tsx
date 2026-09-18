@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
+import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, Select, cx } from "@/components/ui/primitives";
@@ -9,8 +10,13 @@ import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
-import { DEPARTMENTS, PRIORITIES, TASK_STATUSES } from "@/lib/master-data";
-import { REVIEWER_ONLY_STATUSES } from "@/lib/master-data";
+import {
+  DEPARTMENTS,
+  PRIORITIES,
+  REVIEWER_ONLY_STATUSES,
+  TASK_STATUSES,
+  WORKDAY_HOURS,
+} from "@/lib/master-data";
 import { canReviewTask, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
@@ -340,17 +346,16 @@ export function TaskFormModal({
           </Field>
 
           <Field
-            label="Estimated hours"
+            label="Estimated effort"
             required
+            hint={`A day counts as ${WORKDAY_HOURS}h, a week as ${WORKDAY_HOURS * 5}h.`}
             error={touched ? errors.estimatedHours : undefined}
           >
-            <Input
-              type="number"
-              min="0.5"
-              step="0.5"
-              value={form.estimatedHours}
-              onChange={(e) => set("estimatedHours", e.target.value)}
-              placeholder="8"
+            <DurationField
+              valueHours={form.estimatedHours ? Number(form.estimatedHours) : null}
+              onChange={(h: number | null) =>
+                set("estimatedHours", h === null ? "" : String(h))
+              }
             />
           </Field>
         </div>

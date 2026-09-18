@@ -60,8 +60,8 @@ import {
   canDeleteProject,
   canEditProject,
   canReviewExpense,
-  canReviewTask,
   canViewProject,
+  isMyReviewQueue,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
@@ -157,7 +157,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     : undefined;
 
   const underReview = tasks.filter((t) => UNDER_REVIEW.includes(t.status));
-  const forReview = underReview.filter((t) => canReviewTask(user, t, project));
+  const forReview = underReview.filter((t) => isMyReviewQueue(user, t, project));
   const scopedTasks =
     taskScope === "review" ? forReview : taskScope === "under-review" ? underReview : tasks;
   const filteredTasks = applyTaskFilters(scopedTasks, filters);

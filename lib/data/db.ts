@@ -118,6 +118,7 @@ function readSeries(r: Row): RecurrenceSeries | null {
     rule: r.recurrence as RecurrenceRule,
     anchor: dateOnly(r.recurrence_anchor),
     cursor: dateOnly(r.recurrence_cursor),
+    paused: Boolean(r.recurrence_paused),
   };
 }
 
@@ -131,11 +132,13 @@ function readLink(r: Row): SeriesLink | null {
 }
 
 /**
- * Only the rule is written; the database sets anchor (= start date) and owns
- * the cursor (0004_recurrence.sql), so a client can never rewind a series.
+ * Only the rule and the pause flag are written; the database sets anchor
+ * (= start date) and owns the cursor (0004_recurrence.sql), so a client can
+ * never rewind a series.
  */
 export const seriesColumns = (series: RecurrenceSeries | null | undefined) => ({
   recurrence: series ? series.rule : null,
+  recurrence_paused: series ? series.paused : false,
 });
 
 /* ----------------------------------------------------------------- scopes */
@@ -154,6 +157,7 @@ async function loadUsers(sb: SupabaseClient): Promise<Partial<Database>> {
     departments: byProfile.get(str(r.id)) ?? [],
     active: Boolean(r.active),
     mustChangePassword: Boolean(r.must_change_password),
+    capacityHoursPerDay: num(r.capacity_hours_per_day),
     createdAt: str(r.created_at),
   }));
   return { users };

@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/primitives";
 import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { formatDate } from "@/lib/calendar";
-import { DEPARTMENTS } from "@/lib/master-data";
+import { DEPARTMENTS, WORKDAY_HOURS } from "@/lib/master-data";
 import {
   assignableRoles,
   canAddUsers,
@@ -292,6 +292,7 @@ export default function UsersPage() {
                   password: payload.password ?? "",
                   role: payload.role ?? "team_member",
                   departments: payload.departments ?? [],
+                  capacityHoursPerDay: payload.capacityHoursPerDay ?? WORKDAY_HOURS,
                 });
             if (result.ok) {
               showToast(editing ? "Changes saved." : `${payload.fullName} can now sign in.`, "success");
@@ -336,6 +337,9 @@ function UserFormModal({
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>(editing?.role ?? "team_member");
   const [departments, setDepartments] = useState<string[]>(editing?.departments ?? []);
+  const [capacity, setCapacity] = useState(
+    String(editing?.capacityHoursPerDay ?? WORKDAY_HOURS),
+  );
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -357,6 +361,10 @@ function UserFormModal({
         ? `At least ${MIN_PASSWORD} characters.`
         : undefined,
     departments: departments.length === 0 ? "Pick at least one department." : undefined,
+    capacity:
+      !Number.isFinite(Number(capacity)) || Number(capacity) <= 0 || Number(capacity) > 24
+        ? "Between 0 and 24 hours."
+        : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -383,6 +391,7 @@ function UserFormModal({
                 fullName: fullName.trim(),
                 email: email.trim().toLowerCase(),
                 departments: multiDepartment ? departments : departments.slice(0, 1),
+                capacityHoursPerDay: Number(capacity),
               };
               // Leave the role out when it isn't changing — a Super Admin's own
               // role isn't in the assignable list and must not be re-sent.
@@ -471,6 +480,22 @@ function UserFormModal({
               <option value="super_admin">{ROLE_LABEL.super_admin}</option>
             ) : null}
           </Select>
+        </Field>
+
+        <Field
+          label="Capacity per working day"
+          required
+          hint={`Hours this person can take on each working day — drives Workload. A standard day is ${WORKDAY_HOURS}h.`}
+          error={touched ? errors.capacity : undefined}
+        >
+          <Input
+            type="number"
+            min={1}
+            max={24}
+            step={0.5}
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+          />
         </Field>
 
         <Field

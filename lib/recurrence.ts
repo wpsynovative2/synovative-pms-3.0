@@ -222,6 +222,8 @@ export function seriesFor(
     rule: normalizeRule(rule),
     anchor,
     cursor: existing ? existing.cursor : initialCursor(anchor),
+    // Editing the rule never silently resumes a series someone paused.
+    paused: existing?.paused ?? false,
   };
 }
 

@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
-import { IconTemplate } from "@/components/ui/icons";
+import { DurationField } from "@/components/ui/duration-field";
+import { IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Avatar, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
@@ -10,15 +11,33 @@ import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
+  DEPARTMENTS,
   PRIORITIES,
   PROJECT_COLORS,
   PROJECT_STATUSES,
   SERVICES,
+  WORKDAY_HOURS,
 } from "@/lib/master-data";
 import { canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
 import type { Priority, Project, ProjectStatus, RecurrenceRule } from "@/lib/types";
+
+/**
+ * A task typed straight into the create-project form. For a repeating project
+ * these are what every occurrence copies, so it matters that they can be set up
+ * with the project rather than afterwards.
+ */
+interface TaskDraft {
+  key: string;
+  title: string;
+  department: string;
+  assigneeId: string;
+  priority: Priority;
+  estimatedHours: number;
+  startDate: string;
+  dueDate: string;
+}
 
 interface FormState {
   name: string;
@@ -45,7 +64,7 @@ export function ProjectFormModal({
   project?: Project;
   onCreated?: (p: Project) => void;
 }) {
-  const { db, currentUser, createProject, createProjectFromTemplate, updateProject } =
+  const { db, currentUser, createProject, createProjectFromTemplate, createTask, updateProject } =
     useStore();
 
   const defaultStart = nextWorkingDay(todayISO(), db.calendar);
@@ -68,6 +87,7 @@ export function ProjectFormModal({
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(
     project?.recurrence?.rule ?? null,
   );
+  const [drafts, setDrafts] = useState<TaskDraft[]>([]);
   const [touched, setTouched] = useState(false);
 
   // Only the source of a series carries the rule; generated copies don't repeat.
@@ -78,6 +98,25 @@ export function ProjectFormModal({
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  const setDraft = (key: string, patch: Partial<TaskDraft>) =>
+    setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+
+  /** A new row starts inside the project window, so its dates are always valid. */
+  const addDraft = () =>
+    setDrafts((ds) => [
+      ...ds,
+      {
+        key: crypto.randomUUID(),
+        title: "",
+        department: "",
+        assigneeId: "",
+        priority: form.priority,
+        estimatedHours: WORKDAY_HOURS / 2,
+        startDate: form.startDate,
+        dueDate: form.deadline,
+      },
+    ]);
 
   const template = db.projectTemplates.find((t) => t.id === templateId);
 
@@ -127,6 +166,9 @@ export function ProjectFormModal({
         ? "The deadline must be on or after the start date."
         : undefined,
     repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
+    tasks: drafts.some((d) => !d.title.trim() || !d.department)
+      ? "Every task needs a title and a department."
+      : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -160,6 +202,28 @@ export function ProjectFormModal({
     const created = template
       ? createProjectFromTemplate({ templateId: template.id, project: payload, assignments })
       : createProject(payload);
+
+    // Tasks typed in above, on top of anything the template brought.
+    const clamp = (iso: string) =>
+      iso < form.startDate ? form.startDate : iso > form.deadline ? form.deadline : iso;
+    for (const d of drafts) {
+      const startDate = clamp(d.startDate);
+      const dueDate = clamp(d.dueDate < startDate ? startDate : d.dueDate);
+      createTask({
+        projectId: created.id,
+        title: d.title.trim(),
+        description: "",
+        department: d.department,
+        assigneeId: d.assigneeId || null,
+        status: "Not Started",
+        priority: d.priority,
+        startDate,
+        dueDate,
+        estimatedHours: d.estimatedHours,
+        tags: [],
+      });
+    }
+
     onClose();
     onCreated?.(created);
   };
@@ -424,6 +488,122 @@ export function ProjectFormModal({
               })}
             </ul>
           </div>
+        ) : null}
+
+        {!project ? (
+          <Field
+            label="Tasks"
+            hint={
+              repeat
+                ? "These are the tasks every occurrence of this repeating project will copy."
+                : "Optional — add the project's tasks now, or later from the project itself."
+            }
+            error={touched ? errors.tasks : undefined}
+          >
+            <div className="flex flex-col gap-2.5">
+              {drafts.map((d, i) => (
+                <div
+                  key={d.key}
+                  className="rounded-xl border border-line bg-surface-2 p-3"
+                >
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-ink-faint">
+                      Task {i + 1}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      className="ml-auto"
+                      onClick={() =>
+                        setDrafts((ds) => ds.filter((x) => x.key !== d.key))
+                      }
+                      aria-label={`Remove task ${i + 1}`}
+                    >
+                      <IconTrash size={13} />
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5">
+                    <Input
+                      value={d.title}
+                      onChange={(e) => setDraft(d.key, { title: e.target.value })}
+                      placeholder="What needs doing?"
+                    />
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <SearchSelect
+                        options={DEPARTMENTS.map((x) => ({ value: x, label: x }))}
+                        value={d.department}
+                        onChange={(v) =>
+                          // The assignee comes from the department, so it can't
+                          // survive the department changing under it.
+                          setDraft(d.key, { department: v, assigneeId: "" })
+                        }
+                        placeholder="Department"
+                      />
+                      <SearchSelect
+                        options={db.users
+                          .filter((u) => u.active && u.departments.includes(d.department))
+                          .map((u) => ({
+                            value: u.id,
+                            label: u.fullName,
+                            avatarName: u.fullName,
+                          }))}
+                        value={d.assigneeId}
+                        onChange={(v) => setDraft(d.key, { assigneeId: v })}
+                        placeholder="Nobody yet"
+                      />
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <DatePicker
+                        value={d.startDate}
+                        onChange={(v) => setDraft(d.key, { startDate: v })}
+                        config={db.calendar}
+                        min={form.startDate}
+                        max={form.deadline}
+                        allowPast
+                      />
+                      <DatePicker
+                        value={d.dueDate}
+                        onChange={(v) => setDraft(d.key, { dueDate: v })}
+                        config={db.calendar}
+                        min={d.startDate > form.startDate ? d.startDate : form.startDate}
+                        max={form.deadline}
+                        allowPast
+                      />
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <Select
+                        value={d.priority}
+                        onChange={(e) =>
+                          setDraft(d.key, { priority: e.target.value as Priority })
+                        }
+                        aria-label="Priority"
+                      >
+                        {PRIORITIES.map((x) => (
+                          <option key={x} value={x}>
+                            {x}
+                          </option>
+                        ))}
+                      </Select>
+                      <DurationField
+                        valueHours={d.estimatedHours}
+                        onChange={(h: number | null) =>
+                          setDraft(d.key, { estimatedHours: h ?? WORKDAY_HOURS / 2 })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <Button className="self-start" onClick={addDraft}>
+                <IconPlus size={14} /> Add task
+              </Button>
+            </div>
+          </Field>
         ) : null}
 
         {form.leaderId ? (

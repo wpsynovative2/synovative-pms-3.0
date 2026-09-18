@@ -5,6 +5,7 @@ import { outranksAccount } from "@/lib/permissions";
 import type { Role } from "@/lib/types";
 import {
   USER_MANAGERS,
+  capacityError,
   emailError,
   normaliseDepartments,
   passwordError,
@@ -58,6 +59,12 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/admin/
     if (invalid) return fail(400, invalid);
     role = body.role as Role;
     profile.role = role;
+  }
+
+  if ("capacityHoursPerDay" in body) {
+    const invalid = capacityError(body.capacityHoursPerDay);
+    if (invalid) return fail(400, invalid);
+    profile.capacity_hours_per_day = Number(body.capacityHoursPerDay);
   }
 
   if ("active" in body) {

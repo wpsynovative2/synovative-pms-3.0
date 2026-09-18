@@ -4,6 +4,7 @@ import { fail, requireCaller } from "@/lib/supabase/route-auth";
 import type { Role } from "@/lib/types";
 import {
   USER_MANAGERS,
+  capacityError,
   emailError,
   findAuthUserByEmail,
   normaliseDepartments,
@@ -29,7 +30,10 @@ export async function POST(request: NextRequest) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!fullName) return fail(400, "A full name is required.");
   const invalid =
-    emailError(email) ?? roleError(caller, body.role) ?? passwordError(body.password);
+    emailError(email) ??
+    roleError(caller, body.role) ??
+    passwordError(body.password) ??
+    capacityError(body.capacityHoursPerDay);
   if (invalid) return fail(400, invalid);
 
   const role = body.role as Role;
@@ -64,6 +68,10 @@ export async function POST(request: NextRequest) {
     email,
     role,
     active: true,
+    // Left out entirely when not given, so the column default applies.
+    ...(body.capacityHoursPerDay === undefined
+      ? {}
+      : { capacity_hours_per_day: Number(body.capacityHoursPerDay) }),
     // A shared login keeps its own password, so there's nothing to change.
     must_change_password: createdLogin,
   });

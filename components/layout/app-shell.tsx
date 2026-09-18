@@ -10,12 +10,12 @@ import {
   IconChevronLeft,
   IconClock,
   IconDashboard,
-  IconInbox,
   IconLink,
   IconLogout,
   IconMenu,
   IconPause,
   IconProjects,
+  IconRepeat,
   IconSend,
   IconSparkle,
   IconTasks,
@@ -65,10 +65,10 @@ function useNavItems(user: User): NavItem[] {
       show: gate.tasks,
     },
     {
-      href: "/individual-tasks",
-      label: "Individual Tasks",
-      icon: <IconInbox size={18} />,
-      show: gate.individualTasks,
+      href: "/recurrence",
+      label: "Recurrence",
+      icon: <IconRepeat size={18} />,
+      show: gate.recurrence,
     },
     {
       href: "/expenses",
@@ -397,7 +397,7 @@ function RunningTimerStrip({ user }: { user: User }) {
           href={
             project
               ? `/projects/${project.id}?task=${task.id}`
-              : `/individual-tasks?task=${task.id}`
+              : `/tasks?type=individual&task=${task.id}`
           }
           className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink hover:underline"
         >
