@@ -2,16 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { DatePicker } from "@/components/ui/date-picker";
-import { IconChevronDown, IconPlus, IconTrash } from "@/components/ui/icons";
-import { Modal } from "@/components/ui/modal";
-import {
-  Badge,
-  Button,
-  Field,
-  Input,
-  Select,
-  cx,
-} from "@/components/ui/primitives";
+import { IconContent, IconPlus, IconTrash } from "@/components/ui/icons";
+import { FullScreen } from "@/components/ui/modal";
+import { Badge, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
 import { todayISO } from "@/lib/calendar";
@@ -25,13 +18,14 @@ import {
 } from "@/lib/types";
 
 /*
- * Where a Content Writer actually writes. One task usually carries several
- * pieces — a reel script, three captions, the OOH line — so the composer holds
- * a list of drafts and saves them together rather than making the writer open
- * the same dialog five times.
+ * Where a Content Writer actually writes — the whole window, because this is
+ * the one screen in the app somebody sits in front of for an hour.
  *
- * Editing works through the same component with a single draft, so there is
- * one form to keep right.
+ * One task usually carries several pieces: a reel script, three captions, the
+ * OOH line. They are held as a list of drafts and saved together, with the
+ * pieces down the left and the piece being written filling the rest. Editing
+ * an existing entry runs through the same component with a single draft, so
+ * there is one writing surface to keep right.
  */
 
 interface Draft extends ContentInput {
@@ -83,7 +77,7 @@ export function ContentComposer({
   entry?: ContentEntry;
   onClose: () => void;
 }) {
-  const { db, currentUser, createContentEntry, updateContentEntry } = useStore();
+  const { db, currentUser, projectById, createContentEntry, updateContentEntry } = useStore();
   const user = currentUser!;
 
   // Projects the writer actually works on — the same set they may file against.
@@ -99,10 +93,10 @@ export function ContentComposer({
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     entry ? [fromEntry(entry)] : [blank(projectId ?? "", taskId)],
   );
-  const [open, setOpen] = useState<string>(() =>
-    entry ? entry.id : (drafts[0]?.key ?? ""),
-  );
+  const [activeKey, setActiveKey] = useState<string>(() => drafts[0]?.key ?? "");
   const [touched, setTouched] = useState(false);
+
+  const active = drafts.find((d) => d.key === activeKey) ?? drafts[0];
 
   const setDraft = (key: string, patch: Partial<Draft>) =>
     setDrafts((list) => list.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -118,14 +112,25 @@ export function ContentComposer({
       billingType: last?.billingType ?? "Count",
     };
     setDrafts((list) => [...list, next]);
-    setOpen(next.key);
+    setActiveKey(next.key);
   };
 
-  const valid = drafts.length > 0 && !drafts.some(incomplete);
+  const removeDraft = (key: string) => {
+    const rest = drafts.filter((d) => d.key !== key);
+    setDrafts(rest);
+    if (activeKey === key) setActiveKey(rest[rest.length - 1]?.key ?? "");
+  };
+
+  const unfinished = drafts.filter(incomplete);
+  const valid = drafts.length > 0 && unfinished.length === 0;
 
   const save = () => {
     setTouched(true);
-    if (!valid) return;
+    if (!valid) {
+      // Take the writer to the first piece that still needs something.
+      setActiveKey(unfinished[0]?.key ?? activeKey);
+      return;
+    }
     for (const d of drafts) {
       const payload: ContentInput = {
         projectId: d.projectId,
@@ -145,19 +150,26 @@ export function ContentComposer({
     onClose();
   };
 
+  const project = projectById(active?.projectId);
+
   return (
-    <Modal
+    <FullScreen
       open
       onClose={onClose}
-      size="xl"
       title={entry ? "Edit content" : "Write content"}
       subtitle={
-        entry
-          ? "Changes reach everyone working on this project"
-          : "Add as many pieces as this task needs — they save together"
+        project
+          ? `${project.name}${project.clientName ? ` · ${project.clientName}` : ""}`
+          : "Content Bank"
       }
       footer={
         <>
+          {touched && unfinished.length ? (
+            <span className="mr-auto text-[12px] text-st-rejected">
+              {unfinished.length} {unfinished.length === 1 ? "piece needs" : "pieces need"} something
+              written in them.
+            </span>
+          ) : null}
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save}>
             {entry
@@ -167,261 +179,271 @@ export function ContentComposer({
         </>
       }
     >
-      <div className="flex flex-col gap-3">
-        {drafts.map((d, index) => (
-          <DraftBlock
-            key={d.key}
-            draft={d}
-            index={index}
-            total={drafts.length}
-            expanded={open === d.key}
-            onToggle={() => setOpen(open === d.key ? "" : d.key)}
-            onChange={(patch) => setDraft(d.key, patch)}
-            onRemove={
-              drafts.length > 1
-                ? () => setDrafts((list) => list.filter((x) => x.key !== d.key))
-                : undefined
-            }
-            projectOptions={projectOptions}
-            lockProject={!!projectId}
-            showError={touched && incomplete(d)}
-          />
-        ))}
-
+      <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-5 px-4 py-5 lg:flex-row lg:gap-8 sm:px-6">
+        {/* ------------------------------------------------- the pieces --- */}
         {entry ? null : (
-          <div>
-            <Button onClick={addDraft}>
+          <aside className="lg:w-60 lg:shrink-0">
+            <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+              Pieces ({drafts.length})
+            </h3>
+            <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+              {drafts.map((d, i) => {
+                const needsWork = touched && incomplete(d);
+                return (
+                  <li key={d.key} className="shrink-0 lg:shrink">
+                    <button
+                      onClick={() => setActiveKey(d.key)}
+                      className={cx(
+                        "flex w-full min-w-48 items-center gap-2.5 rounded-card border px-3 py-2 text-left transition-colors lg:min-w-0",
+                        d.key === active?.key
+                          ? "border-brand-bright/50 bg-brand/10"
+                          : needsWork
+                            ? "border-st-rejected/40 bg-surface-2"
+                            : "border-line-soft bg-surface-2 hover:border-brand-bright/30",
+                      )}
+                    >
+                      <span
+                        className={cx(
+                          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                          d.key === active?.key
+                            ? "bg-brand text-white"
+                            : "bg-surface-3 text-ink-muted",
+                        )}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink">
+                          {d.caption.trim() || d.type}
+                        </span>
+                        <span className="block truncate text-[11px] text-ink-faint">
+                          {d.billingType}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <Button className="mt-2 w-full" onClick={addDraft}>
               <IconPlus size={14} /> Add content
             </Button>
-          </div>
+          </aside>
         )}
+
+        {/* -------------------------------------------------- the piece --- */}
+        {active ? (
+          <section className="min-w-0 flex-1 pb-6">
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand/15 text-brand-ink">
+                  <IconContent size={16} />
+                </span>
+                <h3 className="text-[15px] font-semibold text-ink">
+                  {active.caption.trim() || active.type}
+                </h3>
+                {touched && incomplete(active) ? (
+                  <Badge className="border-st-rejected/30 bg-st-rejected/15 text-st-rejected">
+                    Needs content
+                  </Badge>
+                ) : null}
+                {drafts.length > 1 ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    className="ml-auto"
+                    onClick={() => removeDraft(active.key)}
+                  >
+                    <IconTrash size={13} /> Remove
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="flex flex-col gap-5">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field label="Date" required>
+                    <DatePicker
+                      value={active.date}
+                      onChange={(v) => setDraft(active.key, { date: v })}
+                      config={db.calendar}
+                      allowPast
+                    />
+                  </Field>
+                  <Field label="CB type" required>
+                    <Select
+                      value={active.type}
+                      onChange={(e) =>
+                        setDraft(active.key, { type: e.target.value as ContentType })
+                      }
+                    >
+                      {CONTENT_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Billing type"
+                    hint="Counted against the retainer, or billed extra."
+                  >
+                    <Select
+                      value={active.billingType}
+                      onChange={(e) =>
+                        setDraft(active.key, {
+                          billingType: e.target.value as ContentBillingType,
+                        })
+                      }
+                    >
+                      {CONTENT_BILLING_TYPES.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+
+                {projectId ? null : (
+                  <Field label="Project" required>
+                    <SearchSelect
+                      options={projectOptions}
+                      value={active.projectId}
+                      onChange={(v) => setDraft(active.key, { projectId: v, allottedTo: null })}
+                      placeholder="Which project is this for?"
+                    />
+                  </Field>
+                )}
+
+                <Field label="On pic" hint="The words that appear on the creative itself.">
+                  <RichTextEditor
+                    value={active.onPic}
+                    onChange={(v) => setDraft(active.key, { onPic: v })}
+                    minHeight={120}
+                    placeholder="Headline, sub-line, offer strip…"
+                  />
+                </Field>
+
+                <Field label="Caption">
+                  <Input
+                    value={active.caption}
+                    onChange={(e) => setDraft(active.key, { caption: e.target.value })}
+                    placeholder="The caption that goes with the post"
+                  />
+                </Field>
+
+                <Field
+                  label="Content description"
+                  hint="The brief, the script or the body copy — whatever the team needs to build this."
+                >
+                  <RichTextEditor
+                    value={active.description}
+                    onChange={(v) => setDraft(active.key, { description: v })}
+                    minHeight={320}
+                    placeholder="Write the content here…"
+                  />
+                </Field>
+
+                <ReferenceLinks
+                  links={active.referenceLinks}
+                  onChange={(referenceLinks) => setDraft(active.key, { referenceLinks })}
+                />
+
+                <Allotment
+                  projectId={active.projectId}
+                  value={active.allottedTo}
+                  onChange={(allottedTo) => setDraft(active.key, { allottedTo })}
+                />
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
-    </Modal>
+    </FullScreen>
   );
 }
 
-/* ------------------------------------------------------------ one draft */
+/* ---------------------------------------------------------------- bits */
 
-function DraftBlock({
-  draft,
-  index,
-  total,
-  expanded,
-  onToggle,
+function ReferenceLinks({
+  links,
   onChange,
-  onRemove,
-  projectOptions,
-  lockProject,
-  showError,
 }: {
-  draft: Draft;
-  index: number;
-  total: number;
-  expanded: boolean;
-  onToggle: () => void;
-  onChange: (patch: Partial<Draft>) => void;
-  onRemove?: () => void;
-  projectOptions: { value: string; label: string; hint?: string }[];
-  lockProject: boolean;
-  showError: boolean;
+  links: string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <Field label="Reference links" hint="Moodboards, competitor posts, the client's mail.">
+      <div className="flex flex-col gap-2">
+        {links.map((link, i) => (
+          <div key={i} className="flex gap-2">
+            <Input
+              value={link}
+              onChange={(e) => onChange(links.map((l, at) => (at === i ? e.target.value : l)))}
+              placeholder="https://…"
+              aria-label={`Reference link ${i + 1}`}
+            />
+            <Button
+              variant="ghost"
+              aria-label="Remove link"
+              onClick={() => onChange(links.filter((_, at) => at !== i))}
+            >
+              <IconTrash size={14} />
+            </Button>
+          </div>
+        ))}
+        <div>
+          <Button size="sm" onClick={() => onChange([...links, ""])}>
+            <IconPlus size={14} /> Add link
+          </Button>
+        </div>
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Allotment is offered to the people already on that project, since the piece
+ * is handed to whoever will make the creative from it.
+ */
+function Allotment({
+  projectId,
+  value,
+  onChange,
+}: {
+  projectId: string;
+  value: string | null;
+  onChange: (next: string | null) => void;
 }) {
   const { db, projectById } = useStore();
 
-  // Allotment is offered to the people already on that project, since the
-  // piece is handed to whoever will make the creative from it.
   const people = useMemo(() => {
-    const project = projectById(draft.projectId);
+    const project = projectById(projectId);
     const ids = new Set<string>(project?.memberIds ?? []);
     if (project?.leaderId) ids.add(project.leaderId);
     for (const t of db.tasks) {
-      if (t.projectId === draft.projectId && t.assigneeId) ids.add(t.assigneeId);
+      if (t.projectId === projectId && t.assigneeId) ids.add(t.assigneeId);
     }
     return db.users
       .filter((u) => u.active && ids.has(u.id))
       .map((u) => ({ value: u.id, label: u.fullName, avatarName: u.fullName }));
-  }, [db.tasks, db.users, draft.projectId, projectById]);
-
-  const setLink = (i: number, value: string) =>
-    onChange({
-      referenceLinks: draft.referenceLinks.map((l, at) => (at === i ? value : l)),
-    });
+  }, [db.tasks, db.users, projectId, projectById]);
 
   return (
-    <section
-      className={cx(
-        "rounded-card border bg-surface-2",
-        showError ? "border-st-rejected/50" : "border-line-soft",
-      )}
+    <Field
+      label="Allotment to"
+      hint={
+        people.length ? "The team member who will build this." : "Nobody is on this project yet."
+      }
     >
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left"
-        aria-expanded={expanded}
-      >
-        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[11px] font-semibold text-brand-ink">
-          {index + 1}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">
-            {draft.caption.trim() || draft.type}
-          </span>
-          {total > 1 ? (
-            <span className="block text-[11px] text-ink-faint">
-              {draft.type} · {draft.billingType}
-            </span>
-          ) : null}
-        </span>
-        {showError ? (
-          <Badge className="border-st-rejected/30 bg-st-rejected/15 text-st-rejected">
-            Needs content
-          </Badge>
-        ) : null}
-        <IconChevronDown
-          size={15}
-          className={cx("shrink-0 text-ink-faint transition-transform", expanded && "rotate-180")}
-        />
-      </button>
-
-      {expanded ? (
-        <div className="flex flex-col gap-4 border-t border-line-soft px-3.5 py-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Date" required>
-              <DatePicker
-                value={draft.date}
-                onChange={(v) => onChange({ date: v })}
-                config={db.calendar}
-                allowPast
-              />
-            </Field>
-            <Field label="CB type" required>
-              <Select
-                value={draft.type}
-                onChange={(e) => onChange({ type: e.target.value as ContentType })}
-              >
-                {CONTENT_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Billing type" hint="Counted against the retainer, or billed extra.">
-              <Select
-                value={draft.billingType}
-                onChange={(e) =>
-                  onChange({ billingType: e.target.value as ContentBillingType })
-                }
-              >
-                {CONTENT_BILLING_TYPES.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-
-          {lockProject ? null : (
-            <Field label="Project" required>
-              <SearchSelect
-                options={projectOptions}
-                value={draft.projectId}
-                onChange={(v) => onChange({ projectId: v, allottedTo: null })}
-                placeholder="Which project is this for?"
-              />
-            </Field>
-          )}
-
-          <Field label="On pic" hint="The words that appear on the creative itself.">
-            <RichTextEditor
-              value={draft.onPic}
-              onChange={(v) => onChange({ onPic: v })}
-              minHeight={80}
-              placeholder="Headline, sub-line, offer strip…"
-            />
-          </Field>
-
-          <Field label="Caption">
-            <Input
-              value={draft.caption}
-              onChange={(e) => onChange({ caption: e.target.value })}
-              placeholder="The caption that goes with the post"
-            />
-          </Field>
-
-          <Field
-            label="Content description"
-            hint="The brief, the script or the body copy — whatever the team needs to build this."
-          >
-            <RichTextEditor
-              value={draft.description}
-              onChange={(v) => onChange({ description: v })}
-              minHeight={140}
-              placeholder="Write the content here…"
-            />
-          </Field>
-
-          <Field label="Reference links" hint="Moodboards, competitor posts, the client's mail.">
-            <div className="flex flex-col gap-2">
-              {draft.referenceLinks.map((link, i) => (
-                <div key={i} className="flex gap-2">
-                  <Input
-                    value={link}
-                    onChange={(e) => setLink(i, e.target.value)}
-                    placeholder="https://…"
-                    aria-label={`Reference link ${i + 1}`}
-                  />
-                  <Button
-                    variant="ghost"
-                    aria-label="Remove link"
-                    onClick={() =>
-                      onChange({
-                        referenceLinks: draft.referenceLinks.filter((_, at) => at !== i),
-                      })
-                    }
-                  >
-                    <IconTrash size={14} />
-                  </Button>
-                </div>
-              ))}
-              <div>
-                <Button
-                  size="sm"
-                  onClick={() => onChange({ referenceLinks: [...draft.referenceLinks, ""] })}
-                >
-                  <IconPlus size={14} /> Add link
-                </Button>
-              </div>
-            </div>
-          </Field>
-
-          <Field
-            label="Allotment to"
-            hint={
-              people.length
-                ? "The team member who will build this."
-                : "Nobody is on this project yet."
-            }
-          >
-            <SearchSelect
-              allowClear
-              disabled={!people.length}
-              options={people}
-              value={draft.allottedTo ?? ""}
-              onChange={(v) => onChange({ allottedTo: v || null })}
-              placeholder="Nobody yet"
-            />
-          </Field>
-
-          {onRemove ? (
-            <div className="flex justify-end border-t border-line-soft pt-3">
-              <Button variant="danger" size="sm" onClick={onRemove}>
-                <IconTrash size={13} /> Remove this piece
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
+      <SearchSelect
+        allowClear
+        disabled={!people.length}
+        options={people}
+        value={value ?? ""}
+        onChange={(v) => onChange(v || null)}
+        placeholder="Nobody yet"
+      />
+    </Field>
   );
 }

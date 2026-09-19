@@ -148,11 +148,6 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     [project, db.tasks, db.expenses],
   );
 
-  const tags = useMemo(
-    () => Array.from(new Set(tasks.flatMap((t) => t.tags))).sort(),
-    [tasks],
-  );
-
   if (!project || !stats) {
     return (
       <Card>
@@ -241,7 +236,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const forReview = underReview.filter((t) => isMyReviewQueue(user, t, project));
   const scopedTasks =
     taskScope === "review" ? forReview : taskScope === "under-review" ? underReview : tasks;
-  const filteredTasks = applyTaskFilters(scopedTasks, filters);
+  const filteredTasks = applyTaskFilters(scopedTasks, filters, db.projects);
 
   return (
     <div className="flex flex-col gap-5">
@@ -576,7 +571,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
             value={filters}
             onChange={setFilters}
             users={db.users}
-            tags={tags}
+            projects={db.projects}
+            showProject={false}
           />
 
           <TaskListCard

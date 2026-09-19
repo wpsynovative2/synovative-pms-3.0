@@ -96,12 +96,7 @@ export default function TasksPage() {
           ? underReview
           : scoped;
 
-  const tags = useMemo(
-    () => Array.from(new Set(scoped.flatMap((t) => t.tags))).sort(),
-    [scoped],
-  );
-
-  const filtered = applyTaskFilters(base, filters);
+  const filtered = applyTaskFilters(base, filters, db.projects);
   const today = todayISO();
   const mayCreateIndividual = canManageIndividualTasks(user);
 
@@ -195,7 +190,12 @@ export default function TasksPage() {
         )}
       </div>
 
-      <TaskFilters value={filters} onChange={setFilters} users={db.users} tags={tags} />
+      <TaskFilters
+        value={filters}
+        onChange={setFilters}
+        users={db.users}
+        projects={db.projects}
+      />
 
       <TaskListCard
         tasks={filtered}

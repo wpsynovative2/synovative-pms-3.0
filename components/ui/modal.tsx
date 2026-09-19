@@ -126,6 +126,71 @@ export function Modal({
   );
 }
 
+/**
+ * A workspace that takes the whole window — for work that deserves room rather
+ * than a dialog to squint into. Unlike Modal there is no scrim and no click-out:
+ * at this size a stray click outside the text should never discard the writing.
+ *
+ * The body is the only scrolling part, so a header and a footer stay put while
+ * a long piece is being written.
+ */
+export function FullScreen({
+  open,
+  onClose,
+  title,
+  subtitle,
+  toolbar,
+  children,
+  footer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  /** Sits in the header, beside the close button. */
+  toolbar?: React.ReactNode;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}) {
+  useOverlay(open, onClose);
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={typeof title === "string" ? title : undefined}
+      className="animate-fade-up fixed inset-0 z-50 flex flex-col bg-surface"
+    >
+      <header className="flex items-start gap-4 border-b border-line-soft px-4 py-3 sm:px-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold tracking-tight text-ink">{title}</h2>
+          {subtitle ? (
+            <p className="mt-0.5 truncate text-xs text-ink-muted">{subtitle}</p>
+          ) : null}
+        </div>
+        {toolbar}
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink"
+        >
+          <IconClose size={17} />
+        </button>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+
+      {footer ? (
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line-soft px-4 py-3 sm:px-6">
+          {footer}
+        </footer>
+      ) : null}
+    </div>
+  );
+}
+
 /** Right-hand slide-over — used for the task detail view. */
 export function Drawer({
   open,

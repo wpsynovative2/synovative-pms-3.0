@@ -15,7 +15,7 @@ import { DEPARTMENTS, PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib
 import { useStore } from "@/lib/store";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
-import type { Priority, Task, TaskStatus, User } from "@/lib/types";
+import type { Priority, Project, Task, TaskStatus, User } from "@/lib/types";
 import {
   DueDate,
   OverdueBadge,
@@ -27,18 +27,42 @@ import {
 
 /* ---------------------------------------------------------------- filters */
 
+/** How the list is ordered. "due" is the default the work queues up in. */
+export type TaskSort =
+  | "due"
+  | "dueDesc"
+  | "priority"
+  | "status"
+  | "title"
+  | "created"
+  | "logged";
+
+export const TASK_SORT_LABEL: Record<TaskSort, string> = {
+  due: "Due date — soonest",
+  dueDesc: "Due date — latest",
+  priority: "Priority — highest",
+  status: "Status",
+  title: "Title A–Z",
+  created: "Recently added",
+  logged: "Time logged — most",
+};
+
 export interface TaskFilterState {
   query: string;
   /** "overdue" is not a stored status — it is the same rule the badges use. */
   status: TaskStatus | "all" | "open" | "overdue";
   priority: Priority | "all";
   department: string;
+  /** A profile id, "all", or "none" for work nobody holds yet. */
   assigneeId: string;
   /** Who allotted the task, i.e. who created it. */
   createdById: string;
   from: string;
   to: string;
-  tag: string;
+  /** A service on the task's *project*; individual tasks have none. */
+  service: string;
+  projectId: string;
+  sort: TaskSort;
 }
 
 export const emptyTaskFilters: TaskFilterState = {
@@ -50,17 +74,40 @@ export const emptyTaskFilters: TaskFilterState = {
   assigneeId: "all",
   from: "",
   to: "",
-  tag: "all",
+  service: "all",
+  projectId: "all",
+  sort: "due",
 };
 
+/** Highest first, so Critical work sorts to the top. */
+const PRIORITY_RANK: Record<Priority, number> = {
+  Critical: 0,
+  High: 1,
+  Medium: 2,
+  Low: 3,
+};
+
+/** The order a task moves through, rather than the alphabet. */
+const STATUS_RANK = new Map(TASK_STATUSES.map((s, i) => [s, i]));
+
 /**
- * Filters, then orders the list the way the work actually queues up: soonest
- * due date first, with finished (Approved) tasks pushed to the bottom so they
- * stop competing with what still needs doing.
+ * Filters, then orders the list.
+ *
+ * Whatever the chosen order, finished (Approved) work is pushed to the bottom
+ * so it stops competing with what still needs doing — the one rule that holds
+ * across every sort.
+ *
+ * `projects` is only needed for the service filter, which reads the service
+ * list off the task's project.
  */
-export function applyTaskFilters(tasks: Task[], f: TaskFilterState): Task[] {
+export function applyTaskFilters(
+  tasks: Task[],
+  f: TaskFilterState,
+  projects?: Project[],
+): Task[] {
   const q = f.query.trim().toLowerCase();
   const done = (t: Task) => (t.status === "Approved" ? 1 : 0);
+  const servicesOf = new Map((projects ?? []).map((p) => [p.id, p.services]));
   const matched = tasks.filter((t) => {
     if (q && !t.title.toLowerCase().includes(q) && !t.tags.some((x) => x.toLowerCase().includes(q)))
       return false;
@@ -71,39 +118,65 @@ export function applyTaskFilters(tasks: Task[], f: TaskFilterState): Task[] {
     } else if (f.status !== "all" && t.status !== f.status) return false;
     if (f.priority !== "all" && t.priority !== f.priority) return false;
     if (f.department !== "all" && t.department !== f.department) return false;
-    if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId) return false;
+    if (f.assigneeId === "none") {
+      if (t.assigneeId !== null) return false;
+    } else if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId) return false;
     if (f.createdById !== "all" && t.createdBy !== f.createdById) return false;
-    if (f.tag !== "all" && !t.tags.includes(f.tag)) return false;
+    if (f.projectId !== "all" && t.projectId !== f.projectId) return false;
+    if (f.service !== "all") {
+      // Services belong to the project, so an individual task can never match.
+      const services = t.projectId ? servicesOf.get(t.projectId) : undefined;
+      if (!services?.includes(f.service)) return false;
+    }
     if (f.from && t.dueDate < f.from) return false;
     if (f.to && t.dueDate > f.to) return false;
     return true;
   });
-  return matched.sort(
-    (a, b) =>
-      done(a) - done(b) ||
-      a.dueDate.localeCompare(b.dueDate) ||
-      a.title.localeCompare(b.title),
-  );
+
+  const tiebreak = (a: Task, b: Task) =>
+    a.dueDate.localeCompare(b.dueDate) || a.title.localeCompare(b.title);
+
+  const order: Record<TaskSort, (a: Task, b: Task) => number> = {
+    due: tiebreak,
+    dueDesc: (a, b) => b.dueDate.localeCompare(a.dueDate) || a.title.localeCompare(b.title),
+    priority: (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || tiebreak(a, b),
+    status: (a, b) =>
+      (STATUS_RANK.get(a.status) ?? 0) - (STATUS_RANK.get(b.status) ?? 0) || tiebreak(a, b),
+    title: (a, b) => a.title.localeCompare(b.title),
+    created: (a, b) => b.createdAt.localeCompare(a.createdAt),
+    logged: (a, b) => taskElapsedMs(b) - taskElapsedMs(a) || tiebreak(a, b),
+  };
+
+  return matched.sort((a, b) => done(a) - done(b) || order[f.sort](a, b));
 }
 
 export function TaskFilters({
   value,
   onChange,
   users,
-  tags,
+  /** The projects the list can draw on — drives the project and service pickers. */
+  projects,
   showDepartment = true,
   showAssignee = true,
-  showTags = true,
+  /** Off on a project's own page, where every task is already that project's. */
+  showProject = true,
 }: {
   value: TaskFilterState;
   onChange: (next: TaskFilterState) => void;
   users: User[];
-  tags?: string[];
+  projects?: Project[];
   showDepartment?: boolean;
   showAssignee?: boolean;
-  showTags?: boolean;
+  showProject?: boolean;
 }) {
   const { db } = useStore();
+
+  // Only services actually in play, so the list stays short and truthful.
+  const services = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of projects ?? []) for (const s of p.services) seen.add(s);
+    return [...seen].sort();
+  }, [projects]);
   const set = <K extends keyof TaskFilterState>(k: K, v: TaskFilterState[K]) =>
     onChange({ ...value, [k]: v });
 
@@ -114,6 +187,7 @@ export function TaskFilters({
       <SearchInput
         className="min-w-52 flex-1"
         placeholder="Search tasks or tags…"
+        aria-label="Search tasks"
         value={value.query}
         onChange={(e) => set("query", e.target.value)}
       />
@@ -172,6 +246,7 @@ export function TaskFilters({
           aria-label="Assignee"
         >
           <option value="all">Anyone</option>
+          <option value="none">Unassigned</option>
           {users.map((u) => (
             <option key={u.id} value={u.id}>
               {u.fullName}
@@ -194,19 +269,37 @@ export function TaskFilters({
         ))}
       </Select>
 
-      {showTags && tags && tags.length ? (
+      {services.length ? (
         <Select
-          className="w-auto min-w-28"
-          value={value.tag}
-          onChange={(e) => set("tag", e.target.value)}
-          aria-label="Tag"
+          className="w-auto min-w-40"
+          value={value.service}
+          onChange={(e) => set("service", e.target.value)}
+          aria-label="Service"
         >
-          <option value="all">All tags</option>
-          {tags.map((t) => (
-            <option key={t} value={t}>
-              #{t}
+          <option value="all">All services</option>
+          {services.map((x) => (
+            <option key={x} value={x}>
+              {x}
             </option>
           ))}
+        </Select>
+      ) : null}
+
+      {showProject && projects && projects.length ? (
+        <Select
+          className="w-auto min-w-40"
+          value={value.projectId}
+          onChange={(e) => set("projectId", e.target.value)}
+          aria-label="Project"
+        >
+          <option value="all">All projects</option>
+          {[...projects]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
         </Select>
       ) : null}
 
@@ -234,6 +327,22 @@ export function TaskFilters({
           />
         </div>
       </div>
+
+      <label className="ml-auto flex items-center gap-2 text-[12px] text-ink-faint">
+        Sort
+        <Select
+          className="w-auto min-w-44"
+          value={value.sort}
+          onChange={(e) => set("sort", e.target.value as TaskSort)}
+          aria-label="Sort by"
+        >
+          {(Object.keys(TASK_SORT_LABEL) as TaskSort[]).map((k) => (
+            <option key={k} value={k}>
+              {TASK_SORT_LABEL[k]}
+            </option>
+          ))}
+        </Select>
+      </label>
 
       {dirty ? (
         <button
