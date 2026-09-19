@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { addWorkingDays } from "./calendar";
+import { SERVICES } from "./master-data";
 import {
   ALL_SCOPES,
   CLIENT_COLUMNS,
@@ -1541,25 +1542,109 @@ const crmActions = {
     return obc;
   },
 
+  /**
+   * Edits stay in step with the work. A converted OBC has projects hanging off
+   * it, so the parts of a project that came *from* the OBC — its company,
+   * client, property and the services that were quoted — are refreshed too.
+   *
+   * Tasks are deliberately left alone. They are written by hand at conversion
+   * and then lived in: renamed, reassigned, half-submitted, with time logged
+   * against them. An OBC edit must never be able to throw that away.
+   */
   updateObc(id: string, patch: Partial<ObcInput>) {
+    const obc = state.db.obcs.find((x) => x.id === id);
+    const linked = state.db.projects.filter((p) => p.obcId === id);
+    const syncing = !!obc && obc.status === "Converted" && linked.length > 0;
+
+    // Only the quoted lines that name a service we know about can become
+    // project services; anything bespoke stays on the OBC alone.
+    const nextServices =
+      patch.items &&
+      patch.items
+        .map((i) => SERVICES.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()))
+        .filter((s): s is (typeof SERVICES)[number] => !!s);
+
+    const chain = {
+      ...("companyId" in patch ? { companyId: patch.companyId ?? null } : {}),
+      ...("clientId" in patch ? { clientId: patch.clientId ?? null } : {}),
+      ...("propertyId" in patch ? { propertyId: patch.propertyId ?? null } : {}),
+    };
+    const clientName = "clientId" in patch
+      ? (state.db.clients.find((x) => x.id === patch.clientId)?.fullName ??
+         state.db.companies.find((x) => x.id === (patch.companyId ?? obc?.companyId))?.name ??
+         "")
+      : undefined;
+
     void commit(
-      ["crm"],
-      (db) => ({ ...db, obcs: db.obcs.map((x) => (x.id === id ? { ...x, ...patch } : x)) }),
+      syncing ? ["crm", "projects"] : ["crm"],
+      (db) => ({
+        ...db,
+        obcs: db.obcs.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        projects: syncing
+          ? db.projects.map((p) =>
+              p.obcId === id
+                ? {
+                    ...p,
+                    ...chain,
+                    ...(clientName !== undefined ? { clientName } : {}),
+                    ...(nextServices ? { services: nextServices } : {}),
+                  }
+                : p,
+            )
+          : db.projects,
+      }),
       async (c) => {
         const columns = patchColumns(patch, OBC_COLUMNS);
         if (Object.keys(columns).length) {
           await run(c.from("obcs").update(columns).eq("id", id));
         }
         if (patch.items) await rewriteObcItems(c, id, patch.items);
+
+        if (!syncing) return;
+        const projectColumns: Record<string, unknown> = patchColumns(chain, PROJECT_COLUMNS);
+        if (clientName !== undefined) projectColumns.client_name = clientName;
+        for (const p of linked) {
+          if (Object.keys(projectColumns).length) {
+            await run(c.from("projects").update(projectColumns).eq("id", p.id));
+          }
+          if (nextServices) {
+            await run(c.from("project_services").delete().eq("project_id", p.id));
+            if (nextServices.length) {
+              await run(
+                c
+                  .from("project_services")
+                  .insert(nextServices.map((service) => ({ project_id: p.id, service }))),
+              );
+            }
+          }
+        }
       },
     );
   },
 
+  /**
+   * Deleting an OBC takes the work it created with it — the projects raised
+   * from it, and through them (the database cascades) their tasks, time and
+   * expenses. The foreign key alone would only blank the link and strand the
+   * projects, so they are removed first, by hand.
+   */
   deleteObc(id: string) {
+    const projectIds = state.db.projects.filter((p) => p.obcId === id).map((p) => p.id);
     void commit(
-      ["crm"],
-      (db) => ({ ...db, obcs: db.obcs.filter((x) => x.id !== id) }),
-      (c) => run(c.from("obcs").delete().eq("id", id)),
+      projectIds.length ? ["crm", "projects", "tasks", "expenses"] : ["crm"],
+      (db) => ({
+        ...db,
+        obcs: db.obcs.filter((x) => x.id !== id),
+        projects: db.projects.filter((p) => !projectIds.includes(p.id)),
+        tasks: db.tasks.filter((t) => !t.projectId || !projectIds.includes(t.projectId)),
+        expenses: db.expenses.filter((e) => !projectIds.includes(e.projectId)),
+      }),
+      async (c) => {
+        if (projectIds.length) {
+          await run(c.from("projects").delete().in("id", projectIds));
+        }
+        await run(c.from("obcs").delete().eq("id", id));
+      },
     );
   },
 
@@ -1577,6 +1662,14 @@ const crmActions = {
     );
   },
 
+  /**
+   * Raises a project from an OBC.
+   *
+   * The first one converts the OBC and becomes the project it points at. A
+   * quote often covers several strands of work, though, so later calls simply
+   * add another project against the same OBC: `projects.obc_id` carries the
+   * whole set, while `obcs.project_id` keeps naming the first.
+   */
   convertObc(id: string, project: NewProjectInput): Project {
     const created: Project = {
       ...withoutCrmChain({ ...project, obcId: id }),
@@ -1584,23 +1677,29 @@ const crmActions = {
       createdBy: me(),
       createdAt: now(),
     };
+    const first = state.db.obcs.find((x) => x.id === id)?.status !== "Converted";
+
     void commit(
       ["crm", "projects"],
       (db) => ({
         ...db,
         projects: [created, ...db.projects],
-        obcs: db.obcs.map((x) =>
-          x.id === id
-            ? { ...x, status: "Converted" as const, projectId: created.id, convertedAt: now() }
-            : x,
-        ),
+        obcs: first
+          ? db.obcs.map((x) =>
+              x.id === id
+                ? { ...x, status: "Converted" as const, projectId: created.id, convertedAt: now() }
+                : x,
+            )
+          : db.obcs,
       }),
       async (c) => {
         // The project has to exist before the OBC can point at it.
         await insertProject(c, created);
-        await run(
-          c.from("obcs").update({ status: "Converted", project_id: created.id }).eq("id", id),
-        );
+        if (first) {
+          await run(
+            c.from("obcs").update({ status: "Converted", project_id: created.id }).eq("id", id),
+          );
+        }
       },
     );
     return created;

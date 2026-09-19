@@ -57,6 +57,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0013_crm_enums.sql` | The `content_allotted` notification type (its own file — Postgres can't use a new enum value in the transaction that adds it) |
 | `0014_crm_modules.sql` | Companies, Clients, Properties, OBCs and the Content Bank, plus Comments and Minutes of Meeting, and their RLS |
 | `0015_obc_line_details.sql` | OBC lines carry Zoho's short and brief descriptions instead of rate and amount — pricing stays in Zoho |
+| `0016_obc_quote_name.sql` | OBCs are known by their Zoho quote name; the generated code stays as the fallback and stable handle |
 
 ### 4. The first Super Admin
 

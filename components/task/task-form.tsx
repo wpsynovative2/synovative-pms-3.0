@@ -49,6 +49,7 @@ export function TaskFormModal({
   project,
   mode,
   defaultDepartment,
+  defaultTitle,
 }: {
   open: boolean;
   onClose: () => void;
@@ -58,6 +59,8 @@ export function TaskFormModal({
   project: Project | null;
   mode: "project" | "individual";
   defaultDepartment?: string;
+  /** Seeds a new task, e.g. from the OBC line it delivers. */
+  defaultTitle?: string;
 }) {
   const { db, currentUser, createTask, updateTask } = useStore();
   const calendar = db.calendar;
@@ -72,7 +75,7 @@ export function TaskFormModal({
     );
 
   const [form, setForm] = useState<FormState>({
-    title: task?.title ?? "",
+    title: task?.title ?? defaultTitle ?? "",
     description: task?.description ?? "",
     department: initialDepartment,
     assigneeId: task?.assigneeId ?? "",

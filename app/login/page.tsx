@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { IconSparkle } from "@/components/ui/icons";
+import Image from "next/image";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
   Button,
@@ -63,15 +63,24 @@ export default function LoginPage() {
 
       <div className="relative grid w-full max-w-4xl gap-6 lg:grid-cols-[1.1fr_1fr]">
         <div className="flex flex-col justify-center gap-5 px-2 py-4">
-          <div className="inline-flex items-center gap-2.5">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white">
-              <IconSparkle size={20} />
-            </span>
-            <div>
-              <div className="font-display text-lg font-semibold tracking-tight">Synovative PMS</div>
-              <div className="text-[11px] text-ink-faint">Agency project management</div>
-            </div>
-          </div>
+          <span role="img" aria-label="Synovative" className="inline-flex">
+            <Image
+              src="/Synovative-logo-Violet.png"
+              alt=""
+              width={2730}
+              height={560}
+              className="h-9 w-auto dark:hidden"
+              priority
+            />
+            <Image
+              src="/Synovative-logo-yellow.png"
+              alt=""
+              width={499}
+              height={104}
+              className="hidden h-9 w-auto dark:block"
+              priority
+            />
+          </span>
 
           <h1 className="text-3xl leading-tight font-semibold tracking-tight text-balance">
             Every project, task and rupee — in one place.

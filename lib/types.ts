@@ -442,6 +442,8 @@ export interface Obc {
   /** What the lines were pulled from, kept for traceability. */
   zohoQuoteId: string;
   zohoQuoteNumber: string;
+  /** The quote's subject in Zoho — what everyone actually calls this deal. */
+  zohoQuoteName: string;
   notes: string;
   status: ObcStatus;
   submittedAt?: string;

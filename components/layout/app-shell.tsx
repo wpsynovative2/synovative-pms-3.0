@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +23,6 @@ import {
   IconQuote,
   IconRepeat,
   IconSend,
-  IconSparkle,
   IconTasks,
   IconTemplate,
   IconTruck,
@@ -156,6 +156,37 @@ function useNavItems(user: User): NavItem[] {
   ].filter((i) => i.show);
 }
 
+/**
+ * The Synovative wordmark, in the colourway each theme was drawn for: violet
+ * on light, yellow on dark. Both files ship and CSS picks one, so the right
+ * one is on screen at first paint with no flash and no JavaScript.
+ *
+ * Both images are decorative; the name lives on the wrapper, so a screen
+ * reader hears it once rather than twice.
+ */
+function BrandWordmark() {
+  return (
+    <span role="img" aria-label="Synovative" className="min-w-0">
+      <Image
+        src="/Synovative-logo-Violet.png"
+        alt=""
+        width={2730}
+        height={560}
+        className="h-7 w-auto dark:hidden"
+        priority
+      />
+      <Image
+        src="/Synovative-logo-yellow.png"
+        alt=""
+        width={499}
+        height={104}
+        className="hidden h-7 w-auto dark:block"
+        priority
+      />
+    </span>
+  );
+}
+
 /* --------------------------------------------------------------- Sidebar */
 
 function Sidebar({
@@ -182,19 +213,20 @@ function Sidebar({
           collapsed && "justify-center px-0",
         )}
       >
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
-          <IconSparkle size={18} />
-        </span>
-        {!collapsed ? (
-          <div className="min-w-0">
-            <div className="truncate font-display text-[13px] font-semibold tracking-tight">
-              Synovative PMS
-            </div>
-            <div className="truncate text-[10px] text-ink-faint">
-              Agency workspace
-            </div>
-          </div>
-        ) : null}
+        {collapsed ? (
+          // The wordmark has nowhere to go in a collapsed rail, so the square
+          // mark — the same one used as the favicon — stands in for it.
+          <Image
+            src="/Synovative-mark.png"
+            alt="Synovative"
+            width={256}
+            height={256}
+            className="h-9 w-9 shrink-0"
+            priority
+          />
+        ) : (
+          <BrandWordmark />
+        )}
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">

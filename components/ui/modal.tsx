@@ -1,8 +1,58 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 import { cx } from "./primitives";
+
+/*
+ * Page-scroll locking and Escape handling, shared by Modal and Drawer.
+ *
+ * Both used to keep their own `prev = document.body.style.overflow` and restore
+ * it on close. That breaks as soon as overlays nest — a confirm dialog inside a
+ * drawer, a task form inside that — because React runs *every* effect teardown
+ * before *any* re-run. On a re-render with two overlays open the teardowns
+ * restore "" then "hidden", and the outer overlay's re-run then reads "hidden"
+ * back as its "original" value. Closing everything afterwards restored
+ * "hidden", and the page could not be scrolled again until a reload.
+ *
+ * A single counted stack has no per-instance value to poison: the first
+ * overlay saves the real overflow, the last one puts it back.
+ */
+const stack: symbol[] = [];
+let savedOverflow = "";
+
+function useOverlay(open: boolean, onClose: () => void) {
+  // Kept in a ref so `onClose` — an inline arrow at nearly every call site —
+  // cannot re-trigger the effect on every parent render.
+  const latest = useRef(onClose);
+  useEffect(() => {
+    latest.current = onClose;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    const token = Symbol("overlay");
+    stack.push(token);
+    if (stack.length === 1) {
+      savedOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      // Only the topmost overlay answers Escape, so a dialog inside a drawer
+      // closes itself and leaves the drawer standing.
+      if (e.key === "Escape" && stack[stack.length - 1] === token) latest.current();
+    };
+    document.addEventListener("keydown", onKey);
+
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      const at = stack.indexOf(token);
+      if (at !== -1) stack.splice(at, 1);
+      if (stack.length === 0) document.body.style.overflow = savedOverflow;
+    };
+  }, [open]);
+}
 
 export function Modal({
   open,
@@ -21,19 +71,7 @@ export function Modal({
   footer?: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
+  useOverlay(open, onClose);
 
   if (!open) return null;
 
@@ -104,19 +142,7 @@ export function Drawer({
   children: React.ReactNode;
   headerExtra?: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
+  useOverlay(open, onClose);
 
   if (!open) return null;
 

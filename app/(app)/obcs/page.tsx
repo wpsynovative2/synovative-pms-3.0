@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
+import { TaskFormModal } from "@/components/task/task-form";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import {
@@ -32,8 +33,10 @@ import {
   StatTile,
   Tabs,
   Textarea,
+  cx,
 } from "@/components/ui/primitives";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
+import { RichTextEditor } from "@/components/ui/rich-text";
 import { addDays, formatDate, todayISO } from "@/lib/calendar";
 import {
   DEPARTMENTS,
@@ -43,9 +46,20 @@ import {
   SERVICES,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
-import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import {
+  canConvertObc,
+  canCreateTaskInProject,
+  canDeleteCrm,
+  canManageCrm,
+} from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
 import type { Obc, ObcItem, ObcStatus, Priority } from "@/lib/types";
+
+/**
+ * An OBC goes by the name of the quote behind it — that is what the sales team
+ * calls the deal. The generated code is the fallback for one raised by hand.
+ */
+const obcLabel = (o: Obc) => o.zohoQuoteName.trim() || o.code;
 
 /**
  * Module 4 — the New OBC. A Business Executive raises it against a company,
@@ -75,6 +89,7 @@ export default function ObcsPage() {
       const company = companyById(o.companyId)?.name ?? "";
       const client = clientById(o.clientId)?.fullName ?? "";
       return (
+        obcLabel(o).toLowerCase().includes(q) ||
         o.code.toLowerCase().includes(q) ||
         company.toLowerCase().includes(q) ||
         client.toLowerCase().includes(q) ||
@@ -136,7 +151,7 @@ export default function ObcsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput
           className="max-w-md flex-1"
-          placeholder="Search by OBC code, company, client or quote number…"
+          placeholder="Search by quote name, code, company or client…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -180,7 +195,7 @@ export default function ObcsPage() {
             <table className="w-full text-[13px]">
               <thead className="bg-surface-2 text-[11px] tracking-wide text-ink-faint uppercase">
                 <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">OBC</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Quote</th>
                   <th className="px-4 py-2.5 text-left font-medium">Company / client</th>
                   <th className="px-4 py-2.5 text-left font-medium">Property</th>
                   <th className="px-4 py-2.5 text-right font-medium">Services</th>
@@ -194,11 +209,13 @@ export default function ObcsPage() {
                     <td className="px-4 py-2.5">
                       <button
                         onClick={() => setOpenId(o.id)}
-                        className="font-mono font-medium text-ink hover:text-brand-bright"
+                        className="max-w-56 truncate font-medium text-ink hover:text-brand-bright"
                       >
-                        {o.code}
+                        {obcLabel(o)}
                       </button>
-                      <div className="text-[11px] text-ink-faint">{formatDate(o.createdAt)}</div>
+                      <div className="text-[11px] text-ink-faint">
+                        {o.code} · {formatDate(o.createdAt)}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="truncate text-ink">
@@ -219,7 +236,7 @@ export default function ObcsPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-end gap-1">
-                        {mayManage && o.status === "Draft" ? (
+                        {mayManage ? (
                           <Button
                             size="sm"
                             onClick={() => {
@@ -230,7 +247,7 @@ export default function ObcsPage() {
                             <IconEdit size={13} />
                           </Button>
                         ) : null}
-                        {canDeleteCrm(user) && o.status !== "Converted" ? (
+                        {canDeleteCrm(user) ? (
                           <Button size="sm" variant="danger" onClick={() => setDeleting(o)}>
                             <IconTrash size={13} />
                           </Button>
@@ -261,8 +278,14 @@ export default function ObcsPage() {
         open={!!deleting}
         onClose={() => setDeleting(null)}
         onConfirm={() => deleting && deleteObc(deleting.id)}
-        title={`Delete ${deleting?.code ?? "this OBC"}?`}
-        body="The sales order and its quoted lines are removed."
+        title={`Delete ${deleting ? obcLabel(deleting) : "this OBC"}?`}
+        body={
+          deleting && db.projects.some((p) => p.obcId === deleting.id)
+            ? `This also deletes ${
+                db.projects.filter((p) => p.obcId === deleting.id).length
+              } project(s) raised from it, and every task, time log and expense on them. It cannot be undone.`
+            : "The sales order and its quoted lines are removed."
+        }
         confirmLabel="Delete OBC"
       />
     </div>
@@ -277,21 +300,29 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
   const { db, currentUser, companyById, clientById, propertyById, submitObc } = useStore();
   const user = currentUser!;
   const [pane, setPane] = useState<Pane>("details");
-  const [converting, setConverting] = useState(false);
+  // The quoted line a new project or task is being raised for, if any.
+  const [converting, setConverting] = useState<ObcItem | null>(null);
+  const [convertOpen, setConvertOpen] = useState(false);
+  const [taskFor, setTaskFor] = useState<ObcItem | null>(null);
 
-  const project = obc.projectId ? db.projects.find((p) => p.id === obc.projectId) : undefined;
+  // A quote often covers several strands of work, so an OBC can carry more
+  // than one project. `obc.projectId` only names the first.
+  const projects = db.projects.filter((p) => p.obcId === obc.id);
+  // Tasks raised from a line go to the project the OBC started.
+  const mainProject = projects.find((p) => p.id === obc.projectId) ?? projects[0];
 
   return (
     <Drawer
       open
       onClose={onClose}
-      title={obc.code}
+      title={obcLabel(obc)}
       subtitle={`${companyById(obc.companyId)?.name ?? "Unknown company"} · ${
         clientById(obc.clientId)?.fullName ?? "No client"
       }`}
       headerExtra={
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge className={OBC_STATUS_STYLE[obc.status]}>{obc.status}</Badge>
+          <Badge>{obc.code}</Badge>
           <Badge>
             {obc.items.length} {obc.items.length === 1 ? "service" : "services"}
           </Badge>
@@ -368,11 +399,56 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                           {i.briefDescription}
                         </p>
                       ) : null}
+
+                      {/* Straight from the brief to the work that delivers it. */}
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {canConvertObc(user) ? (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setConverting(i);
+                              setConvertOpen(true);
+                            }}
+                          >
+                            <IconProjects size={12} /> Add project for this
+                          </Button>
+                        ) : null}
+                        {mainProject && canCreateTaskInProject(user, mainProject) ? (
+                          <Button size="sm" onClick={() => setTaskFor(i)}>
+                            <IconPlus size={12} /> Add task for this
+                          </Button>
+                        ) : null}
+                      </div>
                     </li>
                   ))}
                 </ul>
               )}
             </section>
+
+            {projects.length ? (
+              <section>
+                <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                  Projects from this OBC ({projects.length})
+                </h3>
+                <ul className="flex flex-col gap-1.5">
+                  {projects.map((p) => (
+                    <li key={p.id}>
+                      <Link
+                        href={`/projects/${p.id}`}
+                        className="flex items-center gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px] hover:border-brand-bright/40"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: p.color }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-ink">{p.name}</span>
+                        <span className="shrink-0 text-ink-faint">{p.status}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <section className="flex flex-wrap items-center gap-2 border-t border-line-soft pt-4">
               {obc.status === "Draft" && canManageCrm(user) ? (
@@ -380,22 +456,22 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                   <IconSend size={14} /> Submit OBC
                 </Button>
               ) : null}
-              {obc.status === "Submitted" && canConvertObc(user) ? (
-                <Button variant="primary" onClick={() => setConverting(true)}>
-                  <IconProjects size={14} /> Create project from OBC
+              {obc.status !== "Draft" && canConvertObc(user) ? (
+                <Button
+                  variant={obc.status === "Submitted" ? "primary" : "secondary"}
+                  onClick={() => {
+                    setConverting(null);
+                    setConvertOpen(true);
+                  }}
+                >
+                  <IconProjects size={14} />
+                  {obc.status === "Submitted" ? "Create project from OBC" : "Add another project"}
                 </Button>
               ) : null}
               {obc.status === "Submitted" && !canConvertObc(user) ? (
                 <p className="text-[12px] text-ink-faint">
                   Waiting on a Super Admin, Admin or Manager to convert this into a project.
                 </p>
-              ) : null}
-              {project ? (
-                <Link href={`/projects/${project.id}`}>
-                  <Button>
-                    <IconProjects size={14} /> Open {project.name}
-                  </Button>
-                </Link>
               ) : null}
             </section>
           </div>
@@ -404,8 +480,30 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
         )}
       </div>
 
-      {converting ? (
-        <ConvertModal obc={obc} onClose={() => setConverting(false)} onDone={onClose} />
+      {convertOpen ? (
+        <ConvertModal
+          obc={obc}
+          seed={converting}
+          onClose={() => {
+            setConvertOpen(false);
+            setConverting(null);
+          }}
+          // Raising an extra project leaves the OBC open; the first conversion
+          // is the one that finishes with it.
+          onDone={() => {
+            if (obc.status === "Submitted") onClose();
+          }}
+        />
+      ) : null}
+
+      {taskFor && mainProject ? (
+        <TaskFormModal
+          open
+          onClose={() => setTaskFor(null)}
+          project={mainProject}
+          mode="project"
+          defaultTitle={taskFor.service}
+        />
       ) : null}
     </Drawer>
   );
@@ -433,6 +531,16 @@ function Fact({
 
 /* -------------------------------------------------------------- convert */
 
+type ConvertTab = "project" | "tasks";
+
+/** Quoted text becomes rich text, so anything angle-bracketed stays literal. */
+const escapeHtml = (text: string) =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
+
 /** A task typed in while converting, before the project exists to hang it on. */
 interface TaskDraft {
   key: string;
@@ -454,10 +562,13 @@ interface TaskDraft {
  */
 function ConvertModal({
   obc,
+  seed,
   onClose,
   onDone,
 }: {
   obc: Obc;
+  /** Raised from one quoted line: its service names the project and leads its tasks. */
+  seed?: ObcItem | null;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -466,9 +577,8 @@ function ConvertModal({
   const company = companyById(obc.companyId);
   const client = clientById(obc.clientId);
 
-  const [name, setName] = useState(
-    property ? `${property.name} — ${company?.name ?? ""}`.trim() : (company?.name ?? ""),
-  );
+  const base = property?.name ?? company?.name ?? obcLabel(obc);
+  const [name, setName] = useState(seed ? `${base} — ${seed.service}` : base);
   const [color, setColor] = useState(PROJECT_COLORS[0]);
   const [startDate, setStartDate] = useState(todayISO());
   const [deadline, setDeadline] = useState(addDays(todayISO(), 30));
@@ -477,12 +587,25 @@ function ConvertModal({
   // Quoted line items become the project's services where their names line up
   // with the master list; anything bespoke is left for the leader to add.
   const [services, setServices] = useState<string[]>(() =>
-    obc.items
+    (seed ? [seed] : obc.items)
       .map((i) => SERVICES.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()))
       .filter((s): s is (typeof SERVICES)[number] => !!s),
   );
+  /*
+   * The brief the delivery team reads. Seeded from what was quoted, because
+   * re-typing it is exactly what the Zoho pull exists to avoid.
+   */
+  const [description, setDescription] = useState(() => {
+    const lines = seed ? [seed] : obc.items;
+    const parts = lines.flatMap((i) =>
+      [i.description, i.briefDescription].filter((t) => t.trim()),
+    );
+    const body = [obc.notes.trim(), ...parts].filter(Boolean);
+    return body.length ? body.map((t) => `<p>${escapeHtml(t)}</p>`).join("") : "";
+  });
   const [drafts, setDrafts] = useState<TaskDraft[]>([]);
   const [touched, setTouched] = useState(false);
+  const [tab, setTab] = useState<ConvertTab>("project");
 
   const setDraft = (key: string, patch: Partial<TaskDraft>) =>
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -508,7 +631,12 @@ function ConvertModal({
 
   const submit = () => {
     setTouched(true);
-    if (!valid) return;
+    if (!valid) {
+      // Don't leave the person staring at a valid-looking tab while the error
+      // sits on the other one.
+      setTab(badDraft && name.trim() ? "tasks" : "project");
+      return;
+    }
     const created = convertObc(obc.id, {
       name: name.trim(),
       color,
@@ -516,7 +644,7 @@ function ConvertModal({
       services,
       startDate,
       deadline,
-      description: obc.notes,
+      description,
       status: "Planning",
       priority,
       leaderId: leaderId || null,
@@ -556,8 +684,8 @@ function ConvertModal({
       open
       onClose={onClose}
       size="xl"
-      title="Create project from OBC"
-      subtitle={`${obc.code} · ${company?.name ?? ""}`}
+      title={seed ? `Create project for ${seed.service}` : "Create project from OBC"}
+      subtitle={`${obcLabel(obc)} · ${company?.name ?? ""}`}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -569,9 +697,19 @@ function ConvertModal({
         </>
       }
     >
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid gap-5 lg:grid-cols-[1.45fr_1fr]">
         {/* ------------------------------------------------ the project --- */}
         <div className="flex flex-col gap-4">
+          <Tabs<ConvertTab>
+            active={tab}
+            onChange={setTab}
+            tabs={[
+              { id: "project", label: "Project" },
+              { id: "tasks", label: "Tasks", count: drafts.length },
+            ]}
+          />
+
+          <div className={cx("flex-col gap-4", tab === "project" ? "flex" : "hidden")}>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Project name"
@@ -638,6 +776,20 @@ function ConvertModal({
             />
           </Field>
 
+          <Field
+            label="Description"
+            hint="Seeded from what was quoted — edit it into the brief the team will work from."
+          >
+            <RichTextEditor
+              value={description}
+              onChange={setDescription}
+              minHeight={140}
+              placeholder="What this project is, and what done looks like…"
+            />
+          </Field>
+          </div>
+
+          <div className={cx("flex-col gap-4", tab === "tasks" ? "flex" : "hidden")}>
           <Field
             label="Tasks"
             hint="Optional — lay out the first tasks now, or later from the project itself."
@@ -738,12 +890,13 @@ function ConvertModal({
               </Button>
             </div>
           </Field>
+          </div>
         </div>
 
         {/* --------------------------------------------- the OBC, beside --- */}
         <aside className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
           <div className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
-            <h4 className="text-[12px] font-semibold text-ink">{obc.code}</h4>
+            <h4 className="text-[12px] font-semibold text-ink">{obcLabel(obc)}</h4>
             <dl className="mt-2 flex flex-col gap-1 text-[12px]">
               <Provenance icon={<IconBuilding size={12} />} value={company?.name} />
               <Provenance icon={<IconContact size={12} />} value={client?.fullName} />
@@ -853,6 +1006,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
     propertyId: obc?.propertyId ?? null,
     zohoQuoteId: obc?.zohoQuoteId ?? "",
     zohoQuoteNumber: obc?.zohoQuoteNumber ?? "",
+    zohoQuoteName: obc?.zohoQuoteName ?? "",
     notes: obc?.notes ?? "",
     items: obc?.items ?? [],
   });
@@ -898,6 +1052,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
         ...f,
         zohoQuoteId: body.quote.id,
         zohoQuoteNumber: body.quote.number || ref,
+        zohoQuoteName: body.quote.subject,
         items: body.lines.map((l) => ({ id: crypto.randomUUID(), ...l })),
       }));
       showToast(
@@ -921,7 +1076,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
       open
       onClose={onClose}
       size="xl"
-      title={obc ? `Edit ${obc.code}` : "Raise a New OBC"}
+      title={obc ? `Edit ${obcLabel(obc)}` : "Raise a New OBC"}
       subtitle="Company, client and property, then the services that were quoted"
       footer={
         <>
