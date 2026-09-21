@@ -7,6 +7,7 @@ import {
   USER_MANAGERS,
   capacityError,
   emailError,
+  knownDepartments,
   normaliseDepartments,
   passwordError,
   replaceDepartments,
@@ -95,7 +96,11 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<"/api/admin/
 
   let departments: string[] | null = null;
   if ("departments" in body || profile.role) {
-    const next = normaliseDepartments(role, body.departments ?? (await currentDepartments(admin, id)));
+    const next = normaliseDepartments(
+      role,
+      body.departments ?? (await currentDepartments(admin, id)),
+      await knownDepartments(admin),
+    );
     if (typeof next === "string") return fail(400, next);
     departments = next;
   }

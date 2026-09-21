@@ -24,10 +24,8 @@ import {
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import {
-  DEPARTMENTS,
   PRIORITIES,
   PROJECT_COLORS,
-  SERVICES,
 } from "@/lib/master-data";
 import { canManageTemplates } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
@@ -332,6 +330,7 @@ function ProjectTemplateModal({
   template?: ProjectTemplate;
   onSave: (t: ProjectTemplate) => void;
 }) {
+  const { db } = useStore();
   const [name, setName] = useState(template?.name ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
   const [color, setColor] = useState(template?.color ?? PROJECT_COLORS[0]);
@@ -352,7 +351,7 @@ function ProjectTemplateModal({
         id: crypto.randomUUID(),
         title: "",
         description: "",
-        department: DEPARTMENTS[0],
+        department: db.departments[0] ?? "",
         priority: "Medium",
         estimatedHours: 4,
         tags: [],
@@ -439,7 +438,7 @@ function ProjectTemplateModal({
           error={touched && services.length === 0 ? "Pick at least one." : undefined}
         >
           <MultiSelect
-            options={SERVICES.map((s) => ({ value: s, label: s }))}
+            options={db.services.map((s) => ({ value: s, label: s }))}
             value={services}
             onChange={setServices}
             placeholder="Search services…"
@@ -527,7 +526,7 @@ function ProjectTemplateModal({
 
                   <div className="grid gap-2.5 sm:grid-cols-2">
                     <SearchSelect
-                      options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+                      options={db.departments.map((d) => ({ value: d, label: d }))}
                       value={item.department}
                       onChange={(v) => patchTask(item.id, { department: v })}
                     />
@@ -610,9 +609,12 @@ function TaskTemplateModal({
   template?: TaskTemplate;
   onSave: (t: TaskTemplate) => void;
 }) {
+  const { db } = useStore();
   const [title, setTitle] = useState(template?.title ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
-  const [department, setDepartment] = useState(template?.department ?? DEPARTMENTS[0]);
+  const [department, setDepartment] = useState(
+    template?.department ?? db.departments[0] ?? "",
+  );
   const [priority, setPriority] = useState<Priority>(template?.priority ?? "Medium");
   const [estimatedHours, setEstimatedHours] = useState(
     template ? String(template.estimatedHours) : "4",
@@ -684,7 +686,7 @@ function TaskTemplateModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Department" required>
             <SearchSelect
-              options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+              options={db.departments.map((d) => ({ value: d, label: d }))}
               value={department}
               onChange={setDepartment}
             />

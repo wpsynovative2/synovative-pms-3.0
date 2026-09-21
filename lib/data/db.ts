@@ -44,6 +44,7 @@ import type {
  */
 
 export type Scope =
+  | "master"
   | "users"
   | "projects"
   | "tasks"
@@ -58,6 +59,7 @@ export type Scope =
   | "collab";
 
 export const ALL_SCOPES: Scope[] = [
+  "master",
   "users",
   "projects",
   "tasks",
@@ -73,6 +75,8 @@ export const ALL_SCOPES: Scope[] = [
 ];
 
 export const EMPTY_DB: Database = {
+  departments: [],
+  services: [],
   users: [],
   projects: [],
   tasks: [],
@@ -166,6 +170,21 @@ export const seriesColumns = (series: RecurrenceSeries | null | undefined) => ({
 });
 
 /* ----------------------------------------------------------------- scopes */
+
+/**
+ * The two name lists every picker in the app is built from. Loaded with the
+ * core scopes so no screen ever renders an empty department dropdown.
+ */
+async function loadMaster(sb: SupabaseClient): Promise<Partial<Database>> {
+  const [departments, services] = await Promise.all([
+    fetchAll(sb, "departments", "name"),
+    fetchAll(sb, "services", "name"),
+  ]);
+  return {
+    departments: departments.map((r) => str(r.name)),
+    services: services.map((r) => str(r.name)),
+  };
+}
 
 async function loadUsers(sb: SupabaseClient): Promise<Partial<Database>> {
   const [profiles, depts] = await Promise.all([
@@ -602,6 +621,7 @@ async function loadCollab(sb: SupabaseClient): Promise<Partial<Database>> {
 }
 
 const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>> = {
+  master: loadMaster,
   users: loadUsers,
   projects: loadProjects,
   tasks: loadTasks,

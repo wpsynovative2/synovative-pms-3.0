@@ -153,6 +153,12 @@ function useNavItems(user: User): NavItem[] {
       icon: <IconUser size={18} />,
       show: gate.users,
     },
+    {
+      href: "/master-data",
+      label: "Departments & Services",
+      icon: <IconTemplate size={18} />,
+      show: gate.masterData,
+    },
   ].filter((i) => i.show);
 }
 

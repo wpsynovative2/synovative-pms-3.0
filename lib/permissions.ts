@@ -379,6 +379,7 @@ export interface NavGate {
   properties: boolean;
   obcs: boolean;
   contentBank: boolean;
+  masterData: boolean;
 }
 
 export function navGate(u: User): NavGate {
@@ -406,5 +407,7 @@ export function navGate(u: User): NavGate {
     // Writers need it to write; everyone else reaches their project's content
     // through the task that carries it, but the library itself stays open.
     contentBank: true,
+    // The name lists everything else points at — Super Admin only.
+    masterData: isSuperAdmin(u),
   };
 }

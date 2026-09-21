@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/primitives";
 import { workloadRows } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/calendar";
-import { DEPARTMENTS } from "@/lib/master-data";
 import { canViewWorkload, scopedDepartments } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatHours } from "@/lib/time";
@@ -94,7 +93,7 @@ export default function WorkloadPage() {
             <option value="all">
               {allowed ? "My departments" : "All departments"}
             </option>
-            {(allowed ? departmentOptions : DEPARTMENTS).map((d) => (
+            {(allowed ? departmentOptions : db.departments).map((d) => (
               <option key={d} value={d}>
                 {d}
               </option>

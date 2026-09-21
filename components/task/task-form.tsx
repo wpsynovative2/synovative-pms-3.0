@@ -11,7 +11,6 @@ import { RichTextEditor } from "@/components/ui/rich-text";
 import { SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
-  DEPARTMENTS,
   PRIORITIES,
   REVIEWER_ONLY_STATUSES,
   TASK_STATUSES,
@@ -66,7 +65,7 @@ export function TaskFormModal({
   const calendar = db.calendar;
 
   const initialDepartment =
-    task?.department ?? defaultDepartment ?? DEPARTMENTS[0];
+    task?.department ?? defaultDepartment ?? db.departments[0] ?? "";
   const firstStart =
     task?.startDate ??
     nextWorkingDay(
@@ -252,7 +251,7 @@ export function TaskFormModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Department" required>
             <SearchSelect
-              options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+              options={db.departments.map((d) => ({ value: d, label: d }))}
               value={form.department}
               onChange={(v) => {
                 set("department", v);

@@ -574,6 +574,12 @@ export interface AppNotification {
  * them read, assembled into the nested shapes the screens use.
  */
 export interface Database {
+  /**
+   * Master data, live from the database rather than a constant: a Super Admin
+   * can take on a new service line without a deploy (§5.1, §5.2).
+   */
+  departments: string[];
+  services: string[];
   users: User[];
   projects: Project[];
   tasks: Task[];

@@ -11,11 +11,9 @@ import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
-  DEPARTMENTS,
   PRIORITIES,
   PROJECT_COLORS,
   PROJECT_STATUSES,
-  SERVICES,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
 import { canSetRecurrence } from "@/lib/permissions";
@@ -31,6 +29,7 @@ import type { Priority, Project, ProjectStatus, RecurrenceRule } from "@/lib/typ
 interface TaskDraft {
   key: string;
   title: string;
+  description: string;
   department: string;
   assigneeId: string;
   priority: Priority;
@@ -109,6 +108,7 @@ export function ProjectFormModal({
       {
         key: crypto.randomUUID(),
         title: "",
+        description: "",
         department: "",
         assigneeId: "",
         priority: form.priority,
@@ -212,7 +212,7 @@ export function ProjectFormModal({
       createTask({
         projectId: created.id,
         title: d.title.trim(),
-        description: "",
+        description: d.description,
         department: d.department,
         assigneeId: d.assigneeId || null,
         status: "Not Started",
@@ -301,7 +301,7 @@ export function ProjectFormModal({
           error={touched ? errors.services : undefined}
         >
           <MultiSelect
-            options={SERVICES.map((s) => ({ value: s, label: s }))}
+            options={db.services.map((s) => ({ value: s, label: s }))}
             value={form.services}
             onChange={(v) => set("services", v)}
             placeholder="Search services…"
@@ -530,9 +530,15 @@ export function ProjectFormModal({
                       placeholder="What needs doing?"
                     />
 
+                    <RichTextEditor
+                      value={d.description}
+                      onChange={(v) => setDraft(d.key, { description: v })}
+                      placeholder="Brief, references, deliverable format…"
+                    />
+
                     <div className="grid gap-2.5 sm:grid-cols-2">
                       <SearchSelect
-                        options={DEPARTMENTS.map((x) => ({ value: x, label: x }))}
+                        options={db.departments.map((x) => ({ value: x, label: x }))}
                         value={d.department}
                         onChange={(v) =>
                           // The assignee comes from the department, so it can't

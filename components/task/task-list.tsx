@@ -11,7 +11,7 @@ import {
   Select,
   cx,
 } from "@/components/ui/primitives";
-import { DEPARTMENTS, PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib/master-data";
+import { PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
@@ -230,7 +230,7 @@ export function TaskFilters({
           aria-label="Department"
         >
           <option value="all">All departments</option>
-          {DEPARTMENTS.map((d) => (
+          {db.departments.map((d) => (
             <option key={d} value={d}>
               {d}
             </option>

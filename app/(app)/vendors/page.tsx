@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { formatINR } from "@/lib/analytics";
-import { SERVICES } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import type { Vendor } from "@/lib/types";
 
@@ -212,6 +211,7 @@ function VendorFormModal({
   vendor?: Vendor;
   onSave: (v: Omit<Vendor, "id">) => void;
 }) {
+  const { db } = useStore();
   const [name, setName] = useState(vendor?.name ?? "");
   const [serviceType, setServiceType] = useState(vendor?.serviceType ?? "");
   const [contactPerson, setContactPerson] = useState(vendor?.contactPerson ?? "");
@@ -272,7 +272,7 @@ function VendorFormModal({
             error={touched && !serviceType ? "Pick a service." : undefined}
           >
             <SearchSelect
-              options={SERVICES.map((s) => ({ value: s, label: s }))}
+              options={db.services.map((s) => ({ value: s, label: s }))}
               value={serviceType}
               onChange={setServiceType}
               placeholder="What do they supply?"

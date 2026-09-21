@@ -38,7 +38,7 @@ import {
   type ExpenseBucket,
 } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/calendar";
-import { DEPARTMENTS } from "@/lib/master-data";
+
 import { canViewReports, scopedDepartments } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatHours } from "@/lib/time";
@@ -158,7 +158,7 @@ export default function ReportsPage() {
           aria-label="Department"
         >
           <option value="all">All departments</option>
-          {(allowed ?? DEPARTMENTS).map((d) => (
+          {(allowed ?? db.departments).map((d) => (
             <option key={d} value={d}>
               {d}
             </option>

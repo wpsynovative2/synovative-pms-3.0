@@ -10,7 +10,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import { addWorkingDays } from "./calendar";
-import { SERVICES } from "./master-data";
 import {
   ALL_SCOPES,
   CLIENT_COLUMNS,
@@ -316,7 +315,7 @@ function resetSession() {
  * templates, notifications, links — arrive straight after in the background,
  * so signing in doesn't wait on tables the dashboard never reads.
  */
-const CORE_SCOPES: Scope[] = ["users", "projects", "tasks", "calendar"];
+const CORE_SCOPES: Scope[] = ["master", "users", "projects", "tasks", "calendar"];
 const DEFERRED_SCOPES: Scope[] = ALL_SCOPES.filter((s) => !CORE_SCOPES.includes(s));
 
 /** Load this user's workspace and check their profile may use the app. */
@@ -574,6 +573,12 @@ interface StoreValue {
   clientById: (id: string | null | undefined) => Client | undefined;
   propertyById: (id: string | null | undefined) => Property | undefined;
   obcById: (id: string | null | undefined) => Obc | undefined;
+
+  /** Master data — Super Admin only; Row Level Security is the real guard. */
+  addDepartment: (name: string) => void;
+  removeDepartment: (name: string) => void;
+  addService: (name: string) => void;
+  removeService: (name: string) => void;
 
   createCompany: (input: CompanyInput) => Company;
   updateCompany: (id: string, patch: Partial<CompanyInput>) => void;
@@ -1336,6 +1341,51 @@ async function rewriteObcItems(c: SupabaseClient, obcId: string, items: ObcItem[
   }
 }
 
+/**
+ * Adding and retiring the names every picker is built from.
+ *
+ * Deleting needs no check of its own: `department` and `service` are real
+ * foreign keys across projects, tasks, profiles, templates and vendors, so the
+ * database refuses to remove a name still in use and the user sees why.
+ */
+const masterActions = {
+  addDepartment(name: string) {
+    const value = name.trim();
+    if (!value) return;
+    void commit(
+      ["master"],
+      (db) => ({ ...db, departments: [...db.departments, value].sort() }),
+      (c) => run(c.from("departments").insert({ name: value })),
+    );
+  },
+
+  removeDepartment(name: string) {
+    void commit(
+      ["master"],
+      (db) => ({ ...db, departments: db.departments.filter((d) => d !== name) }),
+      (c) => run(c.from("departments").delete().eq("name", name)),
+    );
+  },
+
+  addService(name: string) {
+    const value = name.trim();
+    if (!value) return;
+    void commit(
+      ["master"],
+      (db) => ({ ...db, services: [...db.services, value].sort() }),
+      (c) => run(c.from("services").insert({ name: value })),
+    );
+  },
+
+  removeService(name: string) {
+    void commit(
+      ["master"],
+      (db) => ({ ...db, services: db.services.filter((x) => x !== name) }),
+      (c) => run(c.from("services").delete().eq("name", name)),
+    );
+  },
+};
+
 const crmActions = {
   /* ------------------------------------------------------- companies */
 
@@ -1561,8 +1611,12 @@ const crmActions = {
     const nextServices =
       patch.items &&
       patch.items
-        .map((i) => SERVICES.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()))
-        .filter((s): s is (typeof SERVICES)[number] => !!s);
+        .map((i) =>
+          state.db.services.find(
+            (s) => s.toLowerCase() === i.service.trim().toLowerCase(),
+          ),
+        )
+        .filter((s): s is string => !!s);
 
     const chain = {
       ...("companyId" in patch ? { companyId: patch.companyId ?? null } : {}),
@@ -1888,6 +1942,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       obcById,
       ...actions,
       ...linkActions,
+      ...masterActions,
       ...crmActions,
     }),
     [

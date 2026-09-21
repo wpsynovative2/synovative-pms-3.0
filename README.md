@@ -58,6 +58,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0014_crm_modules.sql` | Companies, Clients, Properties, OBCs and the Content Bank, plus Comments and Minutes of Meeting, and their RLS |
 | `0015_obc_line_details.sql` | OBC lines carry Zoho's short and brief descriptions instead of rate and amount — pricing stays in Zoho |
 | `0016_obc_quote_name.sql` | OBCs are known by their Zoho quote name; the generated code stays as the fallback and stable handle |
+| `0017_master_data_admin.sql` | A Super Admin can add and retire departments and services; foreign keys still refuse to drop a name in use |
 
 ### 4. The first Super Admin
 

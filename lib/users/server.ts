@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { SupabaseClient, User as AuthUser } from "@supabase/supabase-js";
-import { DEPARTMENTS } from "@/lib/master-data";
 import type { Role } from "@/lib/types";
 import type { Caller } from "@/lib/supabase/route-auth";
 
@@ -36,13 +35,27 @@ export function roleError(caller: Caller, role: unknown, previous?: Role): strin
   return null;
 }
 
-/** Departments must come from §5.1; only a Team Leader may have several. */
-export function normaliseDepartments(role: Role, departments: unknown): string[] | string {
+/** The department names on record. A Super Admin can add to these (0017). */
+export async function knownDepartments(sb: SupabaseClient): Promise<string[]> {
+  const { data } = await sb.from("departments").select("name");
+  return (data ?? []).map((r) => r.name as string);
+}
+
+/**
+ * Departments must be ones that exist; only a Team Leader may have several.
+ * The allowed list is passed in rather than read from a constant, because it
+ * is now editable at runtime.
+ */
+export function normaliseDepartments(
+  role: Role,
+  departments: unknown,
+  allowed: string[],
+): string[] | string {
   if (!Array.isArray(departments) || departments.length === 0) {
     return "Pick at least one department.";
   }
   const valid = departments.filter(
-    (d): d is string => typeof d === "string" && (DEPARTMENTS as readonly string[]).includes(d),
+    (d): d is string => typeof d === "string" && allowed.includes(d),
   );
   if (valid.length !== departments.length) return "Unknown department.";
   const unique = Array.from(new Set(valid));

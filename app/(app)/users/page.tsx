@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/primitives";
 import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { formatDate } from "@/lib/calendar";
-import { DEPARTMENTS, WORKDAY_HOURS } from "@/lib/master-data";
+import { WORKDAY_HOURS } from "@/lib/master-data";
 import {
   assignableRoles,
   canAddUsers,
@@ -109,7 +109,7 @@ export default function UsersPage() {
         <StatTile
           label="Departments covered"
           value={new Set(db.users.flatMap((u) => u.departments)).size}
-          hint={`of ${DEPARTMENTS.length}`}
+          hint={`of ${db.departments.length}`}
           tone="blue"
         />
       </div>
@@ -141,7 +141,7 @@ export default function UsersPage() {
           aria-label="Department"
         >
           <option value="all">All departments</option>
-          {DEPARTMENTS.map((d) => (
+          {db.departments.map((d) => (
             <option key={d} value={d}>
               {d}
             </option>
@@ -510,7 +510,7 @@ function UserFormModal({
         >
           {multiDepartment ? (
             <MultiSelect
-              options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+              options={db.departments.map((d) => ({ value: d, label: d }))}
               value={departments}
               onChange={setDepartments}
               placeholder="Search departments…"
@@ -518,7 +518,7 @@ function UserFormModal({
             />
           ) : (
             <SearchSelect
-              options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
+              options={db.departments.map((d) => ({ value: d, label: d }))}
               value={departments[0] ?? ""}
               onChange={(v) => setDepartments(v ? [v] : [])}
               placeholder="Select a department"

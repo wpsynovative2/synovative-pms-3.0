@@ -13,7 +13,6 @@ import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, cx } from "@/components/ui/primitives";
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
-import { DEPARTMENTS } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import type { OutputLocation, ReviewDecision, ReviewSource, Task } from "@/lib/types";
 
@@ -499,7 +498,7 @@ export function ReviewDialog({
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Department">
                 <SearchSelect
-                  options={DEPARTMENTS.map((dpt) => ({ value: dpt, label: dpt }))}
+                  options={db.departments.map((dpt) => ({ value: dpt, label: dpt }))}
                   value={department}
                   onChange={(v) => {
                     setDepartment(v);

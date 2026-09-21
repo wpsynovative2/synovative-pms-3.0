@@ -7,6 +7,7 @@ import {
   capacityError,
   emailError,
   findAuthUserByEmail,
+  knownDepartments,
   normaliseDepartments,
   passwordError,
   replaceDepartments,
@@ -37,10 +38,13 @@ export async function POST(request: NextRequest) {
   if (invalid) return fail(400, invalid);
 
   const role = body.role as Role;
-  const departments = normaliseDepartments(role, body.departments);
-  if (typeof departments === "string") return fail(400, departments);
-
   const admin = getAdminSupabase();
+  const departments = normaliseDepartments(
+    role,
+    body.departments,
+    await knownDepartments(admin),
+  );
+  if (typeof departments === "string") return fail(400, departments);
 
   const existingProfile = await admin.from("profiles").select("id").eq("email", email).maybeSingle();
   if (existingProfile.data) return fail(409, "That email already has a PMS account.");

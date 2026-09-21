@@ -31,7 +31,6 @@ import {
   PRIORITY_STYLE,
   PROJECT_STATUSES,
   PROJECT_STATUS_STYLE,
-  SERVICES,
 } from "@/lib/master-data";
 import {
   canCreateProjects,
@@ -204,7 +203,7 @@ export default function ProjectsPage() {
           aria-label="Service"
         >
           <option value="all">All services</option>
-          {SERVICES.map((s) => (
+          {db.services.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>

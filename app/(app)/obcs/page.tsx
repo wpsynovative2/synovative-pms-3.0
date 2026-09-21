@@ -39,11 +39,9 @@ import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects"
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { addDays, formatDate, todayISO } from "@/lib/calendar";
 import {
-  DEPARTMENTS,
   OBC_STATUS_STYLE,
   PRIORITIES,
   PROJECT_COLORS,
-  SERVICES,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
 import {
@@ -545,6 +543,8 @@ const escapeHtml = (text: string) =>
 interface TaskDraft {
   key: string;
   title: string;
+  /** Rich text, same as a task created on its own. */
+  description: string;
   department: string;
   assigneeId: string;
   priority: Priority;
@@ -588,8 +588,10 @@ function ConvertModal({
   // with the master list; anything bespoke is left for the leader to add.
   const [services, setServices] = useState<string[]>(() =>
     (seed ? [seed] : obc.items)
-      .map((i) => SERVICES.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()))
-      .filter((s): s is (typeof SERVICES)[number] => !!s),
+      .map((i) =>
+        db.services.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()),
+      )
+      .filter((s): s is string => !!s),
   );
   /*
    * The brief the delivery team reads. Seeded from what was quoted, because
@@ -617,6 +619,7 @@ function ConvertModal({
       {
         key: crypto.randomUUID(),
         title,
+        description: "",
         department: "",
         assigneeId: "",
         priority,
@@ -663,7 +666,7 @@ function ConvertModal({
       createTask({
         projectId: created.id,
         title: d.title.trim(),
-        description: "",
+        description: d.description,
         department: d.department,
         assigneeId: d.assigneeId || null,
         status: "Not Started",
@@ -769,7 +772,7 @@ function ConvertModal({
             hint="Pre-filled from the quoted lines that match a known service."
           >
             <MultiSelect
-              options={SERVICES.map((s) => ({ value: s, label: s }))}
+              options={db.services.map((s) => ({ value: s, label: s }))}
               value={services}
               onChange={setServices}
               placeholder="Search services…"
@@ -818,9 +821,16 @@ function ConvertModal({
                       placeholder="What needs doing?"
                     />
 
+                    <RichTextEditor
+                      value={d.description}
+                      onChange={(v) => setDraft(d.key, { description: v })}
+                      minHeight={72}
+                      placeholder="Brief, references, deliverable format…"
+                    />
+
                     <div className="grid gap-2.5 sm:grid-cols-2">
                       <SearchSelect
-                        options={DEPARTMENTS.map((x) => ({ value: x, label: x }))}
+                        options={db.departments.map((x) => ({ value: x, label: x }))}
                         value={d.department}
                         onChange={(v) =>
                           // The assignee comes from the department, so it can't
@@ -1244,7 +1254,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
               </div>
             ))}
             <datalist id="obc-services">
-              {SERVICES.map((s) => (
+              {db.services.map((s) => (
                 <option key={s} value={s} />
               ))}
             </datalist>
