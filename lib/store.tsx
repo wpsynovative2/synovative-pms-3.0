@@ -24,6 +24,7 @@ import {
   configRow,
   loadScopes,
   obcItemRow,
+  obcServiceRow,
   patchColumns,
   projectRow,
   seriesColumns,
@@ -50,6 +51,7 @@ import type {
   Obc,
   ObcAllotment,
   ObcItem,
+  ObcService,
   OperationalLink,
   OutputLocation,
   Project,
@@ -617,15 +619,15 @@ interface StoreValue {
   updateObc: (id: string, patch: Partial<ObcInput>) => void;
   deleteObc: (id: string) => void;
   submitObc: (id: string) => void;
-  /** Raises a project (and its opening tasks) for the given quoted lines. */
+  /** Raises a project (and its opening tasks) for the given delivery services. */
   convertObc: (
     id: string,
     project: NewProjectInput,
-    itemIds: string[],
+    serviceIds: string[],
     tasks?: NewProjectTaskInput[],
   ) => Project;
-  /** Points quoted lines at work that already exists. */
-  allotObcItems: (id: string, itemIds: string[], to: ObcAllotment) => void;
+  /** Points delivery services at work that already exists. */
+  allotObcServices: (id: string, serviceIds: string[], to: ObcAllotment) => void;
 
   createContentEntry: (input: ContentInput) => ContentEntry;
   updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
@@ -1380,6 +1382,19 @@ async function rewriteObcItems(c: SupabaseClient, obcId: string, items: ObcItem[
   }
 }
 
+/** The delivery list, saved the same careful way and for the same reason. */
+async function rewriteObcServices(c: SupabaseClient, obcId: string, services: ObcService[]) {
+  const kept = services.map((x) => x.id);
+  let gone = c.from("obc_services").delete().eq("obc_id", obcId);
+  if (kept.length) gone = gone.not("id", "in", `(${kept.join(",")})`);
+  await run(gone);
+  if (services.length) {
+    await run(
+      c.from("obc_services").upsert(services.map((x, i) => obcServiceRow(obcId, x, i))),
+    );
+  }
+}
+
 /**
  * Adding and retiring the names every picker is built from.
  *
@@ -1626,6 +1641,7 @@ const crmActions = {
       async (c) => {
         await run(c.from("obcs").insert({ id: obc.id, ...patchColumns(input, OBC_COLUMNS) }));
         await rewriteObcItems(c, obc.id, obc.items);
+        await rewriteObcServices(c, obc.id, obc.services);
       },
     );
     return obc;
@@ -1684,6 +1700,7 @@ const crmActions = {
           await run(c.from("obcs").update(columns).eq("id", id));
         }
         if (patch.items) await rewriteObcItems(c, id, patch.items);
+        if (patch.services) await rewriteObcServices(c, id, patch.services);
 
         if (!syncing) return;
         const projectColumns: Record<string, unknown> = patchColumns(chain, PROJECT_COLUMNS);
@@ -1752,7 +1769,7 @@ const crmActions = {
   convertObc(
     id: string,
     project: NewProjectInput,
-    itemIds: string[],
+    serviceIds: string[],
     tasks: NewProjectTaskInput[] = [],
   ): Project {
     const created: Project = {
@@ -1763,12 +1780,12 @@ const crmActions = {
     };
     const rows = projectTaskRows(created, tasks);
     const obc = state.db.obcs.find((x) => x.id === id);
-    const taking = new Set(itemIds);
-    const items = (obc?.items ?? []).map((i) =>
-      taking.has(i.id) ? { ...i, projectId: created.id, taskId: null } : i,
+    const taking = new Set(serviceIds);
+    const services = (obc?.services ?? []).map((x) =>
+      taking.has(x.id) ? { ...x, projectId: created.id, taskId: null } : x,
     );
     const first = !obc?.projectId;
-    const done = items.length > 0 && items.every(isAllotted);
+    const done = services.length > 0 && services.every(isAllotted);
 
     void commit(
       ["crm", "projects", "tasks"],
@@ -1780,7 +1797,7 @@ const crmActions = {
           x.id === id
             ? {
                 ...x,
-                items,
+                services,
                 ...(first ? { projectId: created.id } : {}),
                 ...(done
                   ? { status: "Converted" as const, convertedAt: x.convertedAt ?? now() }
@@ -1798,7 +1815,7 @@ const crmActions = {
         if (taking.size) {
           await run(
             c
-              .from("obc_items")
+              .from("obc_services")
               .update({ project_id: created.id, task_id: null })
               .in("id", [...taking]),
           );
@@ -1815,20 +1832,21 @@ const crmActions = {
   },
 
   /**
-   * Sends quoted lines to work that already exists — in practice the individual
-   * task just raised for them. Same bookkeeping as a conversion, without a
-   * project: the lines point at the task, and the OBC closes once none is left.
+   * Sends delivery services to work that already exists — in practice the
+   * individual task just raised for them. Same bookkeeping as a conversion,
+   * without a project: the services point at the task, and the OBC closes once
+   * none is left waiting.
    */
-  allotObcItems(id: string, itemIds: string[], to: ObcAllotment) {
+  allotObcServices(id: string, serviceIds: string[], to: ObcAllotment) {
     const obc = state.db.obcs.find((x) => x.id === id);
-    if (!obc || itemIds.length === 0) return;
-    const taking = new Set(itemIds);
+    if (!obc || serviceIds.length === 0) return;
+    const taking = new Set(serviceIds);
     const link =
       to.kind === "project"
         ? { projectId: to.projectId, taskId: null }
         : { projectId: null, taskId: to.taskId };
-    const items = obc.items.map((i) => (taking.has(i.id) ? { ...i, ...link } : i));
-    const done = items.length > 0 && items.every(isAllotted);
+    const services = obc.services.map((x) => (taking.has(x.id) ? { ...x, ...link } : x));
+    const done = services.length > 0 && services.every(isAllotted);
 
     void commit(
       ["crm"],
@@ -1838,7 +1856,7 @@ const crmActions = {
           x.id === id
             ? {
                 ...x,
-                items,
+                services,
                 ...(done
                   ? { status: "Converted" as const, convertedAt: x.convertedAt ?? now() }
                   : {}),
@@ -1849,7 +1867,7 @@ const crmActions = {
       async (c) => {
         await run(
           c
-            .from("obc_items")
+            .from("obc_services")
             .update({
               project_id: link.projectId,
               task_id: link.taskId,

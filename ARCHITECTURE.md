@@ -139,7 +139,9 @@ worth reading in full before any non-trivial change. Highlights:
 dates — they resolve against whatever project window they are applied to.
 
 **CRM.** `Company`, `Client`, `Property` (with `PropertyConfig[]` unit mix and
-Drive folders), `Obc` (with `ObcItem[]` quoted lines).
+Drive folders), `Obc` — which carries both `ObcItem[]` (the Zoho estimate,
+reference) and `ObcService[]` (the delivery list, and the unit of allotment).
+See §7.
 
 **Content Bank.** `ContentEntry` — one written piece (on-pic copy, caption,
 body/brief, reference links), filed against a project and usually a task, with
@@ -297,17 +299,29 @@ the project window as the start date moves, until someone sets a date by hand
 are written in **one** call — `createProjectWithTasks` — not a project plus N
 task inserts.
 
-**OBC → work, service by service.** `submitObc()`, then each quoted line is
-allotted: `convertObc()` raises a project (with its opening tasks) for the
-lines picked in the drawer, and `allotObcItems()` points lines at an individual
-task already created. `obc_items.project_id` / `.task_id` record where each
-line went — one or the other, never both, enforced by a check constraint — so
-the list can report "4 projects · 1 task, 5 of 5 services". One OBC can spawn
-several projects; `obc.projectId` names only the first. The OBC reads as
-Converted only once no line is still waiting: raising work sets that
-explicitly, and losing an allotment (a project deleted, blanking its lines by
-foreign key) downgrades it through a trigger, because whoever deleted it need
-not be a manager. On screen the status enum is relabelled: `Draft` stays Draft, `Submitted` reads **"Unallotted"**, `Converted`
+**OBC → work, service by service.** An OBC carries **two lists**, and confusing
+them is the easiest mistake to make here:
+
+- `obc_items` — **the estimate**, pulled from Zoho. What the client bought, in
+  the client's units. Reference only; work is never raised from it.
+- `obc_services` — **the delivery list**, written by hand by a Business
+  Development Executive. Three sold lines routinely become ten or twelve
+  services here, which is exactly why the two are separate.
+
+The flow: the BDE raises the OBC, fetches the estimate (`/api/zoho/quotes`,
+which reads Zoho CRM's `Quotes` module), writes the delivery list — "Copy from
+the estimate" seeds it — and submits. Then a manager picks services in the
+drawer and raises work: `convertObc()` creates a project with its opening
+tasks, or `allotObcServices()` points them at an individual task just created
+through the ordinary task form. `obc_services.project_id` / `.task_id` record
+where each service went — one or the other, never both, enforced by a check
+constraint — so the list can report "4 projects · 1 task, 5 of 5 services".
+
+One OBC can spawn several projects; `obc.projectId` names only the first. The
+OBC reads as Converted only once no service is still waiting: raising work sets
+that explicitly, and losing an allotment (a project deleted, blanking its
+services by foreign key) downgrades it through a trigger, because whoever
+deleted it need not be a manager. On screen the status enum is relabelled: `Draft` stays Draft, `Submitted` reads **"Unallotted"**, `Converted`
 reads **"Allotted"** — see `OBC_STATUS_LABEL` in `lib/master-data.ts`. The
 stored enum is unchanged; do not rename it without a migration, because
 triggers and existing rows depend on the words.
@@ -346,6 +360,7 @@ exists as a file of its own).
 | `0015`–`0017` | OBC line details, quote name, master-data admin |
 | `0018_content_authors.sql` | SMM writes content; allottee can read it |
 | `0019_obc_service_allotment.sql` | OBC lines carry the project or task raised for them |
+| `0020_obc_delivery_services.sql` | The estimate (`obc_items`) and the delivery list (`obc_services`) split apart; allotment moves to the latter |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

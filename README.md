@@ -65,6 +65,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0017_master_data_admin.sql` | A Super Admin can add and retire departments and services; foreign keys still refuse to drop a name in use |
 | `0018_content_authors.sql` | Social Media Marketing writes in the Content Bank alongside Content Writers, and a piece can be allotted to — and read by — someone with no task on the project |
 | `0019_obc_service_allotment.sql` | An OBC is allotted service by service: each quoted line records the project or individual task raised for it, and the OBC is Allotted only once none is left |
+| `0020_obc_delivery_services.sql` | The estimate and the work split in two: `obc_items` stays the Zoho estimate (reference), and `obc_services` is the delivery list a Business Development Executive writes by hand and a manager raises work from |
 
 ### 4. The first Super Admin
 
@@ -117,7 +118,7 @@ All ten modules from the PRD:
 | Companies — the real-estate developer master | `/companies` | — |
 | Clients — the people at each company | `/clients` | — |
 | Real estate properties — unit mix and Google Drive media folders | `/properties` | — |
-| New OBCs — sales orders from Zoho quotes, allotted service by service to projects and tasks | `/obcs` | — |
+| New OBCs — the estimate from Zoho plus the delivery list, allotted service by service | `/obcs` | — |
 | Content Bank — written by Content Writers and Social Media Marketing, filed under its project | `/content-bank` | — |
 
 Behaviour worth pointing at specifically:

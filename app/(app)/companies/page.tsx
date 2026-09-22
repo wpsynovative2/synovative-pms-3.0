@@ -31,6 +31,7 @@ import {
 import { SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
 import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { formatDate } from "@/lib/calendar";
 import { useStore, type CompanyInput } from "@/lib/store";
 import type { Company, PartyStatus } from "@/lib/types";
 
@@ -300,6 +301,12 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
                   label="Website"
                   value={company.website}
                   href={company.website || undefined}
+                />
+                <Fact
+                  label="Added by"
+                  value={`${userById(company.createdBy)?.fullName ?? "Unknown"} — ${formatDate(
+                    company.createdAt,
+                  )}`}
                 />
               </dl>
               {company.address ? (

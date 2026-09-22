@@ -14,6 +14,7 @@ import type {
   MeetingMinutes,
   Obc,
   ObcItem,
+  ObcService,
   OperationalLink,
   Project,
   ProjectTemplate,
@@ -457,16 +458,25 @@ async function loadLinks(sb: SupabaseClient): Promise<Partial<Database>> {
 /* -------------------------------------------------------------- CRM */
 
 async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [companyRows, clientRows, propertyRows, configRows, folderRows, obcRows, itemRows] =
-    await Promise.all([
-      fetchAll(sb, "companies", "name", "id"),
-      fetchAll(sb, "clients", "full_name", "id"),
-      fetchAll(sb, "properties", "name", "id"),
-      fetchAll(sb, "property_configs", "property_id", "position", "id"),
-      fetchAll(sb, "property_drive_folders", "property_id", "name"),
-      fetchAll(sb, "obcs", "created_at", "id"),
-      fetchAll(sb, "obc_items", "obc_id", "position", "id"),
-    ]);
+  const [
+    companyRows,
+    clientRows,
+    propertyRows,
+    configRows,
+    folderRows,
+    obcRows,
+    itemRows,
+    serviceRows,
+  ] = await Promise.all([
+    fetchAll(sb, "companies", "name", "id"),
+    fetchAll(sb, "clients", "full_name", "id"),
+    fetchAll(sb, "properties", "name", "id"),
+    fetchAll(sb, "property_configs", "property_id", "position", "id"),
+    fetchAll(sb, "property_drive_folders", "property_id", "name"),
+    fetchAll(sb, "obcs", "created_at", "id"),
+    fetchAll(sb, "obc_items", "obc_id", "position", "id"),
+    fetchAll(sb, "obc_services", "obc_id", "position", "id"),
+  ]);
 
   const companies: Company[] = companyRows.map((r) => ({
     id: str(r.id),
@@ -535,12 +545,21 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     };
   });
 
+  // The estimate, as it came from Zoho — reference, never allotted.
   const items = groupBy<ObcItem>(itemRows, "obc_id", (r) => ({
     id: str(r.id),
     service: str(r.service),
     quantity: num(r.quantity),
     description: str(r.description),
     briefDescription: str(r.brief_description),
+  }));
+
+  // What we will deliver, and where each piece of it was sent.
+  const services = groupBy<ObcService>(serviceRows, "obc_id", (r) => ({
+    id: str(r.id),
+    service: str(r.service),
+    quantity: num(r.quantity),
+    description: str(r.description),
     projectId: nullable(r.project_id),
     taskId: nullable(r.task_id),
   }));
@@ -561,6 +580,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
       convertedAt: opt(r.converted_at),
       projectId: nullable(r.project_id),
       items: items.get(str(r.id)) ?? [],
+      services: services.get(str(r.id)) ?? [],
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),
     }))
@@ -849,6 +869,22 @@ export const obcItemRow = (obcId: string, i: ObcItem, position: number) => ({
   quantity: i.quantity,
   description: i.description,
   brief_description: i.briefDescription,
+});
+
+/**
+ * Deliberately without `project_id` / `task_id`. Editing the delivery list must
+ * never disturb where a service was already allotted, and this row is written
+ * as an upsert — columns it leaves out keep whatever the existing row holds,
+ * and start null on a service that is genuinely new. Allotment is written only
+ * by `allotObcServices`, which is the one path a manager is checked on.
+ */
+export const obcServiceRow = (obcId: string, x: ObcService, position: number) => ({
+  id: x.id,
+  obc_id: obcId,
+  position,
+  service: x.service,
+  quantity: x.quantity,
+  description: x.description,
 });
 
 export function templateItemRow(item: TaskTemplateItem) {

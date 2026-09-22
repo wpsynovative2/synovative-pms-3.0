@@ -194,8 +194,15 @@ export function TaskFormModal({
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
     };
-    if (task) updateTask(task.id, payload);
-    else onCreated?.(createTask(payload));
+    if (task) {
+      updateTask(task.id, payload);
+    } else {
+      // Not `onCreated?.(createTask(...))` - an optional call skips its
+      // arguments as well, so the task would never be created for the callers
+      // that do not pass onCreated, which is nearly all of them.
+      const created = createTask(payload);
+      onCreated?.(created);
+    }
     onClose();
   };
 

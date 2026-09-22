@@ -30,6 +30,7 @@ import {
 import { SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
 import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { formatDate } from "@/lib/calendar";
 import { useStore, type ClientInput } from "@/lib/store";
 import { CLIENT_ROLES, type Client, type ClientRole, type PartyStatus } from "@/lib/types";
 
@@ -266,7 +267,7 @@ export default function ClientsPage() {
 type Pane = "details" | "collab";
 
 function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void }) {
-  const { db, companyById } = useStore();
+  const { db, companyById, userById } = useStore();
   const [pane, setPane] = useState<Pane>("details");
   const company = companyById(client.companyId);
   const properties = db.properties.filter((p) => p.clientId === client.id);
@@ -305,6 +306,12 @@ function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void
                 <Fact label="Designation" value={client.designation} />
                 <Fact label="Role" value={client.role ?? ""} />
                 <Fact label="Company" value={company?.name ?? ""} />
+                <Fact
+                  label="Added by"
+                  value={`${userById(client.createdBy)?.fullName ?? "Unknown"} — ${formatDate(
+                    client.createdAt,
+                  )}`}
+                />
               </dl>
             </Card>
 

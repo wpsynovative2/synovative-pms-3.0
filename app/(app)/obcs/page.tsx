@@ -50,7 +50,7 @@ import {
 import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
 import { OBC_STATUSES, isAllotted, obcProgress } from "@/lib/types";
-import type { Obc, ObcItem, ObcStatus, Priority } from "@/lib/types";
+import type { Obc, ObcItem, ObcService, ObcStatus, Priority } from "@/lib/types";
 
 /**
  * An OBC goes by the name of the quote behind it — that is what the sales team
@@ -141,7 +141,7 @@ export default function ObcsPage() {
         <StatTile
           label="Services awaiting work"
           value={db.obcs.reduce(
-            (n, o) => n + (o.status === "Draft" ? 0 : obcProgress(o.items).pending),
+            (n, o) => n + (o.status === "Draft" ? 0 : obcProgress(o.services).pending),
             0,
           )}
           tone="neutral"
@@ -304,10 +304,10 @@ export default function ObcsPage() {
  * second number that matters is how many services are still waiting.
  */
 function AllotmentCell({ obc }: { obc: Obc }) {
-  const p = obcProgress(obc.items);
+  const p = obcProgress(obc.services);
 
   if (p.services === 0) {
-    return <span className="text-[12px] text-ink-faint">Nothing quoted</span>;
+    return <span className="text-[12px] text-ink-faint">No services yet</span>;
   }
 
   const raised = [
@@ -338,19 +338,36 @@ const escapeHtml = (text: string) =>
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br />");
 
-/** A quoted line's own words, as the rich text a brief is written in. */
-const lineBrief = (i: ObcItem) =>
-  [i.description, i.briefDescription]
-    .filter((t) => t.trim())
-    .map((t) => `<p>${escapeHtml(t)}</p>`)
-    .join("");
+/** A service's own words, as the rich text a brief is written in. */
+const lineBrief = (x: ObcService) =>
+  x.description.trim() ? `<p>${escapeHtml(x.description.trim())}</p>` : "";
+
+/** One line of the estimate, read-only: what the client bought. */
+function EstimateLine({ item }: { item: ObcItem }) {
+  return (
+    <li className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 text-[13px] font-medium text-ink">{item.service}</span>
+        <span className="shrink-0 font-mono text-[12px] text-ink-muted">x{item.quantity}</span>
+      </div>
+      {item.description ? (
+        <p className="mt-1 text-[12px] text-ink-muted">{item.description}</p>
+      ) : null}
+      {item.briefDescription ? (
+        <p className="mt-1.5 border-t border-line-soft pt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-faint">
+          {item.briefDescription}
+        </p>
+      ) : null}
+    </li>
+  );
+}
 
 /**
- * One quoted service in the drawer. Lines still waiting are pickable — that
- * selection is what a project or an individual task gets raised from. A line
- * already allotted says where it went instead, and cannot be picked again:
- * the counts on the list only mean something while each service is in one
- * place. Deleting the project or task frees it.
+ * One service we are going to deliver. Services still waiting are pickable —
+ * that selection is what a project or an individual task gets raised from. One
+ * already allotted says where it went instead, and cannot be picked again: the
+ * counts on the list only mean something while each service is in one place.
+ * Deleting the project or task frees it.
  */
 function ServiceLine({
   item,
@@ -358,7 +375,7 @@ function ServiceLine({
   selected,
   onToggle,
 }: {
-  item: ObcItem;
+  item: ObcService;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
@@ -376,11 +393,8 @@ function ServiceLine({
         <span className="shrink-0 font-mono text-[12px] text-ink-muted">x{item.quantity}</span>
       </div>
       {item.description ? (
-        <p className="mt-1 text-[12px] text-ink-muted">{item.description}</p>
-      ) : null}
-      {item.briefDescription ? (
-        <p className="mt-1.5 border-t border-line-soft pt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-faint">
-          {item.briefDescription}
+        <p className="mt-1 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-muted">
+          {item.description}
         </p>
       ) : null}
     </>
@@ -436,24 +450,25 @@ function ServiceLine({
 type Pane = "details" | "collab";
 
 function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
-  const { db, currentUser, companyById, clientById, propertyById, submitObc } = useStore();
+  const { db, currentUser, companyById, clientById, propertyById, userById, submitObc } =
+    useStore();
   const user = currentUser!;
   const [pane, setPane] = useState<Pane>("details");
-  // Which quoted lines the next project or task is being raised for. Work is
-  // allotted service by service, so this is the whole selection model.
+  // Which delivery services the next project or task is being raised for. Work
+  // is allotted service by service, so this is the whole selection model.
   const [picked, setPicked] = useState<string[]>([]);
   const [convertOpen, setConvertOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
 
-  // A quote often covers several strands of work, so an OBC can carry more
+  // An order usually covers several strands of work, so an OBC can carry more
   // than one project. `obc.projectId` only names the first.
   const projects = db.projects.filter((p) => p.obcId === obc.id);
   const mayRaise = canConvertObc(user) && obc.status !== "Draft";
 
-  const pending = obc.items.filter((i) => !isAllotted(i));
-  const progress = obcProgress(obc.items);
+  const pending = obc.services.filter((x) => !isAllotted(x));
+  const progress = obcProgress(obc.services);
   // A selection can go stale if the work it named was deleted in another tab.
-  const selected = obc.items.filter((i) => picked.includes(i.id) && !isAllotted(i));
+  const selected = obc.services.filter((x) => picked.includes(x.id) && !isAllotted(x));
 
   const toggle = (id: string) =>
     setPicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
@@ -473,7 +488,7 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
           </Badge>
           <Badge>{obc.code}</Badge>
           <Badge>
-            {obc.items.length} {obc.items.length === 1 ? "service" : "services"}
+            {obc.services.length} {obc.services.length === 1 ? "service" : "services"}
           </Badge>
           {obc.zohoQuoteNumber ? <Badge>Quote {obc.zohoQuoteNumber}</Badge> : null}
         </div>
@@ -509,6 +524,12 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                   icon={<IconProperty size={13} />}
                 />
                 <Fact label="Zoho quote" value={obc.zohoQuoteNumber || "Entered by hand"} />
+                <Fact
+                  label="Raised by"
+                  value={`${userById(obc.createdBy)?.fullName ?? "Unknown"} — ${formatDate(
+                    obc.createdAt,
+                  )}`}
+                />
                 <Fact label="Submitted" value={obc.submittedAt ? formatDate(obc.submittedAt) : "—"} />
                 <Fact label="Allotted" value={obc.convertedAt ? formatDate(obc.convertedAt) : "—"} />
               </dl>
@@ -519,10 +540,27 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
               ) : null}
             </Card>
 
+            {obc.items.length ? (
+              <section>
+                <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                  The estimate ({obc.items.length})
+                </h3>
+                <p className="mb-2 text-[11px] text-ink-faint">
+                  What the client bought, straight from Zoho. Work is raised from the
+                  services below, not from these lines.
+                </p>
+                <ul className="flex flex-col gap-2">
+                  {obc.items.map((i) => (
+                    <EstimateLine key={i.id} item={i} />
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
             <section>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <h3 className="text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                  Quoted services
+                  Services to deliver
                 </h3>
                 <span className="text-[11px] text-ink-faint">
                   {progress.allotted} of {progress.services} allotted
@@ -541,17 +579,20 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                 ) : null}
               </div>
 
-              {obc.items.length === 0 ? (
-                <p className="text-[12px] text-ink-faint">Nothing quoted yet.</p>
+              {obc.services.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-faint">
+                  No services yet. A Business Development Executive lists what we will
+                  deliver on this order before work can be raised from it.
+                </p>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {obc.items.map((i) => (
+                  {obc.services.map((x) => (
                     <ServiceLine
-                      key={i.id}
-                      item={i}
+                      key={x.id}
+                      item={x}
                       selectable={mayRaise}
-                      selected={picked.includes(i.id)}
-                      onToggle={() => toggle(i.id)}
+                      selected={picked.includes(x.id)}
+                      onToggle={() => toggle(x.id)}
                     />
                   ))}
                 </ul>
@@ -578,8 +619,8 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                   <span className="text-[11px] text-ink-faint">
                     {selected.length
                       ? `${selected.length} selected`
-                      : obc.items.length === 0
-                        ? "Add a quoted service first"
+                      : obc.services.length === 0
+                        ? "List the services to deliver first"
                         : pending.length
                           ? "Pick the services this work covers"
                           : "Every service has been allotted"}
@@ -635,7 +676,7 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
       {convertOpen && selected.length ? (
         <ConvertModal
           obc={obc}
-          items={selected}
+          services={selected}
           onClose={() => setConvertOpen(false)}
           onDone={() => {
             setPicked([]);
@@ -648,7 +689,7 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
       {taskOpen && selected.length ? (
         <ObcTaskModal
           obc={obc}
-          items={selected}
+          services={selected}
           onClose={() => setTaskOpen(false)}
           onDone={() => {
             setPicked([]);
@@ -712,13 +753,13 @@ interface TaskDraft {
  */
 function ConvertModal({
   obc,
-  items,
+  services: picked,
   onClose,
   onDone,
 }: {
   obc: Obc;
-  /** The quoted lines this project is being raised for; at least one. */
-  items: ObcItem[];
+  /** The delivery services this project is being raised for; at least one. */
+  services: ObcService[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -727,14 +768,14 @@ function ConvertModal({
   const company = companyById(obc.companyId);
   const client = clientById(obc.clientId);
 
-  /** The master-list service a quoted line names, when it names one. */
-  const knownService = (line: ObcItem) =>
+  /** The master-list service a delivery line names, when it names one. */
+  const knownService = (line: ObcService) =>
     db.services.find((x) => x.toLowerCase() === line.service.trim().toLowerCase());
 
   const base = property?.name ?? company?.name ?? obcLabel(obc);
-  const [chosen, setChosen] = useState<string[]>(() => items.map((i) => i.id));
+  const [chosen, setChosen] = useState<string[]>(() => picked.map((x) => x.id));
   const [name, setName] = useState(
-    items.length === 1 ? `${base} — ${items[0].service}` : base,
+    picked.length === 1 ? `${base} — ${picked[0].service}` : base,
   );
   const [color, setColor] = useState(PROJECT_COLORS[0]);
   const [startDate, setStartDate] = useState(todayISO());
@@ -747,7 +788,7 @@ function ConvertModal({
   // the master list; anything bespoke is left for the leader to add by hand,
   // which is why this is state rather than derived outright.
   const [services, setServices] = useState<string[]>(() =>
-    [...new Set(items.map(knownService).filter((x): x is string => !!x))],
+    [...new Set(picked.map(knownService).filter((x): x is string => !!x))],
   );
 
   /*
@@ -758,7 +799,7 @@ function ConvertModal({
    * dropped and picked up again.
    */
   const [briefs, setBriefs] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((i) => [i.id, lineBrief(i)])),
+    Object.fromEntries(picked.map((x) => [x.id, lineBrief(x)])),
   );
   /** Anything true of the project as a whole rather than of one service. */
   const [notes, setNotes] = useState(() =>
@@ -769,21 +810,21 @@ function ConvertModal({
   const [touched, setTouched] = useState(false);
   const [tab, setTab] = useState<ConvertTab>("project");
 
-  const included = items.filter((i) => chosen.includes(i.id));
+  const included = picked.filter((x) => chosen.includes(x.id));
 
   /**
    * Dropping a service takes its service name off the project with it, and its
    * brief stops being written into the description. Done here rather than in an
    * effect so the two can never disagree mid-render.
    */
-  const toggleService = (line: ObcItem) => {
+  const toggleService = (line: ObcService) => {
     const known = knownService(line);
     if (chosen.includes(line.id)) {
       setChosen((ids) => ids.filter((x) => x !== line.id));
-      // Only pull the service name if no other included line also sells it.
+      // Only pull the service name if no other included line also covers it.
       if (
         known &&
-        !items.some(
+        !picked.some(
           (o) => o.id !== line.id && chosen.includes(o.id) && knownService(o) === known,
         )
       ) {
@@ -1015,13 +1056,13 @@ function ConvertModal({
 
           <Field
             label="Services this project covers"
-            hint="From the quote. Unticking one takes its brief off the project too."
+            hint="From the order. Unticking one takes its brief off the project too."
             error={
               touched && included.length === 0 ? "Keep at least one service." : undefined
             }
           >
             <ul className="flex flex-col gap-1.5">
-              {items.map((i) => (
+              {picked.map((i) => (
                 <li key={i.id}>
                   <label
                     className={cx(
@@ -1238,7 +1279,7 @@ function ConvertModal({
           </div>
 
           <h4 className="text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-            Selected from the quote ({included.length} of {obc.items.length})
+            Selected services ({included.length} of {obc.services.length})
           </h4>
 
           {/* Its own scroll, so the quoted lines stay beside the form rather
@@ -1256,14 +1297,11 @@ function ConvertModal({
                   </span>
                 </div>
                 {i.description ? (
-                  <p className="mt-1 text-[12px] text-ink-muted">{i.description}</p>
-                ) : null}
-                {i.briefDescription ? (
-                  <p className="mt-1.5 border-t border-line-soft pt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-faint">
-                    {i.briefDescription}
+                  <p className="mt-1 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-muted">
+                    {i.description}
                   </p>
                 ) : null}
-                {/* Straight from a quoted line to the task that delivers it. */}
+                {/* Straight from a sold service to the task that delivers it. */}
                 <Button
                   size="sm"
                   className="mt-2"
@@ -1275,6 +1313,19 @@ function ConvertModal({
               </li>
             ))}
           </ul>
+
+          {obc.items.length ? (
+            <details className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
+              <summary className="cursor-pointer text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                The estimate ({obc.items.length})
+              </summary>
+              <ul className="mt-2 flex flex-col gap-2">
+                {obc.items.map((i) => (
+                  <EstimateLine key={i.id} item={i} />
+                ))}
+              </ul>
+            </details>
+          ) : null}
 
           {obc.notes ? (
             <div className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
@@ -1297,33 +1348,33 @@ function ConvertModal({
  *
  * Small pieces of a quote do not deserve a project of their own, so they go
  * straight to one person as an individual task. The work itself is the ordinary
- * task form \u2014 same fields, same task templates, and a template prefills the
- * content here exactly as it does anywhere else \u2014 it is only seeded from what
+ * task form — same fields, same task templates, and a template prefills the
+ * content here exactly as it does anywhere else — it is only seeded from what
  * was sold, and the lines are allotted to it once it exists.
  */
 function ObcTaskModal({
   obc,
-  items,
+  services,
   onClose,
   onDone,
 }: {
   obc: Obc;
-  items: ObcItem[];
+  services: ObcService[];
   onClose: () => void;
   onDone: () => void;
 }) {
-  const { allotObcItems } = useStore();
+  const { allotObcServices } = useStore();
 
   const title =
-    items.length === 1
-      ? items[0].service
-      : `${items[0].service} +${items.length - 1} more`;
+    services.length === 1
+      ? services[0].service
+      : `${services[0].service} +${services.length - 1} more`;
 
   const description = [
     obc.notes.trim() ? `<p>${escapeHtml(obc.notes.trim())}</p>` : "",
-    ...items.map((i) => {
-      const body = lineBrief(i);
-      return body ? `<p><strong>${escapeHtml(i.service)}</strong></p>${body}` : "";
+    ...services.map((x) => {
+      const body = lineBrief(x);
+      return body ? `<p><strong>${escapeHtml(x.service)}</strong></p>${body}` : "";
     }),
   ]
     .filter(Boolean)
@@ -1338,9 +1389,9 @@ function ObcTaskModal({
       defaultTitle={title}
       defaultDescription={description}
       onCreated={(task) => {
-        allotObcItems(
+        allotObcServices(
           obc.id,
-          items.map((i) => i.id),
+          services.map((x) => x.id),
           { kind: "task", taskId: task.id },
         );
         onDone();
@@ -1368,7 +1419,14 @@ const blankItem = (): ObcItem => ({
   quantity: 1,
   description: "",
   briefDescription: "",
-  // A new line has been sold, not yet allotted to anything.
+});
+
+/** A service we will deliver, not yet allotted to anything. */
+const blankService = (service = "", description = ""): ObcService => ({
+  id: crypto.randomUUID(),
+  service,
+  quantity: 1,
+  description,
   projectId: null,
   taskId: null,
 });
@@ -1395,6 +1453,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
     zohoQuoteName: obc?.zohoQuoteName ?? "",
     notes: obc?.notes ?? "",
     items: obc?.items ?? [],
+    services: obc?.services ?? [],
   });
   const [touched, setTouched] = useState(false);
   const [reference, setReference] = useState(obc?.zohoQuoteNumber ?? "");
@@ -1422,6 +1481,33 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
       form.items.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     );
 
+  const setService = (id: string, patch: Partial<ObcService>) =>
+    set(
+      "services",
+      form.services.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+    );
+
+  /*
+   * The estimate is a starting point for the delivery list, not the list
+   * itself: three sold lines routinely become ten or twelve services here. This
+   * copies across the ones that are not on the list yet, so the common case is
+   * one click and then adding the rest by hand.
+   */
+  const copyFromEstimate = () => {
+    const already = new Set(
+      form.services.map((x) => x.service.trim().toLowerCase()).filter(Boolean),
+    );
+    const extra = form.items
+      .filter((i) => i.service.trim() && !already.has(i.service.trim().toLowerCase()))
+      .map((i) =>
+        blankService(
+          i.service.trim(),
+          [i.description, i.briefDescription].map((t) => t.trim()).filter(Boolean).join("\n\n"),
+        ),
+      );
+    if (extra.length) set("services", [...form.services, ...extra]);
+  };
+
   const loadQuote = async () => {
     const ref = reference.trim();
     if (!ref) return;
@@ -1439,12 +1525,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
         zohoQuoteId: body.quote.id,
         zohoQuoteNumber: body.quote.number || ref,
         zohoQuoteName: body.quote.subject,
-        items: body.lines.map((l) => ({
-          id: crypto.randomUUID(),
-          ...l,
-          projectId: null,
-          taskId: null,
-        })),
+        items: body.lines.map((l) => ({ id: crypto.randomUUID(), ...l })),
       }));
       showToast(
         `Pulled ${body.lines.length} line${body.lines.length === 1 ? "" : "s"} from ${
@@ -1460,7 +1541,10 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
   };
 
   const badItem = form.items.some((i) => !i.service.trim());
-  const valid = form.companyId && form.items.length > 0 && !badItem;
+  const badService = form.services.some((x) => !x.service.trim());
+  // An OBC can be raised before the delivery list is written — that is the
+  // Business Development Executive's next job, not a reason to block saving.
+  const valid = form.companyId && form.items.length > 0 && !badItem && !badService;
 
   return (
     <Modal
@@ -1480,6 +1564,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
               const payload: ObcInput = {
                 ...form,
                 items: form.items.map((i) => ({ ...i, service: i.service.trim() })),
+                services: form.services.map((x) => ({ ...x, service: x.service.trim() })),
               };
               if (obc) updateObc(obc.id, payload);
               else createObc(payload);
@@ -1565,15 +1650,16 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
           </div>
 
           <p className="mt-2 text-[11px] text-ink-faint">
-            Either the record ID or the Quote Number printed on the quote works — they
-            are different numbers and this accepts both. Pulling replaces the lines below.
+            Either the record ID or the Quote Number printed on the estimate works — they
+            are different numbers and this accepts both. Pulling replaces the estimate
+            lines below; the delivery list is left alone.
           </p>
         </section>
 
         <Field
-          label="Quoted services"
+          label="The estimate"
           required
-          hint="What was sold, and the brief that came with it."
+          hint="What the client bought, and the brief that came with it. Reference only — work is raised from the delivery list below."
           error={
             touched && form.items.length === 0
               ? "An OBC needs at least one line."
@@ -1643,6 +1729,91 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
               <Button size="sm" onClick={() => set("items", [...form.items, blankItem()])}>
                 <IconPlus size={14} /> Add line
               </Button>
+            </div>
+          </div>
+        </Field>
+
+        <Field
+          label="Services to deliver"
+          hint="What we will actually do — usually far more lines than the estimate has. A manager raises projects and individual tasks from these."
+          error={touched && badService ? "Every service needs a name." : undefined}
+        >
+          <div className="flex flex-col gap-2">
+            {form.services.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-faint">
+                Nothing listed yet. Nobody can raise work from this OBC until there is.
+              </p>
+            ) : null}
+
+            {form.services.map((x) => {
+              const allotted = isAllotted(x);
+              return (
+                <div
+                  key={x.id}
+                  className="rounded-card border border-line-soft bg-surface-2 p-2.5"
+                >
+                  <div className="grid gap-2 sm:grid-cols-[2fr_0.6fr_auto]">
+                    <Input
+                      value={x.service}
+                      onChange={(e) => setService(x.id, { service: e.target.value })}
+                      placeholder="Service we will deliver"
+                      aria-label="Service"
+                      list="obc-services"
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      value={x.quantity}
+                      onChange={(e) =>
+                        setService(x.id, { quantity: Number(e.target.value) || 0 })
+                      }
+                      placeholder="Qty"
+                      aria-label="Quantity"
+                    />
+                    <Button
+                      variant="ghost"
+                      aria-label="Remove service"
+                      // Removing one that already has work behind it would
+                      // strand the project or task it was raised for.
+                      disabled={allotted}
+                      title={allotted ? "Work has been raised for this service" : undefined}
+                      onClick={() =>
+                        set(
+                          "services",
+                          form.services.filter((o) => o.id !== x.id),
+                        )
+                      }
+                    >
+                      <IconTrash size={14} />
+                    </Button>
+                  </div>
+                  <Textarea
+                    className="mt-2"
+                    rows={2}
+                    value={x.description}
+                    onChange={(e) => setService(x.id, { description: e.target.value })}
+                    placeholder="What this service has to deliver"
+                    aria-label="Service description"
+                  />
+                  {allotted ? (
+                    <p className="mt-1.5 text-[11px] text-ink-faint">
+                      Already allotted — editing the name here does not rename the work
+                      raised from it.
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" onClick={() => set("services", [...form.services, blankService()])}>
+                <IconPlus size={14} /> Add service
+              </Button>
+              {form.items.some((i) => i.service.trim()) ? (
+                <Button size="sm" onClick={copyFromEstimate}>
+                  <IconQuote size={14} /> Copy from the estimate
+                </Button>
+              ) : null}
             </div>
           </div>
         </Field>

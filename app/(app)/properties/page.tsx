@@ -37,6 +37,7 @@ import {
   PROPERTY_MEDIA_FOLDERS,
 } from "@/lib/master-data";
 import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { formatDate } from "@/lib/calendar";
 import { useStore, type DriveResult, type PropertyInput } from "@/lib/store";
 import {
   CONFIG_STATUSES,
@@ -290,7 +291,8 @@ function PropertyDrawer({
   property: Property;
   onClose: () => void;
 }) {
-  const { currentUser, companyById, clientById, showToast, saveDriveFolders } = useStore();
+  const { currentUser, companyById, clientById, userById, showToast, saveDriveFolders } =
+    useStore();
   const user = currentUser!;
   const [pane, setPane] = useState<Pane>("details");
   const [creating, setCreating] = useState(false);
@@ -378,6 +380,13 @@ function PropertyDrawer({
                     ) : (
                       <span className="text-ink">—</span>
                     )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-ink-faint">Added by</dt>
+                  <dd className="mt-0.5 break-words text-ink">
+                    {userById(property.createdBy)?.fullName ?? "Unknown"} —{" "}
+                    {formatDate(property.createdAt)}
                   </dd>
                 </div>
               </dl>
