@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { IconClose } from "./icons";
 import { cx } from "./primitives";
 
@@ -54,6 +55,26 @@ function useOverlay(open: boolean, onClose: () => void) {
   }, [open]);
 }
 
+/**
+ * Every overlay renders into <body>, never where it was written.
+ *
+ * `position: fixed` is measured against the viewport only while nothing above
+ * it establishes a containing block — and a transform, a filter, or the
+ * compositing hint a browser adds for an element animating a transform all do
+ * exactly that. Our own overlays carry those (`animate-fade-up`,
+ * `backdrop-blur`), so a Modal opened from inside a Drawer was laid out
+ * against the *drawer*: `inset-0` meant the drawer's box, and a centred dialog
+ * appeared squeezed into the right-hand panel.
+ *
+ * Portalling side-steps the whole class of bug, the same way Popover already
+ * does for dropdowns. Note React events still bubble through the React tree,
+ * so nothing about the call sites changes.
+ */
+function overlayPortal(node: React.ReactNode) {
+  if (typeof document === "undefined") return null;
+  return createPortal(node, document.body);
+}
+
 export function Modal({
   open,
   onClose,
@@ -82,7 +103,7 @@ export function Modal({
     xl: "max-w-6xl",
   };
 
-  return (
+  return overlayPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
       <div
         className="fixed inset-0 bg-scrim/80 backdrop-blur-[2px]"
@@ -122,7 +143,7 @@ export function Modal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
   );
 }
 
@@ -156,7 +177,7 @@ export function FullScreen({
 
   if (!open) return null;
 
-  return (
+  return overlayPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -187,7 +208,7 @@ export function FullScreen({
           {footer}
         </footer>
       ) : null}
-    </div>
+    </div>,
   );
 }
 
@@ -211,7 +232,7 @@ export function Drawer({
 
   if (!open) return null;
 
-  return (
+  return overlayPortal(
     <div className="fixed inset-0 z-40">
       <div
         className="absolute inset-0 bg-scrim/80 backdrop-blur-[2px]"
@@ -239,7 +260,7 @@ export function Drawer({
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-5">{children}</div>
       </aside>
-    </div>
+    </div>,
   );
 }
 

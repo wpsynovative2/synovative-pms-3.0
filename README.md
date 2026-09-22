@@ -5,6 +5,10 @@ real-estate companies in Mumbai. Built to the spec in [Doc.md](Doc.md) — one w
 app for every employee, whose menus, pages and actions adapt to the signed-in
 user's role.
 
+Working on the code? [ARCHITECTURE.md](ARCHITECTURE.md) is the orientation
+guide — domain model, permission layers, the store, and the rules that are easy
+to break.
+
 **Stack (§2):** Next.js 16 · TypeScript · Tailwind CSS v4 · Supabase (Postgres,
 Auth, Realtime, `pg_cron`) · Cloudinary for expense bills · deploys to Vercel.
 
@@ -60,6 +64,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0016_obc_quote_name.sql` | OBCs are known by their Zoho quote name; the generated code stays as the fallback and stable handle |
 | `0017_master_data_admin.sql` | A Super Admin can add and retire departments and services; foreign keys still refuse to drop a name in use |
 | `0018_content_authors.sql` | Social Media Marketing writes in the Content Bank alongside Content Writers, and a piece can be allotted to — and read by — someone with no task on the project |
+| `0019_obc_service_allotment.sql` | An OBC is allotted service by service: each quoted line records the project or individual task raised for it, and the OBC is Allotted only once none is left |
 
 ### 4. The first Super Admin
 
@@ -112,7 +117,7 @@ All ten modules from the PRD:
 | Companies — the real-estate developer master | `/companies` | — |
 | Clients — the people at each company | `/clients` | — |
 | Real estate properties — unit mix and Google Drive media folders | `/properties` | — |
-| New OBCs — sales orders from Zoho quotes; unallotted until a project is raised from one | `/obcs` | — |
+| New OBCs — sales orders from Zoho quotes, allotted service by service to projects and tasks | `/obcs` | — |
 | Content Bank — written by Content Writers and Social Media Marketing, filed under its project | `/content-bank` | — |
 
 Behaviour worth pointing at specifically:

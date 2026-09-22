@@ -17,9 +17,10 @@ import {
   IconQuote,
   IconSearch,
   IconSend,
+  IconTasks,
   IconTrash,
 } from "@/components/ui/icons";
-import { ConfirmDialog, Drawer, Modal } from "@/components/ui/modal";
+import { ConfirmDialog, Drawer, FullScreen, Modal } from "@/components/ui/modal";
 import { ButtonLoader } from "@/components/ui/loader";
 import {
   Badge,
@@ -37,8 +38,8 @@ import {
   cx,
 } from "@/components/ui/primitives";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
-import { RichTextEditor } from "@/components/ui/rich-text";
-import { addDays, formatDate, todayISO } from "@/lib/calendar";
+import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
+import { addDays, addWorkingDays, formatDate, todayISO } from "@/lib/calendar";
 import {
   OBC_STATUS_LABEL,
   OBC_STATUS_STYLE,
@@ -46,14 +47,9 @@ import {
   PROJECT_COLORS,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
-import {
-  canConvertObc,
-  canCreateTaskInProject,
-  canDeleteCrm,
-  canManageCrm,
-} from "@/lib/permissions";
+import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
-import { OBC_STATUSES } from "@/lib/types";
+import { OBC_STATUSES, isAllotted, obcProgress } from "@/lib/types";
 import type { Obc, ObcItem, ObcStatus, Priority } from "@/lib/types";
 
 /**
@@ -143,8 +139,11 @@ export default function ObcsPage() {
           icon={<IconProjects size={17} />}
         />
         <StatTile
-          label="Services quoted"
-          value={db.obcs.reduce((s, o) => s + o.items.length, 0)}
+          label="Services awaiting work"
+          value={db.obcs.reduce(
+            (n, o) => n + (o.status === "Draft" ? 0 : obcProgress(o.items).pending),
+            0,
+          )}
           tone="neutral"
         />
       </div>
@@ -201,7 +200,7 @@ export default function ObcsPage() {
                   <th className="px-4 py-2.5 text-left font-medium">Quote</th>
                   <th className="px-4 py-2.5 text-left font-medium">Company / client</th>
                   <th className="px-4 py-2.5 text-left font-medium">Property</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Services</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Allotment</th>
                   <th className="px-4 py-2.5 text-left font-medium">Status</th>
                   <th className="px-4 py-2.5 text-right font-medium">Actions</th>
                 </tr>
@@ -231,8 +230,8 @@ export default function ObcsPage() {
                     <td className="max-w-48 truncate px-4 py-2.5 text-ink-muted">
                       {propertyById(o.propertyId)?.name ?? "—"}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono text-ink">
-                      {o.items.length}
+                    <td className="px-4 py-2.5">
+                      <AllotmentCell obc={o} />
                     </td>
                     <td className="px-4 py-2.5">
                       <Badge className={OBC_STATUS_STYLE[o.status]}>
@@ -297,7 +296,142 @@ export default function ObcsPage() {
   );
 }
 
+/**
+ * How much of a quote has become work, which is the question the sales team
+ * actually asks of this list. Projects and tasks are counted distinctly
+ * because one project usually covers several of the lines sold together, so
+ * five services can read as "4 projects, 1 task" or as "1 project" — the
+ * second number that matters is how many services are still waiting.
+ */
+function AllotmentCell({ obc }: { obc: Obc }) {
+  const p = obcProgress(obc.items);
+
+  if (p.services === 0) {
+    return <span className="text-[12px] text-ink-faint">Nothing quoted</span>;
+  }
+
+  const raised = [
+    p.projects ? `${p.projects} ${p.projects === 1 ? "project" : "projects"}` : null,
+    p.tasks ? `${p.tasks} ${p.tasks === 1 ? "task" : "tasks"}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="min-w-36">
+      <div className="text-ink">
+        {raised.length ? raised.join(" · ") : <span className="text-ink-faint">Not allotted</span>}
+      </div>
+      <div className="text-[11px] text-ink-faint">
+        {p.allotted} of {p.services} {p.services === 1 ? "service" : "services"}
+        {p.pending ? ` · ${p.pending} to go` : ""}
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------- drawer */
+
+/** Quoted text becomes rich text, so anything angle-bracketed stays literal. */
+const escapeHtml = (text: string) =>
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
+
+/** A quoted line's own words, as the rich text a brief is written in. */
+const lineBrief = (i: ObcItem) =>
+  [i.description, i.briefDescription]
+    .filter((t) => t.trim())
+    .map((t) => `<p>${escapeHtml(t)}</p>`)
+    .join("");
+
+/**
+ * One quoted service in the drawer. Lines still waiting are pickable — that
+ * selection is what a project or an individual task gets raised from. A line
+ * already allotted says where it went instead, and cannot be picked again:
+ * the counts on the list only mean something while each service is in one
+ * place. Deleting the project or task frees it.
+ */
+function ServiceLine({
+  item,
+  selectable,
+  selected,
+  onToggle,
+}: {
+  item: ObcItem;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const { projectById, taskById } = useStore();
+  const project = item.projectId ? projectById(item.projectId) : undefined;
+  const task = item.taskId ? taskById(item.taskId) : undefined;
+  const allotted = isAllotted(item);
+  const pickable = selectable && !allotted;
+
+  const body = (
+    <>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 text-[13px] font-medium text-ink">{item.service}</span>
+        <span className="shrink-0 font-mono text-[12px] text-ink-muted">x{item.quantity}</span>
+      </div>
+      {item.description ? (
+        <p className="mt-1 text-[12px] text-ink-muted">{item.description}</p>
+      ) : null}
+      {item.briefDescription ? (
+        <p className="mt-1.5 border-t border-line-soft pt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-faint">
+          {item.briefDescription}
+        </p>
+      ) : null}
+    </>
+  );
+
+  return (
+    <li
+      className={cx(
+        "rounded-card border px-3 py-2.5 transition-colors",
+        selected && pickable
+          ? "border-brand-bright/50 bg-brand/10"
+          : "border-line-soft bg-surface-2",
+      )}
+    >
+      <div className="flex gap-2.5">
+        {pickable ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Include ${item.service}`}
+            className="mt-1 h-4 w-4 shrink-0 accent-brand-bright"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">{body}</div>
+      </div>
+
+      {allotted ? (
+        <div className="mt-2 border-t border-line-soft pt-2 text-[11px]">
+          {project ? (
+            <Link
+              href={`/projects/${project.id}`}
+              className="inline-flex items-center gap-1.5 text-brand-bright hover:underline"
+            >
+              <IconProjects size={12} /> {project.name}
+            </Link>
+          ) : task ? (
+            <Link
+              href={`/tasks?type=individual&task=${task.id}`}
+              className="inline-flex items-center gap-1.5 text-brand-bright hover:underline"
+            >
+              <IconTasks size={12} /> {task.title}
+            </Link>
+          ) : (
+            <span className="text-ink-faint">Allotted to work you cannot see</span>
+          )}
+        </div>
+      ) : null}
+    </li>
+  );
+}
 
 type Pane = "details" | "collab";
 
@@ -305,16 +439,24 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
   const { db, currentUser, companyById, clientById, propertyById, submitObc } = useStore();
   const user = currentUser!;
   const [pane, setPane] = useState<Pane>("details");
-  // The quoted line a new project or task is being raised for, if any.
-  const [converting, setConverting] = useState<ObcItem | null>(null);
+  // Which quoted lines the next project or task is being raised for. Work is
+  // allotted service by service, so this is the whole selection model.
+  const [picked, setPicked] = useState<string[]>([]);
   const [convertOpen, setConvertOpen] = useState(false);
-  const [taskFor, setTaskFor] = useState<ObcItem | null>(null);
+  const [taskOpen, setTaskOpen] = useState(false);
 
   // A quote often covers several strands of work, so an OBC can carry more
   // than one project. `obc.projectId` only names the first.
   const projects = db.projects.filter((p) => p.obcId === obc.id);
-  // Tasks raised from a line go to the project the OBC started.
-  const mainProject = projects.find((p) => p.id === obc.projectId) ?? projects[0];
+  const mayRaise = canConvertObc(user) && obc.status !== "Draft";
+
+  const pending = obc.items.filter((i) => !isAllotted(i));
+  const progress = obcProgress(obc.items);
+  // A selection can go stale if the work it named was deleted in another tab.
+  const selected = obc.items.filter((i) => picked.includes(i.id) && !isAllotted(i));
+
+  const toggle = (id: string) =>
+    setPicked((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   return (
     <Drawer
@@ -378,58 +520,72 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
             </Card>
 
             <section>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                Quoted services
-              </h3>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <h3 className="text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                  Quoted services
+                </h3>
+                <span className="text-[11px] text-ink-faint">
+                  {progress.allotted} of {progress.services} allotted
+                </span>
+                {mayRaise && pending.length > 1 ? (
+                  <button
+                    onClick={() =>
+                      setPicked(
+                        selected.length === pending.length ? [] : pending.map((i) => i.id),
+                      )
+                    }
+                    className="ml-auto text-[11px] text-brand-bright hover:underline"
+                  >
+                    {selected.length === pending.length ? "Clear selection" : "Select all waiting"}
+                  </button>
+                ) : null}
+              </div>
+
               {obc.items.length === 0 ? (
                 <p className="text-[12px] text-ink-faint">Nothing quoted yet.</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {obc.items.map((i) => (
-                    <li
+                    <ServiceLine
                       key={i.id}
-                      className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5"
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="min-w-0 text-[13px] font-medium text-ink">
-                          {i.service}
-                        </span>
-                        <span className="shrink-0 font-mono text-[12px] text-ink-muted">
-                          x{i.quantity}
-                        </span>
-                      </div>
-                      {i.description ? (
-                        <p className="mt-1 text-[12px] text-ink-muted">{i.description}</p>
-                      ) : null}
-                      {i.briefDescription ? (
-                        <p className="mt-1.5 border-t border-line-soft pt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-ink-faint">
-                          {i.briefDescription}
-                        </p>
-                      ) : null}
-
-                      {/* Straight from the brief to the work that delivers it. */}
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {canConvertObc(user) ? (
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setConverting(i);
-                              setConvertOpen(true);
-                            }}
-                          >
-                            <IconProjects size={12} /> Add project for this
-                          </Button>
-                        ) : null}
-                        {mainProject && canCreateTaskInProject(user, mainProject) ? (
-                          <Button size="sm" onClick={() => setTaskFor(i)}>
-                            <IconPlus size={12} /> Add task for this
-                          </Button>
-                        ) : null}
-                      </div>
-                    </li>
+                      item={i}
+                      selectable={mayRaise}
+                      selected={picked.includes(i.id)}
+                      onToggle={() => toggle(i.id)}
+                    />
                   ))}
                 </ul>
               )}
+
+              {/* Straight from the brief to the work that delivers it. */}
+              {mayRaise ? (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant={selected.length ? "primary" : "secondary"}
+                    disabled={!selected.length}
+                    onClick={() => setConvertOpen(true)}
+                  >
+                    <IconProjects size={12} /> Create project
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!selected.length}
+                    onClick={() => setTaskOpen(true)}
+                  >
+                    <IconPlus size={12} /> Create individual task
+                  </Button>
+                  <span className="text-[11px] text-ink-faint">
+                    {selected.length
+                      ? `${selected.length} selected`
+                      : obc.items.length === 0
+                        ? "Add a quoted service first"
+                        : pending.length
+                          ? "Pick the services this work covers"
+                          : "Every service has been allotted"}
+                  </span>
+                </div>
+              ) : null}
             </section>
 
             {projects.length ? (
@@ -463,22 +619,10 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                   <IconSend size={14} /> Submit OBC
                 </Button>
               ) : null}
-              {obc.status !== "Draft" && canConvertObc(user) ? (
-                <Button
-                  variant={obc.status === "Submitted" ? "primary" : "secondary"}
-                  onClick={() => {
-                    setConverting(null);
-                    setConvertOpen(true);
-                  }}
-                >
-                  <IconProjects size={14} />
-                  {obc.status === "Submitted" ? "Create project from OBC" : "Add another project"}
-                </Button>
-              ) : null}
-              {obc.status === "Submitted" && !canConvertObc(user) ? (
+              {obc.status !== "Draft" && !canConvertObc(user) ? (
                 <p className="text-[12px] text-ink-faint">
-                  Unallotted — waiting on a Super Admin, Admin or Manager to raise a project
-                  from it.
+                  {progress.pending} of {progress.services} services still waiting on a Super
+                  Admin, Admin or Manager to raise the work.
                 </p>
               ) : null}
             </section>
@@ -488,29 +632,28 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
         )}
       </div>
 
-      {convertOpen ? (
+      {convertOpen && selected.length ? (
         <ConvertModal
           obc={obc}
-          seed={converting}
-          onClose={() => {
-            setConvertOpen(false);
-            setConverting(null);
-          }}
-          // Raising an extra project leaves the OBC open; the first conversion
-          // is the one that finishes with it.
+          items={selected}
+          onClose={() => setConvertOpen(false)}
           onDone={() => {
-            if (obc.status === "Submitted") onClose();
+            setPicked([]);
+            // Nothing left to allot means there is nothing more to do here.
+            if (selected.length === pending.length) onClose();
           }}
         />
       ) : null}
 
-      {taskFor && mainProject ? (
-        <TaskFormModal
-          open
-          onClose={() => setTaskFor(null)}
-          project={mainProject}
-          mode="project"
-          defaultTitle={taskFor.service}
+      {taskOpen && selected.length ? (
+        <ObcTaskModal
+          obc={obc}
+          items={selected}
+          onClose={() => setTaskOpen(false)}
+          onDone={() => {
+            setPicked([]);
+            if (selected.length === pending.length) onClose();
+          }}
         />
       ) : null}
     </Drawer>
@@ -541,14 +684,6 @@ function Fact({
 
 type ConvertTab = "project" | "tasks";
 
-/** Quoted text becomes rich text, so anything angle-bracketed stays literal. */
-const escapeHtml = (text: string) =>
-  text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\n/g, "<br />");
-
 /** A task typed in while converting, before the project exists to hang it on. */
 interface TaskDraft {
   key: string;
@@ -564,60 +699,145 @@ interface TaskDraft {
 }
 
 /**
- * Turning an OBC into a project. Everything the OBC already knows — company,
- * client, property and the quoted services — comes across; the manager fills in
- * what a project needs, and lays out the first tasks while the brief is still
- * in front of them, which is why the quoted lines sit alongside the form rather
- * than behind it.
+ * Raising a project for some of a quote's services.
+ *
+ * The services picked in the drawer arrive here and stay adjustable: each one
+ * contributes its name to the project's services and its own brief, written
+ * into a box of its own. Dropping a service here drops its brief with it —
+ * which is the whole point of keeping the briefs apart rather than merged into
+ * one blob of text nobody can safely unpick afterwards.
+ *
+ * A template may be chosen too, and contributes *only its tasks*. What the
+ * project is about comes from what was sold, never from the template.
  */
 function ConvertModal({
   obc,
-  seed,
+  items,
   onClose,
   onDone,
 }: {
   obc: Obc;
-  /** Raised from one quoted line: its service names the project and leads its tasks. */
-  seed?: ObcItem | null;
+  /** The quoted lines this project is being raised for; at least one. */
+  items: ObcItem[];
   onClose: () => void;
   onDone: () => void;
 }) {
-  const { db, companyById, clientById, propertyById, convertObc, createTask } = useStore();
+  const { db, companyById, clientById, propertyById, convertObc } = useStore();
   const property = propertyById(obc.propertyId);
   const company = companyById(obc.companyId);
   const client = clientById(obc.clientId);
 
+  /** The master-list service a quoted line names, when it names one. */
+  const knownService = (line: ObcItem) =>
+    db.services.find((x) => x.toLowerCase() === line.service.trim().toLowerCase());
+
   const base = property?.name ?? company?.name ?? obcLabel(obc);
-  const [name, setName] = useState(seed ? `${base} — ${seed.service}` : base);
+  const [chosen, setChosen] = useState<string[]>(() => items.map((i) => i.id));
+  const [name, setName] = useState(
+    items.length === 1 ? `${base} — ${items[0].service}` : base,
+  );
   const [color, setColor] = useState(PROJECT_COLORS[0]);
   const [startDate, setStartDate] = useState(todayISO());
   const [deadline, setDeadline] = useState(addDays(todayISO(), 30));
   const [priority, setPriority] = useState<Priority>("Medium");
   const [leaderId, setLeaderId] = useState("");
-  // Quoted line items become the project's services where their names line up
-  // with the master list; anything bespoke is left for the leader to add.
+  const [templateId, setTemplateId] = useState("");
+
+  // Quoted lines become the project's services where their names line up with
+  // the master list; anything bespoke is left for the leader to add by hand,
+  // which is why this is state rather than derived outright.
   const [services, setServices] = useState<string[]>(() =>
-    (seed ? [seed] : obc.items)
-      .map((i) =>
-        db.services.find((s) => s.toLowerCase() === i.service.trim().toLowerCase()),
-      )
-      .filter((s): s is string => !!s),
+    [...new Set(items.map(knownService).filter((x): x is string => !!x))],
   );
+
   /*
-   * The brief the delivery team reads. Seeded from what was quoted, because
-   * re-typing it is exactly what the Zoho pull exists to avoid.
+   * The brief, kept one box per service. Seeded from what was quoted — not
+   * re-typing it is exactly what the Zoho pull exists for — and editable,
+   * because what was sold and what the team has to build are rarely word for
+   * word the same. Keyed by line id, so an edit survives a service being
+   * dropped and picked up again.
    */
-  const [description, setDescription] = useState(() => {
-    const lines = seed ? [seed] : obc.items;
-    const parts = lines.flatMap((i) =>
-      [i.description, i.briefDescription].filter((t) => t.trim()),
-    );
-    const body = [obc.notes.trim(), ...parts].filter(Boolean);
-    return body.length ? body.map((t) => `<p>${escapeHtml(t)}</p>`).join("") : "";
-  });
+  const [briefs, setBriefs] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map((i) => [i.id, lineBrief(i)])),
+  );
+  /** Anything true of the project as a whole rather than of one service. */
+  const [notes, setNotes] = useState(() =>
+    obc.notes.trim() ? `<p>${escapeHtml(obc.notes.trim())}</p>` : "",
+  );
+
   const [drafts, setDrafts] = useState<TaskDraft[]>([]);
   const [touched, setTouched] = useState(false);
   const [tab, setTab] = useState<ConvertTab>("project");
+
+  const included = items.filter((i) => chosen.includes(i.id));
+
+  /**
+   * Dropping a service takes its service name off the project with it, and its
+   * brief stops being written into the description. Done here rather than in an
+   * effect so the two can never disagree mid-render.
+   */
+  const toggleService = (line: ObcItem) => {
+    const known = knownService(line);
+    if (chosen.includes(line.id)) {
+      setChosen((ids) => ids.filter((x) => x !== line.id));
+      // Only pull the service name if no other included line also sells it.
+      if (
+        known &&
+        !items.some(
+          (o) => o.id !== line.id && chosen.includes(o.id) && knownService(o) === known,
+        )
+      ) {
+        setServices((list) => list.filter((x) => x !== known));
+      }
+      return;
+    }
+    setChosen((ids) => [...ids, line.id]);
+    if (known) setServices((list) => (list.includes(known) ? list : [...list, known]));
+  };
+
+  /** A template brings its tasks and nothing else (see the note above). */
+  const applyTemplate = (id: string) => {
+    setTemplateId(id);
+    const t = db.projectTemplates.find((x) => x.id === id);
+    if (!t) {
+      setDrafts([]);
+      return;
+    }
+    setDrafts(
+      t.tasks.map((item) => {
+        let from = addWorkingDays(startDate, item.startOffsetDays, db.calendar);
+        if (from > deadline) from = deadline;
+        let to = addWorkingDays(from, item.durationDays, db.calendar);
+        if (to > deadline) to = deadline;
+        return {
+          key: crypto.randomUUID(),
+          title: item.title,
+          description: item.description,
+          department: item.department,
+          assigneeId: "",
+          priority: item.priority,
+          estimatedHours: item.estimatedHours,
+          startDate: from,
+          dueDate: to,
+        };
+      }),
+    );
+    setTab("tasks");
+  };
+
+  /** The description as saved: the general note, then each service's brief. */
+  const buildDescription = () =>
+    [
+      notes,
+      ...included.map((i) => {
+        const body = briefs[i.id] ?? "";
+        return isRichTextEmpty(body)
+          ? ""
+          : `<p><strong>${escapeHtml(i.service)}</strong></p>${body}`;
+      }),
+    ]
+      .filter((part) => part && !isRichTextEmpty(part))
+      .join("");
 
   const setDraft = (key: string, patch: Partial<TaskDraft>) =>
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
@@ -640,7 +860,13 @@ function ConvertModal({
     ]);
 
   const badDraft = drafts.some((d) => !d.title.trim() || !d.department);
-  const valid = name.trim() && startDate && deadline && deadline >= startDate && !badDraft;
+  const valid =
+    name.trim() &&
+    startDate &&
+    deadline &&
+    deadline >= startDate &&
+    !badDraft &&
+    included.length > 0;
 
   const submit = () => {
     setTouched(true);
@@ -650,54 +876,64 @@ function ConvertModal({
       setTab(badDraft && name.trim() ? "tasks" : "project");
       return;
     }
-    const created = convertObc(obc.id, {
-      name: name.trim(),
-      color,
-      clientName: client?.fullName ?? company?.name ?? "",
-      services,
-      startDate,
-      deadline,
-      description,
-      status: "Planning",
-      priority,
-      leaderId: leaderId || null,
-      memberIds: [],
-      companyId: obc.companyId,
-      clientId: obc.clientId,
-      propertyId: obc.propertyId,
-    });
-
     // Dates are clamped to the project window so a task can never fall outside it.
     const clamp = (iso: string) =>
       iso < startDate ? startDate : iso > deadline ? deadline : iso;
-    for (const d of drafts) {
-      const from = clamp(d.startDate);
-      const to = clamp(d.dueDate < from ? from : d.dueDate);
-      createTask({
-        projectId: created.id,
-        title: d.title.trim(),
-        description: d.description,
-        department: d.department,
-        assigneeId: d.assigneeId || null,
-        status: "Not Started",
-        priority: d.priority,
-        startDate: from,
-        dueDate: to,
-        estimatedHours: d.estimatedHours,
-        tags: [],
-      });
-    }
+
+    convertObc(
+      obc.id,
+      {
+        name: name.trim(),
+        color,
+        clientName: client?.fullName ?? company?.name ?? "",
+        services,
+        startDate,
+        deadline,
+        description: buildDescription(),
+        status: "Planning",
+        priority,
+        leaderId: leaderId || null,
+        memberIds: [],
+        companyId: obc.companyId,
+        clientId: obc.clientId,
+        propertyId: obc.propertyId,
+      },
+      included.map((i) => i.id),
+      drafts.map((d) => {
+        const from = clamp(d.startDate);
+        return {
+          title: d.title.trim(),
+          description: d.description,
+          department: d.department,
+          assigneeId: d.assigneeId || null,
+          priority: d.priority,
+          startDate: from,
+          dueDate: clamp(d.dueDate < from ? from : d.dueDate),
+          estimatedHours: d.estimatedHours,
+          tags: [],
+        };
+      }),
+    );
 
     onClose();
     onDone();
   };
 
   return (
-    <Modal
+    /*
+     * The whole window, not a dialog on top of the OBC drawer. Converting is a
+     * sitting-down job — the brief is read on the right while the project and
+     * its first tasks are laid out on the left — and at dialog width the two
+     * columns were fighting each other for room.
+     */
+    <FullScreen
       open
       onClose={onClose}
-      size="xl"
-      title={seed ? `Create project for ${seed.service}` : "Create project from OBC"}
+      title={
+        included.length === 1
+          ? `Create project for ${included[0].service}`
+          : `Create project for ${included.length} services`
+      }
       subtitle={`${obcLabel(obc)} · ${company?.name ?? ""}`}
       footer={
         <>
@@ -710,7 +946,7 @@ function ConvertModal({
         </>
       }
     >
-      <div className="grid gap-5 lg:grid-cols-[1.45fr_1fr]">
+      <div className="mx-auto grid w-full max-w-[1500px] gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[1.45fr_1fr]">
         {/* ------------------------------------------------ the project --- */}
         <div className="flex flex-col gap-4">
           <Tabs<ConvertTab>
@@ -778,8 +1014,42 @@ function ConvertModal({
           </div>
 
           <Field
-            label="Services"
-            hint="Pre-filled from the quoted lines that match a known service."
+            label="Services this project covers"
+            hint="From the quote. Unticking one takes its brief off the project too."
+            error={
+              touched && included.length === 0 ? "Keep at least one service." : undefined
+            }
+          >
+            <ul className="flex flex-col gap-1.5">
+              {items.map((i) => (
+                <li key={i.id}>
+                  <label
+                    className={cx(
+                      "flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px] transition-colors",
+                      chosen.includes(i.id)
+                        ? "border-brand-bright/50 bg-brand/10 text-ink"
+                        : "border-line bg-surface-2 text-ink-faint",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(i.id)}
+                      onChange={() => toggleService(i)}
+                      className="h-4 w-4 shrink-0 accent-brand-bright"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{i.service}</span>
+                    <span className="shrink-0 font-mono text-[11px] text-ink-faint">
+                      x{i.quantity}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </Field>
+
+          <Field
+            label="Requirements / Services"
+            hint="Matched against the master list; add anything bespoke by hand."
           >
             <MultiSelect
               options={db.services.map((s) => ({ value: s, label: s }))}
@@ -790,19 +1060,53 @@ function ConvertModal({
           </Field>
 
           <Field
-            label="Description"
-            hint="Seeded from what was quoted — edit it into the brief the team will work from."
+            label="Project note"
+            hint="Anything true of the whole project rather than of one service."
           >
             <RichTextEditor
-              value={description}
-              onChange={setDescription}
-              minHeight={140}
+              value={notes}
+              onChange={setNotes}
+              minHeight={90}
               placeholder="What this project is, and what done looks like…"
             />
           </Field>
+
+          {included.map((i) => (
+            <Field
+              key={i.id}
+              label={`Brief — ${i.service}`}
+              hint="Straight from the quote. Edit it into what the team will build."
+            >
+              <RichTextEditor
+                value={briefs[i.id] ?? ""}
+                onChange={(v) => setBriefs((b) => ({ ...b, [i.id]: v }))}
+                minHeight={110}
+                placeholder={`What "${i.service}" has to deliver…`}
+              />
+            </Field>
+          ))}
           </div>
 
           <div className={cx("flex-col gap-4", tab === "tasks" ? "flex" : "hidden")}>
+          {db.projectTemplates.length ? (
+            <Field
+              label="Start the tasks from a template"
+              hint="Only the template's tasks are used. What the project is about comes from the quote, not the template."
+            >
+              <SearchSelect
+                allowClear
+                options={db.projectTemplates.map((t) => ({
+                  value: t.id,
+                  label: t.name,
+                  hint: `${t.tasks.length} task${t.tasks.length === 1 ? "" : "s"}`,
+                }))}
+                value={templateId}
+                onChange={applyTemplate}
+                placeholder="No template"
+              />
+            </Field>
+          ) : null}
+
           <Field
             label="Tasks"
             hint="Optional — lay out the first tasks now, or later from the project itself."
@@ -914,7 +1218,7 @@ function ConvertModal({
         </div>
 
         {/* --------------------------------------------- the OBC, beside --- */}
-        <aside className="flex flex-col gap-3 lg:sticky lg:top-0 lg:self-start">
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-5 lg:self-start">
           <div className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
             <h4 className="text-[12px] font-semibold text-ink">{obcLabel(obc)}</h4>
             <dl className="mt-2 flex flex-col gap-1 text-[12px]">
@@ -934,11 +1238,13 @@ function ConvertModal({
           </div>
 
           <h4 className="text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-            What was quoted ({obc.items.length})
+            Selected from the quote ({included.length} of {obc.items.length})
           </h4>
 
-          <ul className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto pr-1">
-            {obc.items.map((i) => (
+          {/* Its own scroll, so the quoted lines stay beside the form rather
+              than running the page past it. */}
+          <ul className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh-24rem)]">
+            {included.map((i) => (
               <li
                 key={i.id}
                 className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5"
@@ -982,7 +1288,64 @@ function ConvertModal({
           ) : null}
         </aside>
       </div>
-    </Modal>
+    </FullScreen>
+  );
+}
+
+/**
+ * An individual task raised for some of a quote's services.
+ *
+ * Small pieces of a quote do not deserve a project of their own, so they go
+ * straight to one person as an individual task. The work itself is the ordinary
+ * task form \u2014 same fields, same task templates, and a template prefills the
+ * content here exactly as it does anywhere else \u2014 it is only seeded from what
+ * was sold, and the lines are allotted to it once it exists.
+ */
+function ObcTaskModal({
+  obc,
+  items,
+  onClose,
+  onDone,
+}: {
+  obc: Obc;
+  items: ObcItem[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { allotObcItems } = useStore();
+
+  const title =
+    items.length === 1
+      ? items[0].service
+      : `${items[0].service} +${items.length - 1} more`;
+
+  const description = [
+    obc.notes.trim() ? `<p>${escapeHtml(obc.notes.trim())}</p>` : "",
+    ...items.map((i) => {
+      const body = lineBrief(i);
+      return body ? `<p><strong>${escapeHtml(i.service)}</strong></p>${body}` : "";
+    }),
+  ]
+    .filter(Boolean)
+    .join("");
+
+  return (
+    <TaskFormModal
+      open
+      onClose={onClose}
+      project={null}
+      mode="individual"
+      defaultTitle={title}
+      defaultDescription={description}
+      onCreated={(task) => {
+        allotObcItems(
+          obc.id,
+          items.map((i) => i.id),
+          { kind: "task", taskId: task.id },
+        );
+        onDone();
+      }}
+    />
   );
 }
 
@@ -1005,6 +1368,9 @@ const blankItem = (): ObcItem => ({
   quantity: 1,
   description: "",
   briefDescription: "",
+  // A new line has been sold, not yet allotted to anything.
+  projectId: null,
+  taskId: null,
 });
 
 /** What the quote lookup hands back. */
@@ -1073,7 +1439,12 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
         zohoQuoteId: body.quote.id,
         zohoQuoteNumber: body.quote.number || ref,
         zohoQuoteName: body.quote.subject,
-        items: body.lines.map((l) => ({ id: crypto.randomUUID(), ...l })),
+        items: body.lines.map((l) => ({
+          id: crypto.randomUUID(),
+          ...l,
+          projectId: null,
+          taskId: null,
+        })),
       }));
       showToast(
         `Pulled ${body.lines.length} line${body.lines.length === 1 ? "" : "s"} from ${

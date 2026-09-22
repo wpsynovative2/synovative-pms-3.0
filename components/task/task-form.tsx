@@ -49,6 +49,8 @@ export function TaskFormModal({
   mode,
   defaultDepartment,
   defaultTitle,
+  defaultDescription,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -60,6 +62,13 @@ export function TaskFormModal({
   defaultDepartment?: string;
   /** Seeds a new task, e.g. from the OBC line it delivers. */
   defaultTitle?: string;
+  /** Rich text, seeded the same way — the brief that was sold. */
+  defaultDescription?: string;
+  /**
+   * The task that was just created. Lets the caller file it against whatever it
+   * was raised from, which is how an OBC's quoted lines find their task.
+   */
+  onCreated?: (created: Task) => void;
 }) {
   const { db, currentUser, createTask, updateTask } = useStore();
   const calendar = db.calendar;
@@ -75,7 +84,7 @@ export function TaskFormModal({
 
   const [form, setForm] = useState<FormState>({
     title: task?.title ?? defaultTitle ?? "",
-    description: task?.description ?? "",
+    description: task?.description ?? defaultDescription ?? "",
     department: initialDepartment,
     assigneeId: task?.assigneeId ?? "",
     status: task?.status ?? "Not Started",
@@ -186,7 +195,7 @@ export function TaskFormModal({
         : {}),
     };
     if (task) updateTask(task.id, payload);
-    else createTask(payload);
+    else onCreated?.(createTask(payload));
     onClose();
   };
 

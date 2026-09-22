@@ -541,6 +541,8 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     quantity: num(r.quantity),
     description: str(r.description),
     briefDescription: str(r.brief_description),
+    projectId: nullable(r.project_id),
+    taskId: nullable(r.task_id),
   }));
 
   const obcs: Obc[] = obcRows
@@ -832,6 +834,13 @@ export const configRow = (propertyId: string, c: PropertyConfig, position: numbe
   status: c.status,
 });
 
+/**
+ * Deliberately without `project_id` / `task_id`. Editing a quote must never
+ * disturb where its lines were already allotted, and this row is written as an
+ * upsert — columns it leaves out keep whatever the existing row holds, and
+ * start null on a line that is genuinely new. Allotment is written only by
+ * `allotObcItems`, which is the one path a manager is checked on.
+ */
 export const obcItemRow = (obcId: string, i: ObcItem, position: number) => ({
   id: i.id,
   obc_id: obcId,

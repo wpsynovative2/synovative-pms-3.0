@@ -421,6 +421,12 @@ export const OBC_STATUSES: ObcStatus[] = ["Draft", "Submitted", "Converted"];
 /**
  * A quoted line as the delivery team needs it: what was sold, how much of it,
  * and the brief that came with it. Pricing stays in Zoho.
+ *
+ * A line is also the unit of allotment. Work is raised for the services that
+ * are ready rather than for the whole quote at once, so each line carries
+ * where it went — a project, or a single individual task — and a line goes
+ * one way or the other, never both. Both are null until someone raises it, and
+ * go back to null if that project or task is later deleted.
  */
 export interface ObcItem {
   id: string;
@@ -430,6 +436,47 @@ export interface ObcItem {
   description: string;
   /** Zoho's line-level "Brief Description". */
   briefDescription: string;
+  projectId: string | null;
+  taskId: string | null;
+}
+
+/** Where a set of quoted lines was sent. */
+export type ObcAllotment =
+  | { kind: "project"; projectId: string }
+  | { kind: "task"; taskId: string };
+
+export const isAllotted = (i: ObcItem) => !!i.projectId || !!i.taskId;
+
+/**
+ * What the OBC list reports: how much of a quote has been turned into work.
+ * Projects and tasks are counted distinctly, because one project usually
+ * covers several of the lines that were sold together.
+ */
+export interface ObcProgress {
+  services: number;
+  projects: number;
+  tasks: number;
+  allotted: number;
+  pending: number;
+}
+
+export function obcProgress(items: ObcItem[]): ObcProgress {
+  const projects = new Set<string>();
+  const tasks = new Set<string>();
+  let allotted = 0;
+  for (const i of items) {
+    if (i.projectId) projects.add(i.projectId);
+    else if (i.taskId) tasks.add(i.taskId);
+    else continue;
+    allotted += 1;
+  }
+  return {
+    services: items.length,
+    projects: projects.size,
+    tasks: tasks.size,
+    allotted,
+    pending: items.length - allotted,
+  };
 }
 
 export interface Obc {

@@ -34,6 +34,7 @@ import {
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
+import { isAllotted } from "./types";
 import type {
   CalendarConfig,
   Client,
@@ -47,6 +48,7 @@ import type {
   LinkGroup,
   MeetingMinutes,
   Obc,
+  ObcAllotment,
   ObcItem,
   OperationalLink,
   OutputLocation,
@@ -615,8 +617,15 @@ interface StoreValue {
   updateObc: (id: string, patch: Partial<ObcInput>) => void;
   deleteObc: (id: string) => void;
   submitObc: (id: string) => void;
-  /** Creates the project an OBC describes and marks the OBC converted. */
-  convertObc: (id: string, project: NewProjectInput) => Project;
+  /** Raises a project (and its opening tasks) for the given quoted lines. */
+  convertObc: (
+    id: string,
+    project: NewProjectInput,
+    itemIds: string[],
+    tasks?: NewProjectTaskInput[],
+  ) => Project;
+  /** Points quoted lines at work that already exists. */
+  allotObcItems: (id: string, itemIds: string[], to: ObcAllotment) => void;
 
   createContentEntry: (input: ContentInput) => ContentEntry;
   updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
@@ -629,6 +638,33 @@ interface StoreValue {
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
+
+/**
+ * The opening tasks of a project being created, with every date clamped to the
+ * project window here rather than at each call site — a form that laid a task
+ * out against an older deadline can never push one outside it.
+ */
+function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[] {
+  const clamp = (iso: string) =>
+    iso < project.startDate ? project.startDate : iso > project.deadline ? project.deadline : iso;
+  return tasks.map((input) => {
+    const startDate = clamp(input.startDate);
+    return {
+      ...input,
+      id: newId(),
+      projectId: project.id,
+      status: "Not Started" as const,
+      startDate,
+      dueDate: clamp(input.dueDate < startDate ? startDate : input.dueDate),
+      createdBy: me(),
+      createdAt: now(),
+      sessions: [],
+      submissions: [],
+      reviews: [],
+      remarks: [],
+    };
+  });
+}
 
 /* -------------------------------------------------------- the mutations */
 
@@ -710,28 +746,7 @@ const actions = {
       createdBy: me(),
       createdAt: now(),
     };
-
-    const clamp = (iso: string) =>
-      iso < created.startDate ? created.startDate : iso > created.deadline ? created.deadline : iso;
-
-    const rows: Task[] = tasks.map((input) => {
-      const startDate = clamp(input.startDate);
-      const dueDate = clamp(input.dueDate < startDate ? startDate : input.dueDate);
-      return {
-        ...input,
-        id: newId(),
-        projectId: created.id,
-        status: "Not Started" as const,
-        startDate,
-        dueDate,
-        createdBy: me(),
-        createdAt: now(),
-        sessions: [],
-        submissions: [],
-        reviews: [],
-        remarks: [],
-      };
-    });
+    const rows = projectTaskRows(created, tasks);
 
     void commit(
       ["projects", "tasks"],
@@ -1346,10 +1361,22 @@ async function rewriteConfigs(c: SupabaseClient, propertyId: string, configs: Pr
   }
 }
 
+/**
+ * Saves a quote's lines without disturbing where any of them was allotted.
+ *
+ * This used to delete every line and re-insert it, which blanked `project_id`
+ * and `task_id` on each save — an OBC edit would quietly un-allot work that
+ * was already running. Now only the lines that were taken off the quote are
+ * deleted, and the rest are upserted: `obcItemRow` omits the allotment
+ * columns, so an existing line keeps them and a new one starts with none.
+ */
 async function rewriteObcItems(c: SupabaseClient, obcId: string, items: ObcItem[]) {
-  await run(c.from("obc_items").delete().eq("obc_id", obcId));
+  const kept = items.map((x) => x.id);
+  let gone = c.from("obc_items").delete().eq("obc_id", obcId);
+  if (kept.length) gone = gone.not("id", "in", `(${kept.join(",")})`);
+  await run(gone);
   if (items.length) {
-    await run(c.from("obc_items").insert(items.map((x, i) => obcItemRow(obcId, x, i))));
+    await run(c.from("obc_items").upsert(items.map((x, i) => obcItemRow(obcId, x, i))));
   }
 }
 
@@ -1605,30 +1632,23 @@ const crmActions = {
   },
 
   /**
-   * Edits stay in step with the work. A converted OBC has projects hanging off
-   * it, so the parts of a project that came *from* the OBC — its company,
-   * client, property and the services that were quoted — are refreshed too.
+   * Edits stay in step with the work. An OBC that has raised projects should
+   * not disagree with them about who the client is, so the chain it owns —
+   * company, client and property — is pushed down to every project raised
+   * from it.
    *
-   * Tasks are deliberately left alone. They are written by hand at conversion
-   * and then lived in: renamed, reassigned, half-submitted, with time logged
-   * against them. An OBC edit must never be able to throw that away.
+   * Services are *not* pushed down any more. A project is now raised for the
+   * particular services it covers, so overwriting its list with everything the
+   * quote happens to mention would hand each project the others' work.
+   *
+   * Tasks are left alone for the same reason they always were. They are
+   * written by hand and then lived in: renamed, reassigned, half-submitted,
+   * with time logged against them. An OBC edit must never throw that away.
    */
   updateObc(id: string, patch: Partial<ObcInput>) {
     const obc = state.db.obcs.find((x) => x.id === id);
     const linked = state.db.projects.filter((p) => p.obcId === id);
-    const syncing = !!obc && obc.status === "Converted" && linked.length > 0;
-
-    // Only the quoted lines that name a service we know about can become
-    // project services; anything bespoke stays on the OBC alone.
-    const nextServices =
-      patch.items &&
-      patch.items
-        .map((i) =>
-          state.db.services.find(
-            (s) => s.toLowerCase() === i.service.trim().toLowerCase(),
-          ),
-        )
-        .filter((s): s is string => !!s);
+    const syncing = !!obc && linked.length > 0;
 
     const chain = {
       ...("companyId" in patch ? { companyId: patch.companyId ?? null } : {}),
@@ -1653,7 +1673,6 @@ const crmActions = {
                     ...p,
                     ...chain,
                     ...(clientName !== undefined ? { clientName } : {}),
-                    ...(nextServices ? { services: nextServices } : {}),
                   }
                 : p,
             )
@@ -1669,20 +1688,9 @@ const crmActions = {
         if (!syncing) return;
         const projectColumns: Record<string, unknown> = patchColumns(chain, PROJECT_COLUMNS);
         if (clientName !== undefined) projectColumns.client_name = clientName;
+        if (!Object.keys(projectColumns).length) return;
         for (const p of linked) {
-          if (Object.keys(projectColumns).length) {
-            await run(c.from("projects").update(projectColumns).eq("id", p.id));
-          }
-          if (nextServices) {
-            await run(c.from("project_services").delete().eq("project_id", p.id));
-            if (nextServices.length) {
-              await run(
-                c
-                  .from("project_services")
-                  .insert(nextServices.map((service) => ({ project_id: p.id, service }))),
-              );
-            }
-          }
+          await run(c.from("projects").update(projectColumns).eq("id", p.id));
         }
       },
     );
@@ -1729,46 +1737,130 @@ const crmActions = {
   },
 
   /**
-   * Raises a project from an OBC.
+   * Raises a project for some of an OBC's quoted services.
    *
-   * The first one converts the OBC and becomes the project it points at. A
-   * quote often covers several strands of work, though, so later calls simply
-   * add another project against the same OBC: `projects.obc_id` carries the
-   * whole set, while `obcs.project_id` keeps naming the first.
+   * Work is allotted line by line: the services that are ready become a
+   * project now, the rest wait. `projects.obc_id` carries every project raised
+   * from the quote, each line records which of them it went to, and
+   * `obcs.project_id` keeps naming the first — it is the handle the sales team
+   * already has.
+   *
+   * The OBC only reads as Converted ("Allotted" on screen) once no line is
+   * still waiting. Losing an allotment later is handled in the database, since
+   * whoever deletes a project need not be a manager.
    */
-  convertObc(id: string, project: NewProjectInput): Project {
+  convertObc(
+    id: string,
+    project: NewProjectInput,
+    itemIds: string[],
+    tasks: NewProjectTaskInput[] = [],
+  ): Project {
     const created: Project = {
       ...withoutCrmChain({ ...project, obcId: id }),
       id: newId(),
       createdBy: me(),
       createdAt: now(),
     };
-    const first = state.db.obcs.find((x) => x.id === id)?.status !== "Converted";
+    const rows = projectTaskRows(created, tasks);
+    const obc = state.db.obcs.find((x) => x.id === id);
+    const taking = new Set(itemIds);
+    const items = (obc?.items ?? []).map((i) =>
+      taking.has(i.id) ? { ...i, projectId: created.id, taskId: null } : i,
+    );
+    const first = !obc?.projectId;
+    const done = items.length > 0 && items.every(isAllotted);
 
     void commit(
-      ["crm", "projects"],
+      ["crm", "projects", "tasks"],
       (db) => ({
         ...db,
         projects: [created, ...db.projects],
-        obcs: first
-          ? db.obcs.map((x) =>
-              x.id === id
-                ? { ...x, status: "Converted" as const, projectId: created.id, convertedAt: now() }
-                : x,
-            )
-          : db.obcs,
+        tasks: [...db.tasks, ...rows],
+        obcs: db.obcs.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                items,
+                ...(first ? { projectId: created.id } : {}),
+                ...(done
+                  ? { status: "Converted" as const, convertedAt: x.convertedAt ?? now() }
+                  : {}),
+              }
+            : x,
+        ),
       }),
       async (c) => {
-        // The project has to exist before the OBC can point at it.
+        // The project has to exist before anything can point at it.
         await insertProject(c, created);
-        if (first) {
+        if (rows.length) {
+          await run(c.from("tasks").insert(rows.map((t) => ({ ...taskRow(t), created_by: me() }))));
+        }
+        if (taking.size) {
           await run(
-            c.from("obcs").update({ status: "Converted", project_id: created.id }).eq("id", id),
+            c
+              .from("obc_items")
+              .update({ project_id: created.id, task_id: null })
+              .in("id", [...taking]),
           );
+        }
+        const columns: Record<string, unknown> = {};
+        if (first) columns.project_id = created.id;
+        if (done) columns.status = "Converted";
+        if (Object.keys(columns).length) {
+          await run(c.from("obcs").update(columns).eq("id", id));
         }
       },
     );
     return created;
+  },
+
+  /**
+   * Sends quoted lines to work that already exists — in practice the individual
+   * task just raised for them. Same bookkeeping as a conversion, without a
+   * project: the lines point at the task, and the OBC closes once none is left.
+   */
+  allotObcItems(id: string, itemIds: string[], to: ObcAllotment) {
+    const obc = state.db.obcs.find((x) => x.id === id);
+    if (!obc || itemIds.length === 0) return;
+    const taking = new Set(itemIds);
+    const link =
+      to.kind === "project"
+        ? { projectId: to.projectId, taskId: null }
+        : { projectId: null, taskId: to.taskId };
+    const items = obc.items.map((i) => (taking.has(i.id) ? { ...i, ...link } : i));
+    const done = items.length > 0 && items.every(isAllotted);
+
+    void commit(
+      ["crm"],
+      (db) => ({
+        ...db,
+        obcs: db.obcs.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                items,
+                ...(done
+                  ? { status: "Converted" as const, convertedAt: x.convertedAt ?? now() }
+                  : {}),
+              }
+            : x,
+        ),
+      }),
+      async (c) => {
+        await run(
+          c
+            .from("obc_items")
+            .update({
+              project_id: link.projectId,
+              task_id: link.taskId,
+            })
+            .in("id", [...taking]),
+        );
+        if (done) {
+          await run(c.from("obcs").update({ status: "Converted" }).eq("id", id));
+        }
+      },
+    );
   },
 
   /* ---------------------------------------------------- content bank */
