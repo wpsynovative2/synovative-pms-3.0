@@ -102,7 +102,7 @@ export default function ObcsPage() {
       <PageHeader
         title="New OBCs"
         icon={<IconQuote size={20} />}
-        subtitle="Sales orders raised against a quote — unallotted until a project is raised from one"
+        subtitle="The estimate, the services we will deliver, and the work raised from them"
         actions={
           mayManage ? (
             <Button

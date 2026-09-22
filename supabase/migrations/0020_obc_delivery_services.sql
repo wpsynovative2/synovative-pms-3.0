@@ -128,9 +128,13 @@ alter table obc_services enable row level security;
 
 -- Same reach as the estimate's lines: every active member reads them, the
 -- sales side writes them, and the trigger above decides who may allot.
+-- Postgres has no CREATE POLICY ... IF NOT EXISTS, and the rest of this file
+-- is re-runnable, so drop first rather than let a second run fail here.
+drop policy if exists obc_services_read on obc_services;
 create policy obc_services_read on obc_services
   for select to authenticated using (is_active_member());
 
+drop policy if exists obc_services_write on obc_services;
 create policy obc_services_write on obc_services
   for all to authenticated
   using (can_manage_crm()) with check (can_manage_crm());
