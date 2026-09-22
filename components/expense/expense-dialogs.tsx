@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { IconCheck, IconClose, IconWallet } from "@/components/ui/icons";
+import { ButtonLoader, Loader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, cx } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
@@ -108,7 +109,15 @@ export function ExpenseFormModal({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={save} disabled={uploading}>
-            {uploading ? "Uploading…" : expense ? "Save changes" : "Submit for verification"}
+            {uploading ? (
+              <>
+                <ButtonLoader /> Uploading…
+              </>
+            ) : expense ? (
+              "Save changes"
+            ) : (
+              "Submit for verification"
+            )}
           </Button>
         </>
       }
@@ -201,7 +210,9 @@ export function ExpenseFormModal({
             className="w-full rounded-[10px] border border-line bg-surface-2 px-3 py-2 text-[12px] text-ink-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-[12px] file:text-ink hover:file:bg-brand/30"
           />
           {uploading ? (
-            <p className="mt-1 text-[11px] text-ink-faint">Uploading…</p>
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-faint">
+              <Loader size={10} label="Uploading" /> Uploading…
+            </p>
           ) : attachment ? (
             <p className="mt-1 flex items-center gap-2 text-[11px] text-ink-faint">
               Attached: <AttachmentLink name={attachment.name} url={attachment.url} />

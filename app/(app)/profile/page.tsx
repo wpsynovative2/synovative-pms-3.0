@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskRow } from "@/components/task/task-list";
 import { IconClock, IconLogout, IconTasks, IconUser } from "@/components/ui/icons";
+import { ButtonLoader } from "@/components/ui/loader";
 import { MIN_PASSWORD } from "@/components/layout/first-sign-in";
 import {
   Avatar,
@@ -169,7 +170,13 @@ export default function ProfilePage() {
               </Field>
               <div className="flex items-center gap-3">
                 <Button type="submit" variant="primary" disabled={busy}>
-                  {busy ? "Saving…" : "Update password"}
+                  {busy ? (
+                    <>
+                      <ButtonLoader /> Saving…
+                    </>
+                  ) : (
+                    "Update password"
+                  )}
                 </Button>
                 {saved ? (
                   <span className="text-[12px] text-st-approved">Password updated.</span>

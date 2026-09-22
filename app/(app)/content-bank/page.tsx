@@ -27,8 +27,8 @@ import { SearchSelect } from "@/components/ui/selects";
 import {
   canDeleteContentEntry,
   canEditContentEntry,
+  canViewContentEntry,
   canWriteContent,
-  canViewProject,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { CONTENT_TYPES, type ContentEntry, type ContentType } from "@/lib/types";
@@ -61,13 +61,16 @@ export default function ContentBankPage() {
   /*
    * Row Level Security already limits what came down, but the client filter
    * keeps the screen honest if a project's visibility changes mid-session.
+   * It is the same rule the database runs: the project's people, plus whoever
+   * the piece was allotted to.
    */
-  const visible = useMemo(() => {
-    const allowed = new Set(
-      db.projects.filter((p) => canViewProject(user, p, db.tasks)).map((p) => p.id),
-    );
-    return db.contentEntries.filter((e) => allowed.has(e.projectId));
-  }, [db.contentEntries, db.projects, db.tasks, user]);
+  const visible = useMemo(
+    () =>
+      db.contentEntries.filter((e) =>
+        canViewContentEntry(user, e, db.projects, db.tasks),
+      ),
+    [db.contentEntries, db.projects, db.tasks, user],
+  );
 
   const scoped = useMemo(() => {
     if (scope === "mine") return visible.filter((e) => e.createdBy === user.id);
@@ -93,6 +96,34 @@ export default function ContentBankPage() {
     const ids = new Set(visible.map((e) => e.projectId));
     return db.projects.filter((p) => ids.has(p.id)).map((p) => ({ value: p.id, label: p.name }));
   }, [visible, db.projects]);
+
+  /*
+   * The library is read one project at a time — "what have we written for
+   * Majestic Tower?" — so the list is filed under the project rather than run
+   * together. Projects are in name order; inside each one the newest piece
+   * comes first, which is the one being worked on.
+   */
+  const groups = useMemo(() => {
+    const byProject = new Map<string, ContentEntry[]>();
+    for (const e of filtered) {
+      const list = byProject.get(e.projectId);
+      if (list) list.push(e);
+      else byProject.set(e.projectId, [e]);
+    }
+    return [...byProject]
+      .map(([id, entries]) => ({
+        id,
+        project: db.projects.find((p) => p.id === id) ?? null,
+        entries: [...entries].sort(
+          (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
+        ),
+      }))
+      .sort((a, b) => {
+        // A project that has gone missing sorts last rather than first.
+        if (!a.project || !b.project) return a.project ? -1 : b.project ? 1 : 0;
+        return a.project.name.localeCompare(b.project.name);
+      });
+  }, [filtered, db.projects]);
 
   const open = openId ? visible.find((e) => e.id === openId) : undefined;
 
@@ -213,33 +244,69 @@ export default function ContentBankPage() {
           />
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((e) => (
-            <ContentCard
-              key={e.id}
-              entry={e}
-              onOpen={() => setOpenId(e.id)}
-              actions={
-                <>
-                  {canEditContentEntry(user, e) ? (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setEditing(e);
-                        setComposing(true);
-                      }}
-                    >
-                      <IconEdit size={13} />
-                    </Button>
-                  ) : null}
-                  {canDeleteContentEntry(user, e) ? (
-                    <Button size="sm" variant="danger" onClick={() => setDeleting(e)}>
-                      <IconTrash size={13} />
-                    </Button>
-                  ) : null}
-                </>
-              }
-            />
+        <div className="flex flex-col gap-7">
+          {groups.map((g) => (
+            <section key={g.id}>
+              <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-line-soft pb-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: g.project?.color ?? "var(--color-ink-faint)" }}
+                />
+                {g.project ? (
+                  <Link
+                    href={`/projects/${g.project.id}`}
+                    className="truncate text-[14px] font-semibold text-ink hover:text-brand-bright"
+                  >
+                    {g.project.name}
+                  </Link>
+                ) : (
+                  <span className="truncate text-[14px] font-semibold text-ink-faint">
+                    Unknown project
+                  </span>
+                )}
+                {g.project?.clientName ? (
+                  <span className="truncate text-[11px] text-ink-faint">
+                    {g.project.clientName}
+                  </span>
+                ) : null}
+                <span className="ml-auto shrink-0 text-[11px] text-ink-faint">
+                  {g.entries.length} {g.entries.length === 1 ? "piece" : "pieces"}
+                </span>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {g.entries.map((e) => (
+                  <ContentCard
+                    key={e.id}
+                    entry={e}
+                    // The project is the heading above; the card's second line
+                    // is better spent on who the piece is waiting on.
+                    showProject={false}
+                    onOpen={() => setOpenId(e.id)}
+                    actions={
+                      <>
+                        {canEditContentEntry(user, e) ? (
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              setEditing(e);
+                              setComposing(true);
+                            }}
+                          >
+                            <IconEdit size={13} />
+                          </Button>
+                        ) : null}
+                        {canDeleteContentEntry(user, e) ? (
+                          <Button size="sm" variant="danger" onClick={() => setDeleting(e)}>
+                            <IconTrash size={13} />
+                          </Button>
+                        ) : null}
+                      </>
+                    }
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

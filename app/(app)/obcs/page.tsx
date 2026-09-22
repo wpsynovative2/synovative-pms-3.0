@@ -20,6 +20,7 @@ import {
   IconTrash,
 } from "@/components/ui/icons";
 import { ConfirmDialog, Drawer, Modal } from "@/components/ui/modal";
+import { ButtonLoader } from "@/components/ui/loader";
 import {
   Badge,
   Button,
@@ -39,6 +40,7 @@ import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects"
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { addDays, formatDate, todayISO } from "@/lib/calendar";
 import {
+  OBC_STATUS_LABEL,
   OBC_STATUS_STYLE,
   PRIORITIES,
   PROJECT_COLORS,
@@ -51,6 +53,7 @@ import {
   canManageCrm,
 } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
+import { OBC_STATUSES } from "@/lib/types";
 import type { Obc, ObcItem, ObcStatus, Priority } from "@/lib/types";
 
 /**
@@ -103,7 +106,7 @@ export default function ObcsPage() {
       <PageHeader
         title="New OBCs"
         icon={<IconQuote size={20} />}
-        subtitle="Sales orders raised against a quote, and converted into projects"
+        subtitle="Sales orders raised against a quote — unallotted until a project is raised from one"
         actions={
           mayManage ? (
             <Button
@@ -129,12 +132,12 @@ export default function ObcsPage() {
           icon={<IconQuote size={17} />}
         />
         <StatTile
-          label="Awaiting conversion"
+          label="Unallotted"
           value={db.obcs.filter((o) => o.status === "Submitted").length}
           tone="amber"
         />
         <StatTile
-          label="Converted"
+          label="Allotted"
           value={db.obcs.filter((o) => o.status === "Converted").length}
           tone="green"
           icon={<IconProjects size={17} />}
@@ -160,9 +163,11 @@ export default function ObcsPage() {
           aria-label="Status"
         >
           <option value="all">Any status</option>
-          <option value="Draft">Draft</option>
-          <option value="Submitted">Submitted</option>
-          <option value="Converted">Converted</option>
+          {OBC_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {OBC_STATUS_LABEL[s]}
+            </option>
+          ))}
         </Select>
       </div>
 
@@ -230,7 +235,9 @@ export default function ObcsPage() {
                       {o.items.length}
                     </td>
                     <td className="px-4 py-2.5">
-                      <Badge className={OBC_STATUS_STYLE[o.status]}>{o.status}</Badge>
+                      <Badge className={OBC_STATUS_STYLE[o.status]}>
+                        {OBC_STATUS_LABEL[o.status]}
+                      </Badge>
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-end gap-1">
@@ -319,7 +326,9 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
       }`}
       headerExtra={
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <Badge className={OBC_STATUS_STYLE[obc.status]}>{obc.status}</Badge>
+          <Badge className={OBC_STATUS_STYLE[obc.status]}>
+            {OBC_STATUS_LABEL[obc.status]}
+          </Badge>
           <Badge>{obc.code}</Badge>
           <Badge>
             {obc.items.length} {obc.items.length === 1 ? "service" : "services"}
@@ -359,7 +368,7 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                 />
                 <Fact label="Zoho quote" value={obc.zohoQuoteNumber || "Entered by hand"} />
                 <Fact label="Submitted" value={obc.submittedAt ? formatDate(obc.submittedAt) : "—"} />
-                <Fact label="Converted" value={obc.convertedAt ? formatDate(obc.convertedAt) : "—"} />
+                <Fact label="Allotted" value={obc.convertedAt ? formatDate(obc.convertedAt) : "—"} />
               </dl>
               {obc.notes ? (
                 <p className="mt-3 rounded-lg bg-surface-2 px-2.5 py-2 text-[12px] leading-relaxed text-ink-muted">
@@ -468,7 +477,8 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
               ) : null}
               {obc.status === "Submitted" && !canConvertObc(user) ? (
                 <p className="text-[12px] text-ink-faint">
-                  Waiting on a Super Admin, Admin or Manager to convert this into a project.
+                  Unallotted — waiting on a Super Admin, Admin or Manager to raise a project
+                  from it.
                 </p>
               ) : null}
             </section>
@@ -1178,7 +1188,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
               aria-label="Zoho quote ID or number"
             />
             <Button disabled={!reference.trim() || fetching} onClick={loadQuote}>
-              <IconSearch size={13} />
+              {fetching ? <ButtonLoader /> : <IconSearch size={13} />}
               {fetching ? "Fetching…" : "Fetch quote"}
             </Button>
           </div>

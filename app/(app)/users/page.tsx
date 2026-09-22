@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { IconEdit, IconPlus, IconTrash, IconUser, IconUsers } from "@/components/ui/icons";
+import { ButtonLoader } from "@/components/ui/loader";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import {
   Avatar,
@@ -405,7 +406,15 @@ function UserFormModal({
               else setServerError(result.error ?? "Couldn't save.");
             }}
           >
-            {busy ? "Saving…" : editing ? "Save changes" : "Create user"}
+            {busy ? (
+              <>
+                <ButtonLoader /> Saving…
+              </>
+            ) : editing ? (
+              "Save changes"
+            ) : (
+              "Create user"
+            )}
           </Button>
         </>
       }

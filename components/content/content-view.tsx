@@ -158,14 +158,18 @@ export function ContentCard({
   entry,
   onOpen,
   actions,
+  showProject = true,
 }: {
   entry: ContentEntry;
   onOpen: () => void;
   actions?: React.ReactNode;
+  /** Off where the list is already filed under the project (the Content Bank). */
+  showProject?: boolean;
 }) {
   const { userById, projectById } = useStore();
   const writer = userById(entry.createdBy);
   const project = projectById(entry.projectId);
+  const allotted = userById(entry.allottedTo);
 
   return (
     <Card className="flex flex-col p-4">
@@ -181,7 +185,11 @@ export function ContentCard({
             {entry.caption.trim() || entry.type}
           </button>
           <p className="truncate text-[11px] text-ink-faint">
-            {project?.name ?? "Unknown project"}
+            {showProject
+              ? (project?.name ?? "Unknown project")
+              : allotted
+                ? `Allotted to ${allotted.fullName}`
+                : "Not allotted yet"}
           </p>
         </div>
         <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>

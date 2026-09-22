@@ -1,7 +1,9 @@
 import {
   BUSINESS_DEV_DEPARTMENT,
+  CONTENT_AUTHOR_DEPARTMENTS,
   CONTENT_WRITER_DEPARTMENT,
   FINANCE_DEPARTMENT,
+  SMM_DEPARTMENT,
 } from "./master-data";
 import type { CollabEntity, ContentEntry, Project, Role, Task, User } from "./types";
 
@@ -20,11 +22,13 @@ export const isGlobalManager = (u: User) => GLOBAL_MANAGERS.includes(u.role);
 export const isTeamLeader = (u: User) => u.role === "team_leader";
 export const isFinance = (u: User) => u.departments.includes(FINANCE_DEPARTMENT);
 
-/** Like Finance, these two rights come from the department, not the role. */
+/** Like Finance, these rights come from the department, not the role. */
 export const isBusinessExec = (u: User) =>
   u.departments.includes(BUSINESS_DEV_DEPARTMENT);
 export const isContentWriter = (u: User) =>
   u.departments.includes(CONTENT_WRITER_DEPARTMENT);
+export const isSocialMediaMarketer = (u: User) =>
+  u.departments.includes(SMM_DEPARTMENT);
 
 /* ------------------------------------------------------- user management */
 
@@ -313,12 +317,16 @@ export const canConvertObc = (u: User) => isGlobalManager(u);
 
 /* ------------------------------------------------------- Content Bank */
 
-/** Writing content is the Content Writers' own — no role overrides it. */
-export const canWriteContent = (u: User) => isContentWriter(u);
+/**
+ * Writing content belongs to the two desks that draft it — Content Writers and
+ * Social Media Marketing. It is a department right, so no role overrides it.
+ */
+export const canWriteContent = (u: User) =>
+  u.departments.some((d) => (CONTENT_AUTHOR_DEPARTMENTS as readonly string[]).includes(d));
 
 /** A writer edits their own copy; nobody else rewrites it. */
 export const canEditContentEntry = (u: User, entry: ContentEntry) =>
-  isContentWriter(u) && entry.createdBy === u.id;
+  canWriteContent(u) && entry.createdBy === u.id;
 
 export const canDeleteContentEntry = (u: User, entry: ContentEntry) =>
   canEditContentEntry(u, entry) || canDeleteCrm(u);
@@ -326,7 +334,9 @@ export const canDeleteContentEntry = (u: User, entry: ContentEntry) =>
 /**
  * Reading follows the project: anyone holding at least one task on it — plus
  * its leader, its department's Team Leader and the global managers — sees the
- * content written for it.
+ * content written for it. On top of that, whoever a piece was allotted to
+ * reads it wherever they stand, since a piece is routinely handed to someone
+ * before they have any task on the project.
  */
 export const canViewContentEntry = (
   u: User,
@@ -334,6 +344,7 @@ export const canViewContentEntry = (
   projects: Project[],
   tasks: Task[],
 ) => {
+  if (entry.allottedTo === u.id) return true;
   const project = projects.find((p) => p.id === entry.projectId);
   return !!project && canViewProject(u, project, tasks);
 };

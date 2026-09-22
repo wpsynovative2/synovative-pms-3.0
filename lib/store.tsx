@@ -9,7 +9,6 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
-import { addWorkingDays } from "./calendar";
 import {
   ALL_SCOPES,
   CLIENT_COLUMNS,
@@ -433,11 +432,29 @@ export type NewProjectInput = Omit<
 > &
   Partial<Pick<Project, "companyId" | "clientId" | "propertyId" | "obcId">>;
 
-export interface ProjectFromTemplateInput {
-  templateId: string;
+/**
+ * A task created in the same breath as its project, with its dates already
+ * resolved — a template's row as the creator edited it, or one typed straight
+ * into the form. Both arrive the same way, because by the time Create is
+ * pressed there is no difference between them.
+ */
+export type NewProjectTaskInput = Pick<
+  Task,
+  | "title"
+  | "description"
+  | "department"
+  | "assigneeId"
+  | "priority"
+  | "estimatedHours"
+  | "startDate"
+  | "dueDate"
+  | "tags"
+>;
+
+export interface ProjectWithTasksInput {
   project: NewProjectInput;
-  /** template task id → assignee id; missing or empty means nobody yet */
-  assignments: Record<string, string>;
+  /** Empty creates the project on its own. */
+  tasks: NewProjectTaskInput[];
 }
 
 export type NewTaskInput = Omit<
@@ -529,7 +546,7 @@ interface StoreValue {
   deleteUser: (id: string) => Result;
 
   createProject: (input: NewProjectInput) => Project;
-  createProjectFromTemplate: (input: ProjectFromTemplateInput) => Project;
+  createProjectWithTasks: (input: ProjectWithTasksInput) => Project;
   updateProject: (id: string, patch: Partial<Project>) => void;
   deleteProject: (id: string) => void;
 
@@ -679,55 +696,50 @@ const actions = {
     return project;
   },
 
-  createProjectFromTemplate({ templateId, project, assignments }: ProjectFromTemplateInput): Project {
+  /**
+   * The project and its opening tasks in one write. Tasks arrive with their
+   * dates already worked out — the form owns that, because it is where they
+   * can be seen and changed — and are clamped to the project window here so
+   * nothing can land outside it whatever the caller did. Unassigned tasks are
+   * still created: the work is planned now and handed out later (§13).
+   */
+  createProjectWithTasks({ project, tasks }: ProjectWithTasksInput): Project {
     const created: Project = {
       ...withoutCrmChain(project),
       id: newId(),
       createdBy: me(),
       createdAt: now(),
     };
-    const template = state.db.projectTemplates.find((t) => t.id === templateId);
-    const calendar = state.db.calendar;
 
-    // Every template task is created, assigned or not - the work is planned
-    // here and handed out later (§13). Dates follow working days.
-    const tasks: Task[] = (template?.tasks ?? []).flatMap((item) => {
-      const assigneeId = assignments[item.id] || null;
-      let startDate = addWorkingDays(created.startDate, item.startOffsetDays, calendar);
-      if (startDate > created.deadline) startDate = created.deadline;
-      let dueDate = addWorkingDays(startDate, item.durationDays, calendar);
-      if (dueDate > created.deadline) dueDate = created.deadline;
-      return [
-        {
-          id: newId(),
-          projectId: created.id,
-          title: item.title,
-          description: item.description,
-          department: item.department,
-          assigneeId,
-          status: "Not Started" as const,
-          priority: item.priority,
-          startDate,
-          dueDate,
-          estimatedHours: item.estimatedHours,
-          tags: item.tags,
-          createdBy: me(),
-          createdAt: now(),
-          sessions: [],
-          submissions: [],
-          reviews: [],
-          remarks: [],
-        },
-      ];
+    const clamp = (iso: string) =>
+      iso < created.startDate ? created.startDate : iso > created.deadline ? created.deadline : iso;
+
+    const rows: Task[] = tasks.map((input) => {
+      const startDate = clamp(input.startDate);
+      const dueDate = clamp(input.dueDate < startDate ? startDate : input.dueDate);
+      return {
+        ...input,
+        id: newId(),
+        projectId: created.id,
+        status: "Not Started" as const,
+        startDate,
+        dueDate,
+        createdBy: me(),
+        createdAt: now(),
+        sessions: [],
+        submissions: [],
+        reviews: [],
+        remarks: [],
+      };
     });
 
     void commit(
       ["projects", "tasks"],
-      (db) => ({ ...db, projects: [created, ...db.projects], tasks: [...db.tasks, ...tasks] }),
+      (db) => ({ ...db, projects: [created, ...db.projects], tasks: [...db.tasks, ...rows] }),
       async (c) => {
         await insertProject(c, created);
-        if (tasks.length) {
-          await run(c.from("tasks").insert(tasks.map((t) => ({ ...taskRow(t), created_by: me() }))));
+        if (rows.length) {
+          await run(c.from("tasks").insert(rows.map((t) => ({ ...taskRow(t), created_by: me() }))));
         }
       },
     );

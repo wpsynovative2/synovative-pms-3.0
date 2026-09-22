@@ -238,3 +238,68 @@ h3 {
 .animate-pulse-dot {
   animation: pms-pulse-dot 1.4s ease-in-out infinite;
 }
+
+/*
+ * The app's one loading animation - four dots that swing out, turn a quarter
+ * and fall back in (the figure is Uiverse.io's, by bociKond; see Loading.txt). Everything that waits shows this, at whatever size fits:
+ * `--loader-size` drives the whole shape, and the colour is `currentColor`, so
+ * it sits in a button, a card or a boot screen without being restyled.
+ *
+ * Note the animation grows `::before` outward by a quarter of the size on each
+ * side, so the painted circle is 1.5x the box. Nothing that holds a loader may
+ * clip its overflow - <Loader> reserves that room for you.
+ */
+.pms-loader {
+  --loader-size: 44.8px;
+  width: var(--loader-size);
+  height: var(--loader-size);
+  position: relative;
+  background: radial-gradient(calc(var(--loader-size) / 4), currentColor 94%, #0000);
+}
+
+.pms-loader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(calc(var(--loader-size) * 0.225) at bottom right, #0000 94%, currentColor)
+      top left,
+    radial-gradient(calc(var(--loader-size) * 0.225) at bottom left, #0000 94%, currentColor)
+      top right,
+    radial-gradient(calc(var(--loader-size) * 0.225) at top right, #0000 94%, currentColor)
+      bottom left,
+    radial-gradient(calc(var(--loader-size) * 0.225) at top left, #0000 94%, currentColor)
+      bottom right;
+  background-size: calc(var(--loader-size) / 2) calc(var(--loader-size) / 2);
+  background-repeat: no-repeat;
+  animation: pms-loader 1.5s infinite cubic-bezier(0.3, 1, 0, 1);
+}
+
+@keyframes pms-loader {
+  33% {
+    inset: calc(var(--loader-size) / -4);
+    transform: rotate(0deg);
+  }
+  66% {
+    inset: calc(var(--loader-size) / -4);
+    transform: rotate(90deg);
+  }
+  100% {
+    inset: 0;
+    transform: rotate(90deg);
+  }
+}
+
+/* Still says "working", without anything flying about. */
+@media (prefers-reduced-motion: reduce) {
+  .pms-loader::before {
+    animation: pms-loader-quiet 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes pms-loader-quiet {
+  50% {
+    opacity: 0.3;
+  }
+}

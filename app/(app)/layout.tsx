@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { SetupNotice } from "@/components/layout/setup-notice";
+import { LoadingScreen } from "@/components/ui/loader";
 import { useStore } from "@/lib/store";
 
 /** Auth gate for every signed-in surface. */
@@ -20,7 +21,7 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   if (!ready || !currentUser) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-brand-bright" />
+        <LoadingScreen />
       </div>
     );
   }

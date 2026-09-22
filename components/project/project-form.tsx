@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
-import { IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
+import { IconEdit, IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Avatar, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
@@ -18,8 +18,14 @@ import {
 } from "@/lib/master-data";
 import { canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
-import { useStore } from "@/lib/store";
-import type { Priority, Project, ProjectStatus, RecurrenceRule } from "@/lib/types";
+import { useStore, type NewProjectTaskInput } from "@/lib/store";
+import type {
+  CalendarConfig,
+  Priority,
+  Project,
+  ProjectStatus,
+  RecurrenceRule,
+} from "@/lib/types";
 
 /**
  * A task typed straight into the create-project form. For a repeating project
@@ -37,6 +43,50 @@ interface TaskDraft {
   startDate: string;
   dueDate: string;
 }
+
+/**
+ * A template's task on this form. A template is a starting point, not a
+ * contract — this project's brief is nearly always a little different — so
+ * every field stays editable, and a row can be dropped altogether.
+ *
+ * `startOffsetDays` / `durationDays` are kept so the dates go on tracking the
+ * project window as the start date moves (§13). Touching either date by hand
+ * pins the row and stops that, because a hand-set date should not be quietly
+ * recalculated underneath whoever set it.
+ */
+interface TemplateDraft extends TaskDraft {
+  startOffsetDays: number;
+  durationDays: number;
+  tags: string[];
+  datesPinned: boolean;
+}
+
+/** Where a template row sits in the project window, in working days. */
+function templateDates(
+  item: { startOffsetDays: number; durationDays: number },
+  projectStart: string,
+  projectDeadline: string,
+  calendar: CalendarConfig,
+) {
+  let startDate = addWorkingDays(projectStart, item.startOffsetDays, calendar);
+  if (startDate > projectDeadline) startDate = projectDeadline;
+  let dueDate = addWorkingDays(startDate, item.durationDays, calendar);
+  if (dueDate > projectDeadline) dueDate = projectDeadline;
+  return { startDate, dueDate };
+}
+
+/** Both kinds of draft become the same thing once the project exists. */
+const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => ({
+  title: d.title.trim(),
+  description: d.description,
+  department: d.department,
+  assigneeId: d.assigneeId || null,
+  priority: d.priority,
+  estimatedHours: d.estimatedHours,
+  startDate: d.startDate,
+  dueDate: d.dueDate,
+  tags,
+});
 
 interface FormState {
   name: string;
@@ -63,12 +113,13 @@ export function ProjectFormModal({
   project?: Project;
   onCreated?: (p: Project) => void;
 }) {
-  const { db, currentUser, createProject, createProjectFromTemplate, createTask, updateProject } =
-    useStore();
+  const { db, currentUser, createProjectWithTasks, updateProject } = useStore();
 
   const defaultStart = nextWorkingDay(todayISO(), db.calendar);
   const [templateId, setTemplateId] = useState("");
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]);
+  /** Template rows open for editing; collapsed they read as the old summary. */
+  const [openRows, setOpenRows] = useState<string[]>([]);
 
   const [form, setForm] = useState<FormState>({
     name: project?.name ?? "",
@@ -135,21 +186,59 @@ export function ProjectFormModal({
 
   const applyTemplate = (id: string) => {
     setTemplateId(id);
+    setOpenRows([]);
     const t = db.projectTemplates.find((x) => x.id === id);
     if (!t) {
-      setAssignments({});
+      setTemplateDrafts([]);
       return;
     }
+    // The template's own length decides the deadline, and its tasks are laid
+    // out inside that window before anyone touches them.
+    const deadline = addWorkingDays(form.startDate, t.durationDays, db.calendar);
     setForm((f) => ({
       ...f,
       color: t.color,
       services: t.services,
       priority: t.priority,
       description: t.description,
-      deadline: addWorkingDays(f.startDate, t.durationDays, db.calendar),
+      deadline,
     }));
-    setAssignments({});
+    setTemplateDrafts(
+      t.tasks.map((item) => ({
+        key: crypto.randomUUID(),
+        title: item.title,
+        description: item.description,
+        department: item.department,
+        assigneeId: "",
+        priority: item.priority,
+        estimatedHours: item.estimatedHours,
+        ...templateDates(item, form.startDate, deadline, db.calendar),
+        startOffsetDays: item.startOffsetDays,
+        durationDays: item.durationDays,
+        tags: item.tags,
+        datesPinned: false,
+      })),
+    );
   };
+
+  const setTemplateDraft = (key: string, patch: Partial<TemplateDraft>) =>
+    setTemplateDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+
+  /*
+   * The template's rows as they currently stand. An unpinned row's dates are
+   * worked out from the project window on every render rather than stored, so
+   * moving the project start moves them with it - the behaviour the read-only
+   * list had - while a row whose dates were set by hand keeps them.
+   */
+  const resolvedTemplateDrafts = useMemo(
+    () =>
+      templateDrafts.map((d) =>
+        d.datesPinned
+          ? d
+          : { ...d, ...templateDates(d, form.startDate, form.deadline, db.calendar) },
+      ),
+    [templateDrafts, form.startDate, form.deadline, db.calendar],
+  );
 
   const startBlocked = dateUnavailableReason(form.startDate, {
     config: db.calendar,
@@ -167,6 +256,9 @@ export function ProjectFormModal({
         : undefined,
     repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
     tasks: drafts.some((d) => !d.title.trim() || !d.department)
+      ? "Every task needs a title and a department."
+      : undefined,
+    templateTasks: templateDrafts.some((d) => !d.title.trim() || !d.department)
       ? "Every task needs a title and a department."
       : undefined,
   };
@@ -199,30 +291,15 @@ export function ProjectFormModal({
       return;
     }
 
-    const created = template
-      ? createProjectFromTemplate({ templateId: template.id, project: payload, assignments })
-      : createProject(payload);
-
-    // Tasks typed in above, on top of anything the template brought.
-    const clamp = (iso: string) =>
-      iso < form.startDate ? form.startDate : iso > form.deadline ? form.deadline : iso;
-    for (const d of drafts) {
-      const startDate = clamp(d.startDate);
-      const dueDate = clamp(d.dueDate < startDate ? startDate : d.dueDate);
-      createTask({
-        projectId: created.id,
-        title: d.title.trim(),
-        description: d.description,
-        department: d.department,
-        assigneeId: d.assigneeId || null,
-        status: "Not Started",
-        priority: d.priority,
-        startDate,
-        dueDate,
-        estimatedHours: d.estimatedHours,
-        tags: [],
-      });
-    }
+    // The template's tasks as they now stand, then anything typed in on top.
+    // The store clamps every date to the project window.
+    const created = createProjectWithTasks({
+      project: payload,
+      tasks: [
+        ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags)),
+        ...drafts.map((d) => toTaskInput(d)),
+      ],
+    });
 
     onClose();
     onCreated?.(created);
@@ -425,7 +502,12 @@ export function ProjectFormModal({
           />
         </Field>
 
-        {/* Template tasks get their assignee at creation time (§13). */}
+        {/*
+          * Template tasks get their assignee at creation time (§13) — and now
+          * anything else that needs changing for this project. Rows read as the
+          * plain summary until one is opened, so a template that needs no edits
+          * is still a glance and a dropdown.
+          */}
         {template && !project ? (
           <div className="rounded-xl border border-brand-bright/25 bg-brand/8 p-4">
             <div className="mb-3 flex items-center gap-2">
@@ -434,59 +516,179 @@ export function ProjectFormModal({
                 Tasks from “{template.name}”
               </span>
               <span className="ml-auto text-[11px] text-ink-faint">
-                {Object.values(assignments).filter(Boolean).length}/{template.tasks.length}{" "}
+                {templateDrafts.filter((d) => d.assigneeId).length}/{templateDrafts.length}{" "}
                 assigned
               </span>
             </div>
             <p className="mb-3 text-[11px] leading-relaxed text-ink-faint">
-              Dates are calculated from the project start using working days only.
-              Tasks you leave unassigned are still created — hand them out later.
+              Dates are calculated from the project start using working days only, and
+              follow it if you move it. Edit any task to change it for this project — the
+              template itself is left alone. Tasks you leave unassigned are still created.
             </p>
 
-            <ul className="flex flex-col gap-2.5">
-              {template.tasks.map((item) => {
-                const start = addWorkingDays(
-                  form.startDate,
-                  item.startOffsetDays,
-                  db.calendar,
-                );
-                const due = addWorkingDays(start, item.durationDays, db.calendar);
-                const options = db.users
-                  .filter((u) => u.active && u.departments.includes(item.department))
-                  .map((u) => ({
-                    value: u.id,
-                    label: u.fullName,
-                    avatarName: u.fullName,
-                  }));
-                return (
-                  <li
-                    key={item.id}
-                    className="grid gap-2.5 rounded-lg border border-line bg-surface-2 p-3 sm:grid-cols-[1.4fr_1fr]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-[12px] font-medium text-ink">
-                        {item.title}
+            {templateDrafts.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11px] text-ink-faint">
+                Every task from this template has been removed. The project will be created
+                on its own.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {resolvedTemplateDrafts.map((d, i) => {
+                  const open = openRows.includes(d.key);
+                  const label = d.title.trim() || `Task ${i + 1}`;
+                  const options = db.users
+                    .filter((u) => u.active && u.departments.includes(d.department))
+                    .map((u) => ({
+                      value: u.id,
+                      label: u.fullName,
+                      avatarName: u.fullName,
+                    }));
+                  return (
+                    <li key={d.key} className="rounded-lg border border-line bg-surface-2 p-3">
+                      <div className="grid gap-2.5 sm:grid-cols-[1.4fr_1fr]">
+                        <div className="min-w-0">
+                          <div className="truncate text-[12px] font-medium text-ink">
+                            {label}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-ink-faint">
+                            {d.department || "No department"} · {d.estimatedHours}h ·{" "}
+                            {formatDate(d.startDate)} → {formatDate(d.dueDate)}
+                            {d.datesPinned ? " · dates set by hand" : ""}
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <SearchSelect
+                              options={options}
+                              value={d.assigneeId}
+                              onChange={(v) => setTemplateDraft(d.key, { assigneeId: v })}
+                              placeholder={
+                                !d.department
+                                  ? "Pick a department first"
+                                  : options.length
+                                    ? "Assign to…"
+                                    : "Nobody in this department"
+                              }
+                              allowClear
+                            />
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={open ? "primary" : "secondary"}
+                            aria-label={`${open ? "Done editing" : "Edit"} ${label}`}
+                            aria-expanded={open}
+                            onClick={() =>
+                              setOpenRows((keys) =>
+                                open ? keys.filter((k) => k !== d.key) : [...keys, d.key],
+                              )
+                            }
+                          >
+                            <IconEdit size={13} />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            aria-label={`Remove ${label}`}
+                            onClick={() => {
+                              setTemplateDrafts((ds) => ds.filter((x) => x.key !== d.key));
+                              setOpenRows((keys) => keys.filter((k) => k !== d.key));
+                            }}
+                          >
+                            <IconTrash size={13} />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-[10px] text-ink-faint">
-                        {item.department} · {item.estimatedHours}h ·{" "}
-                        {formatDate(start)} → {formatDate(due > form.deadline ? form.deadline : due)}
-                      </div>
-                    </div>
-                    <SearchSelect
-                      options={options}
-                      value={assignments[item.id] ?? ""}
-                      onChange={(v) =>
-                        setAssignments((a) => ({ ...a, [item.id]: v }))
-                      }
-                      placeholder={
-                        options.length ? "Assign to…" : "Nobody in this department"
-                      }
-                      allowClear
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+
+                      {open ? (
+                        <div className="mt-3 flex flex-col gap-2.5 border-t border-line-soft pt-3">
+                          <Input
+                            value={d.title}
+                            onChange={(e) => setTemplateDraft(d.key, { title: e.target.value })}
+                            placeholder="What needs doing?"
+                            aria-label="Task title"
+                          />
+
+                          <RichTextEditor
+                            value={d.description}
+                            onChange={(v) => setTemplateDraft(d.key, { description: v })}
+                            minHeight={72}
+                            placeholder="Brief, references, deliverable format…"
+                          />
+
+                          <div className="grid gap-2.5 sm:grid-cols-2">
+                            <SearchSelect
+                              options={db.departments.map((x) => ({ value: x, label: x }))}
+                              value={d.department}
+                              onChange={(v) =>
+                                // The assignee comes from the department, so it
+                                // can't survive the department changing under it.
+                                setTemplateDraft(d.key, { department: v, assigneeId: "" })
+                              }
+                              placeholder="Department"
+                            />
+                            <Select
+                              value={d.priority}
+                              onChange={(e) =>
+                                setTemplateDraft(d.key, {
+                                  priority: e.target.value as Priority,
+                                })
+                              }
+                              aria-label="Priority"
+                            >
+                              {PRIORITIES.map((x) => (
+                                <option key={x} value={x}>
+                                  {x}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
+
+                          <div className="grid gap-2.5 sm:grid-cols-2">
+                            <DatePicker
+                              value={d.startDate}
+                              onChange={(v) =>
+                                setTemplateDraft(d.key, {
+                                  startDate: v,
+                                  dueDate: d.dueDate < v ? v : d.dueDate,
+                                  datesPinned: true,
+                                })
+                              }
+                              config={db.calendar}
+                              min={form.startDate}
+                              max={form.deadline}
+                              allowPast
+                            />
+                            <DatePicker
+                              value={d.dueDate}
+                              onChange={(v) =>
+                                setTemplateDraft(d.key, { dueDate: v, datesPinned: true })
+                              }
+                              config={db.calendar}
+                              min={d.startDate > form.startDate ? d.startDate : form.startDate}
+                              max={form.deadline}
+                              allowPast
+                            />
+                          </div>
+
+                          <DurationField
+                            valueHours={d.estimatedHours}
+                            onChange={(h: number | null) =>
+                              setTemplateDraft(d.key, {
+                                estimatedHours: h ?? WORKDAY_HOURS / 2,
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {touched && errors.templateTasks ? (
+              <p className="mt-2 text-[11px] text-st-rejected">{errors.templateTasks}</p>
+            ) : null}
           </div>
         ) : null}
 

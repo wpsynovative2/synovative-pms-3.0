@@ -27,13 +27,21 @@ export const DEPARTMENTS = [
 export const FINANCE_DEPARTMENT = "Accounts & Finance";
 
 /**
- * Two more departments carry rights of their own, the same way Finance does.
+ * Three more departments carry rights of their own, the same way Finance does.
  * Business Development Executives keep the CRM master records; Content Writers
- * are the only people who may write in the Content Bank.
+ * and Social Media Marketing both write in the Content Bank — the copy and the
+ * post that carries it are drafted by the same two desks.
  */
 export const BUSINESS_DEV_DEPARTMENT = "Business Development Executives";
 export const CONTENT_WRITER_DEPARTMENT =
   "Content Writers / Copywriters / Brand Strategists";
+export const SMM_DEPARTMENT = "Social Media Marketing";
+
+/** Departments allowed to write in the Content Bank. */
+export const CONTENT_AUTHOR_DEPARTMENTS = [
+  CONTENT_WRITER_DEPARTMENT,
+  SMM_DEPARTMENT,
+] as const;
 
 /** PRD §5.2 — de-duplicated list. */
 export const SERVICES = [
@@ -208,6 +216,19 @@ export const OBC_STATUS_STYLE: Record<ObcStatus, string> = {
   Draft: "bg-ink-faint/15 text-ink-faint border-ink-faint/30",
   Submitted: "bg-st-submitted/15 text-st-submitted border-st-submitted/30",
   Converted: "bg-st-approved/15 text-st-approved border-st-approved/30",
+};
+
+/**
+ * What the sales team calls each stage. The stored enum still reads
+ * Draft → Submitted → Converted, because the database, its triggers and every
+ * existing row depend on those words; on screen the only question anyone asks
+ * is whether a project has been raised off the back of the OBC yet, so a
+ * submitted OBC reads "Unallotted" until it is converted, and "Allotted" after.
+ */
+export const OBC_STATUS_LABEL: Record<ObcStatus, string> = {
+  Draft: "Draft",
+  Submitted: "Unallotted",
+  Converted: "Allotted",
 };
 
 export const PARTY_STATUS_STYLE: Record<PartyStatus, string> = {

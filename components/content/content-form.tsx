@@ -403,8 +403,11 @@ function ReferenceLinks({
 }
 
 /**
- * Allotment is offered to the people already on that project, since the piece
- * is handed to whoever will make the creative from it.
+ * Who the piece is handed to. The project's own team comes first, because that
+ * is the usual answer - but not the only one: the designer or editor who will
+ * build the creative often has no task on the project yet, and allotting the
+ * content is how they are brought on to it. So the whole active directory is
+ * offered, with everyone else listed under their department.
  */
 function Allotment({
   projectId,
@@ -417,28 +420,42 @@ function Allotment({
 }) {
   const { db, projectById } = useStore();
 
-  const people = useMemo(() => {
+  const { people, onProject } = useMemo(() => {
     const project = projectById(projectId);
     const ids = new Set<string>(project?.memberIds ?? []);
     if (project?.leaderId) ids.add(project.leaderId);
     for (const t of db.tasks) {
       if (t.projectId === projectId && t.assigneeId) ids.add(t.assigneeId);
     }
-    return db.users
-      .filter((u) => u.active && ids.has(u.id))
-      .map((u) => ({ value: u.id, label: u.fullName, avatarName: u.fullName }));
+    const active = db.users.filter((u) => u.active);
+    const toOption = (u: (typeof active)[number]) => ({
+      value: u.id,
+      label: u.fullName,
+      hint: ids.has(u.id) ? "On this project" : u.departments[0],
+      avatarName: u.fullName,
+    });
+    // On the project first, then everyone else - the list is searchable, so
+    // ordering is about what the eye lands on rather than what is reachable.
+    return {
+      people: [
+        ...active.filter((u) => ids.has(u.id)).map(toOption),
+        ...active.filter((u) => !ids.has(u.id)).map(toOption),
+      ],
+      onProject: ids.size,
+    };
   }, [db.tasks, db.users, projectId, projectById]);
 
   return (
     <Field
       label="Allotment to"
       hint={
-        people.length ? "The team member who will build this." : "Nobody is on this project yet."
+        onProject
+          ? "The team member who will build this — on this project or not."
+          : "Nobody is on this project yet; anyone can still be given the piece."
       }
     >
       <SearchSelect
         allowClear
-        disabled={!people.length}
         options={people}
         value={value ?? ""}
         onChange={(v) => onChange(v || null)}

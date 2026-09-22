@@ -15,6 +15,7 @@ import {
   IconTrash,
 } from "@/components/ui/icons";
 import { ConfirmDialog, Drawer, Modal } from "@/components/ui/modal";
+import { ButtonLoader } from "@/components/ui/loader";
 import {
   Badge,
   Button,
@@ -432,7 +433,7 @@ function PropertyDrawer({
                     disabled={creating}
                     onClick={createDirectory}
                   >
-                    <IconFolder size={13} />
+                    {creating ? <ButtonLoader /> : <IconFolder size={13} />}
                     {creating
                       ? "Creating…"
                       : made

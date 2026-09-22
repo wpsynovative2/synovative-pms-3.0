@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
+import { ButtonLoader } from "@/components/ui/loader";
 import { Button, Field, PasswordInput } from "@/components/ui/primitives";
 import { useStore } from "@/lib/store";
 import type { User } from "@/lib/types";
@@ -47,7 +48,13 @@ export function FirstSignInPassword({ user }: { user: User }) {
         <>
           <Button onClick={() => void logout()}>Sign out</Button>
           <Button variant="primary" onClick={save} disabled={busy}>
-            {busy ? "Saving…" : "Set password"}
+            {busy ? (
+              <>
+                <ButtonLoader /> Saving…
+              </>
+            ) : (
+              "Set password"
+            )}
           </Button>
         </>
       }

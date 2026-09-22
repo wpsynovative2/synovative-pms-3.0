@@ -59,6 +59,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0015_obc_line_details.sql` | OBC lines carry Zoho's short and brief descriptions instead of rate and amount — pricing stays in Zoho |
 | `0016_obc_quote_name.sql` | OBCs are known by their Zoho quote name; the generated code stays as the fallback and stable handle |
 | `0017_master_data_admin.sql` | A Super Admin can add and retire departments and services; foreign keys still refuse to drop a name in use |
+| `0018_content_authors.sql` | Social Media Marketing writes in the Content Bank alongside Content Writers, and a piece can be allotted to — and read by — someone with no task on the project |
 
 ### 4. The first Super Admin
 
@@ -111,8 +112,8 @@ All ten modules from the PRD:
 | Companies — the real-estate developer master | `/companies` | — |
 | Clients — the people at each company | `/clients` | — |
 | Real estate properties — unit mix and Google Drive media folders | `/properties` | — |
-| New OBCs — sales orders from Zoho quotes, converted into projects | `/obcs` | — |
-| Content Bank — written by Content Writers, read by their project's team | `/content-bank` | — |
+| New OBCs — sales orders from Zoho quotes; unallotted until a project is raised from one | `/obcs` | — |
+| Content Bank — written by Content Writers and Social Media Marketing, filed under its project | `/content-bank` | — |
 
 Behaviour worth pointing at specifically:
 
@@ -138,6 +139,12 @@ Behaviour worth pointing at specifically:
   move, and every earlier submission, review and time log stays in the history.
 - **Expense authority comes from the department, not the role (§4.1)** — anyone
   in Accounts & Finance can verify.
+- **One loading animation.** Every wait in the app — the boot screen, a route
+  still resolving, a button mid-save, an upload — shows the same four-dot
+  figure, defined once in [`app/globals.css`](app/globals.css) as `.pms-loader`
+  and wrapped by [`components/ui/loader.tsx`](components/ui/loader.tsx). It
+  paints in `currentColor` and scales from a 11px button glyph to a full screen.
+
 - **Operational links.** Shared Google Drive folders and files filed under named
   groups. Super Admin, Admin and Manager add, edit, rename and delete (a new
   group can be created right from the Add link form); everyone else can open

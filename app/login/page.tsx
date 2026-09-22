@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { ButtonLoader } from "@/components/ui/loader";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import {
   Button,
@@ -129,7 +130,13 @@ export default function LoginPage() {
             ) : null}
 
             <Button type="submit" variant="primary" className="mt-1 w-full" disabled={busy}>
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? (
+                <>
+                  <ButtonLoader /> Signing in…
+                </>
+              ) : (
+                "Sign in"
+              )}
             </Button>
           </form>
 
