@@ -6,6 +6,7 @@ import type {
   Comment,
   Company,
   ContentEntry,
+  ContentReview,
   Database,
   DriveFolder,
   Expense,
@@ -298,6 +299,8 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       assigneeId: nullable(r.assignee_id),
       status: r.status as Task["status"],
       priority: r.priority as Task["priority"],
+      kind: (r.kind as Task["kind"]) ?? "standard",
+      contentCount: num(r.content_count),
       startDate: dateOnly(r.start_date),
       dueDate: dateOnly(r.due_date),
       estimatedHours: num(r.estimated_hours),
@@ -591,7 +594,19 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
 }
 
 async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
-  const rows = await fetchAll(sb, "content_bank", "created_at", "id");
+  const [rows, reviewRows] = await Promise.all([
+    fetchAll(sb, "content_bank", "created_at", "id"),
+    fetchAll(sb, "content_reviews", "content_id", "created_at", "id"),
+  ]);
+
+  const reviews = groupBy<ContentReview>(reviewRows, "content_id", (r) => ({
+    id: str(r.id),
+    contentId: str(r.content_id),
+    byUserId: str(r.by_profile_id),
+    at: str(r.created_at),
+    decision: r.decision as ContentReview["decision"],
+    remarks: str(r.remarks),
+  }));
   const contentEntries: ContentEntry[] = rows
     .map((r) => ({
       id: str(r.id),
@@ -604,6 +619,9 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       description: str(r.description),
       referenceLinks: (r.reference_links as string[]) ?? [],
       billingType: r.billing_type as ContentEntry["billingType"],
+      status: (r.status as ContentEntry["status"]) ?? "Not Started",
+      submittedAt: nullable(r.submitted_at),
+      reviews: reviews.get(str(r.id)) ?? [],
       allottedTo: nullable(r.allotted_to),
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),
@@ -703,6 +721,8 @@ export function taskRow(
     | "dueDate"
     | "estimatedHours"
     | "tags"
+    | "kind"
+    | "contentCount"
   >,
 ) {
   return {
@@ -711,6 +731,8 @@ export function taskRow(
     title: t.title,
     description: t.description,
     department: t.department,
+    kind: t.kind,
+    content_count: t.contentCount,
     assignee_id: t.assigneeId,
     status: t.status,
     priority: t.priority,

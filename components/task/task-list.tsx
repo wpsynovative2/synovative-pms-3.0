@@ -7,6 +7,7 @@ import {
   Avatar,
   Card,
   EmptyState,
+  ProgressBar,
   SearchInput,
   Select,
   cx,
@@ -15,6 +16,7 @@ import { PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib/master-data"
 import { useStore } from "@/lib/store";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
+import { contentProgress } from "@/lib/types";
 import type { Priority, Project, Task, TaskStatus, User } from "@/lib/types";
 import {
   DueDate,
@@ -367,11 +369,13 @@ export function TaskRow({
   onOpen: (id: string) => void;
   showProject?: boolean;
 }) {
-  const { userById, projectById } = useStore();
+  const { db, userById, projectById } = useStore();
   const assignee = userById(task.assigneeId);
   const project = task.projectId ? projectById(task.projectId) : null;
   const elapsed = taskElapsedMs(task);
   const running = isTimerRunning(task);
+  // A content task's real progress is its approved pieces, not its status.
+  const batch = task.kind === "content" ? contentProgress(task, db.contentEntries) : null;
 
   return (
     <button
@@ -395,12 +399,22 @@ export function TaskRow({
           </span>
           <RecurrenceBadge item={task} />
           <OverdueBadge task={task} />
+          {batch ? (
+            <span className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink">
+              {batch.approved}/{batch.total}
+            </span>
+          ) : null}
         </span>
         <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
           {showProject ? <ProjectChip project={project} /> : null}
           <span className="text-[11px] text-ink-faint">{task.department}</span>
           <DueDate task={task} />
         </span>
+        {batch ? (
+          <span className="mt-1.5 block max-w-64">
+            <ProgressBar value={batch.percent} barClassName="bg-st-approved" />
+          </span>
+        ) : null}
       </span>
 
       <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-ink-muted sm:flex">

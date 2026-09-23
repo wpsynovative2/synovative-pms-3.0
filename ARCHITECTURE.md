@@ -326,6 +326,19 @@ reads **"Allotted"** — see `OBC_STATUS_LABEL` in `lib/master-data.ts`. The
 stored enum is unchanged; do not rename it without a migration, because
 triggers and existing rows depend on the words.
 
+**Content tasks.** A task has a `kind`: `standard` is one piece of work with
+one submit/review cycle; `content` is a *batch* — "five reels" is one task
+carrying five Content Bank pieces. `tasks.content_count` is the target, a
+floor rather than a ceiling: the writer may add more and the denominator
+follows whichever is larger (`contentProgress` in `lib/types.ts`). Each piece
+carries its own `status` and a `content_reviews` trail. The writer submits a
+piece (`submit_content`); whoever may review the *task* decides on it
+(`review_content`, gated by `can_review_task`). When every piece is approved,
+`sync_content_task` approves the task itself — and re-opens it if a piece
+stops being approved — so the batch and the task can never disagree. Pieces
+written outside a content task stay "Not Started" and answer to nobody; the
+Content Bank is still a library first.
+
 **Content Bank.** Written by Content Writers and Social Media Marketing,
 against a project they hold a task on. The library page groups entries under
 their project. A piece can be allotted to anyone active, on the project or not;
@@ -361,6 +374,7 @@ exists as a file of its own).
 | `0018_content_authors.sql` | SMM writes content; allottee can read it |
 | `0019_obc_service_allotment.sql` | OBC lines carry the project or task raised for them |
 | `0020_obc_delivery_services.sql` | The estimate (`obc_items`) and the delivery list (`obc_services`) split apart; allotment moves to the latter |
+| `0021_content_tasks.sql` | Content tasks: `tasks.kind` + `content_count`, per-piece status and `content_reviews` |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

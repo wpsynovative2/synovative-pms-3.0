@@ -42,7 +42,9 @@ import type {
   CollabEntity,
   Comment,
   Company,
+  ContentDecision,
   ContentEntry,
+  ContentReview,
   Database,
   DriveFolder,
   Expense,
@@ -463,8 +465,19 @@ export interface ProjectWithTasksInput {
 
 export type NewTaskInput = Omit<
   Task,
-  "id" | "createdAt" | "createdBy" | "sessions" | "submissions" | "reviews" | "remarks"
->;
+  | "id"
+  | "createdAt"
+  | "createdBy"
+  | "sessions"
+  | "submissions"
+  | "reviews"
+  | "remarks"
+  | "kind"
+  | "contentCount"
+> &
+  // A plain task is the overwhelming default, so callers say nothing and get
+  // one; only the content-task form fills these in.
+  Partial<Pick<Task, "kind" | "contentCount">>;
 
 export interface NewUserInput {
   fullName: string;
@@ -511,7 +524,15 @@ export type ObcInput = Omit<
   "id" | "code" | "createdBy" | "createdAt" | "status" | "projectId" | "submittedAt" | "convertedAt"
 >;
 
-export type ContentInput = Omit<ContentEntry, "id" | "createdBy" | "createdAt">;
+/**
+ * Writing a piece. The workflow fields are deliberately not here: status,
+ * submittedAt and the review trail are moved only by `submitContent` and
+ * `reviewContent`, which re-check the rule in the database.
+ */
+export type ContentInput = Omit<
+  ContentEntry,
+  "id" | "createdBy" | "createdAt" | "status" | "submittedAt" | "reviews"
+>;
 
 export type MinutesInput = Omit<MeetingMinutes, "id" | "createdBy" | "createdAt">;
 
@@ -633,6 +654,11 @@ interface StoreValue {
   updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
   deleteContentEntry: (id: string) => void;
 
+  /** The writer hands one piece to its reviewer. */
+  submitContent: (entryId: string) => void;
+  /** A verdict on one piece; the content task closes itself once all are approved. */
+  reviewContent: (entryId: string, decision: ContentDecision, remarks: string) => void;
+
   addComment: (entityType: CollabEntity, entityId: string, body: string) => void;
   deleteComment: (id: string) => void;
   saveMinutes: (input: MinutesInput, id?: string) => void;
@@ -652,6 +678,8 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
   return tasks.map((input) => {
     const startDate = clamp(input.startDate);
     return {
+      kind: "standard" as const,
+      contentCount: 0,
       ...input,
       id: newId(),
       projectId: project.id,
@@ -812,6 +840,8 @@ const actions = {
 
   createTask(input: NewTaskInput): Task {
     const task: Task = {
+      kind: "standard",
+      contentCount: 0,
       ...input,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
@@ -1884,7 +1914,16 @@ const crmActions = {
   /* ---------------------------------------------------- content bank */
 
   createContentEntry(input: ContentInput): ContentEntry {
-    const entry: ContentEntry = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    const entry: ContentEntry = {
+      ...input,
+      id: newId(),
+      // Nothing is written yet as far as the reviewer is concerned.
+      status: "Not Started",
+      submittedAt: null,
+      reviews: [],
+      createdBy: me(),
+      createdAt: now(),
+    };
     void commit(
       ["content", "notifications"],
       (db) => ({ ...db, contentEntries: [entry, ...db.contentEntries] }),
@@ -1914,6 +1953,58 @@ const crmActions = {
   },
 
   /* ------------------------------------------------ comments & minutes */
+
+  /**
+   * Submitting and reviewing a piece both go through SECURITY DEFINER
+   * functions, for the same reason the task workflow does: the rule about who
+   * may do it is re-checked in the database rather than trusted from here.
+   * `review_content` also settles the parent content task - all pieces
+   * approved and the task approves itself - so the two can never disagree.
+   */
+  submitContent(entryId: string) {
+    void commit(
+      ["content", "tasks", "notifications"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId
+            ? { ...e, status: "Submitted" as const, submittedAt: now() }
+            : e,
+        ),
+      }),
+      (c) => run(c.rpc("submit_content", { p_content_id: entryId })),
+    );
+  },
+
+  reviewContent(entryId: string, decision: ContentDecision, remarks: string) {
+    const review: ContentReview = {
+      id: newId(),
+      contentId: entryId,
+      byUserId: me(),
+      at: now(),
+      decision,
+      remarks,
+    };
+    void commit(
+      ["content", "tasks", "notifications"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId
+            ? { ...e, status: decision, reviews: [...e.reviews, review] }
+            : e,
+        ),
+      }),
+      (c) =>
+        run(
+          c.rpc("review_content", {
+            p_content_id: entryId,
+            p_decision: decision,
+            p_remarks: remarks,
+          }),
+        ),
+    );
+  },
 
   addComment(entityType: CollabEntity, entityId: string, body: string) {
     const trimmed = body.trim();

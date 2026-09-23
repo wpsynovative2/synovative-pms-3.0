@@ -66,6 +66,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0018_content_authors.sql` | Social Media Marketing writes in the Content Bank alongside Content Writers, and a piece can be allotted to — and read by — someone with no task on the project |
 | `0019_obc_service_allotment.sql` | An OBC is allotted service by service: each quoted line records the project or individual task raised for it, and the OBC is Allotted only once none is left |
 | `0020_obc_delivery_services.sql` | The estimate and the work split in two: `obc_items` stays the Zoho estimate (reference), and `obc_services` is the delivery list a Business Development Executive writes by hand and a manager raises work from |
+| `0021_content_tasks.sql` | Content tasks: one task carrying N pieces, each submitted by its writer and approved, rejected or sent back on its own; the task approves itself once the batch stands |
 
 ### 4. The first Super Admin
 

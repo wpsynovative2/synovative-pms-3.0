@@ -24,6 +24,7 @@ import type {
   Project,
   RecurrenceRule,
   Task,
+  TaskKind,
   TaskStatus,
   TaskTemplate,
 } from "@/lib/types";
@@ -95,6 +96,17 @@ export function TaskFormModal({
     tags: task?.tags ?? [],
   });
   const [templateId, setTemplateId] = useState("");
+  /*
+   * A content task is a batch: "five reels" is one task carrying five pieces,
+   * each written, handed out and approved on its own. The kind is fixed once
+   * the task exists - pieces already hang off it - but the count is a target
+   * and stays editable.
+   */
+  const [kind, setKind] = useState<TaskKind>(task?.kind ?? "standard");
+  const [contentCount, setContentCount] = useState(String(task?.contentCount ?? 1));
+  const mayBeContentTask = mode === "project";
+  const isContent = mayBeContentTask && kind === "content";
+  const pieces = Number(contentCount);
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
   const [touched, setTouched] = useState(false);
 
@@ -152,6 +164,10 @@ export function TaskFormModal({
         ? "The due date must be on or after the start date."
         : undefined),
     repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
+    contentCount:
+      isContent && (!contentCount || Number.isNaN(pieces) || pieces < 1)
+        ? "How many pieces? At least one."
+        : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -190,6 +206,8 @@ export function TaskFormModal({
       dueDate: form.dueDate,
       estimatedHours: hours,
       tags: form.tags,
+      kind: isContent ? ("content" as const) : ("standard" as const),
+      contentCount: isContent ? pieces : 0,
       ...(mayRepeat
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
@@ -210,7 +228,17 @@ export function TaskFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={task ? "Edit task" : mode === "project" ? "Create task" : "Create individual task"}
+      title={
+        task
+          ? isContent
+            ? "Edit content task"
+            : "Edit task"
+          : isContent
+            ? "Create content task"
+            : mode === "project"
+              ? "Create task"
+              : "Create individual task"
+      }
       subtitle={
         mode === "project" && project
           ? `${project.name} · ${formatDate(project.startDate)} – ${formatDate(project.deadline)}`
@@ -240,6 +268,45 @@ export function TaskFormModal({
               allowClear
             />
           </Field>
+        ) : null}
+
+        {mayBeContentTask ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Task type"
+              hint={
+                task
+                  ? "Fixed once the task exists."
+                  : "A content task carries several pieces, each approved on its own."
+              }
+            >
+              <Select
+                value={kind}
+                disabled={!!task}
+                onChange={(e) => setKind(e.target.value as TaskKind)}
+              >
+                <option value="standard">Standard task</option>
+                <option value="content">Content task</option>
+              </Select>
+            </Field>
+
+            {isContent ? (
+              <Field
+                label="How many pieces?"
+                required
+                hint="A target, not a ceiling — the writer can add more."
+                error={touched ? errors.contentCount : undefined}
+              >
+                <Input
+                  type="number"
+                  min="1"
+                  value={contentCount}
+                  onChange={(e) => setContentCount(e.target.value)}
+                  placeholder="e.g. 5"
+                />
+              </Field>
+            ) : null}
+          </div>
         ) : null}
 
         <Field

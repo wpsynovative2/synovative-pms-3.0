@@ -179,10 +179,10 @@ export function ContentComposer({
         </>
       }
     >
-      <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-5 px-4 py-5 lg:flex-row lg:gap-8 sm:px-6">
+      <div className="mx-auto flex h-full w-full max-w-[1700px] flex-col gap-5 px-4 py-5 sm:px-6 lg:flex-row lg:gap-8">
         {/* ------------------------------------------------- the pieces --- */}
         {entry ? null : (
-          <aside className="lg:w-60 lg:shrink-0">
+          <aside className="lg:w-64 lg:shrink-0">
             <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
               Pieces ({drafts.length})
             </h3>
@@ -234,7 +234,7 @@ export function ContentComposer({
         {/* -------------------------------------------------- the piece --- */}
         {active ? (
           <section className="min-w-0 flex-1 pb-6">
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto max-w-5xl">
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand/15 text-brand-ink">
                   <IconContent size={16} />

@@ -140,6 +140,14 @@ export type TaskStatus =
   | "Rejected"
   | "Approved";
 
+/**
+ * What a task is. A standard task is one piece of work with one submit/review
+ * cycle. A *content* task is a batch: "five reels" is one task carrying five
+ * pieces of content, each written, allotted and approved on its own, with the
+ * task tracking how far through the batch we are.
+ */
+export type TaskKind = "standard" | "content";
+
 export type SessionEndReason =
   | "End of day"
   | "Switched"
@@ -210,6 +218,13 @@ export interface Task {
   dueDate: string;
   estimatedHours: number;
   tags: string[];
+  kind: TaskKind;
+  /**
+   * Content tasks only: how many pieces were asked for. A starting target
+   * rather than a ceiling — the writer may add more, and the progress bar
+   * follows whichever is larger. Always 0 on a standard task.
+   */
+  contentCount: number;
   createdBy: string;
   createdAt: string;
   sessions: TimeSession[];
@@ -545,6 +560,46 @@ export const CONTENT_TYPES: ContentType[] = [
   "Brochure Content",
 ];
 
+/**
+ * Where one piece of content has got to. Deliberately a subset of TaskStatus,
+ * so the status chips, colours and language are the ones everyone already
+ * reads on tasks.
+ */
+export type ContentStatus = Extract<
+  TaskStatus,
+  "Not Started" | "Submitted" | "Changes Required" | "Rejected" | "Approved"
+>;
+
+export const CONTENT_STATUSES: ContentStatus[] = [
+  "Not Started",
+  "Submitted",
+  "Changes Required",
+  "Rejected",
+  "Approved",
+];
+
+/** A verdict on one piece. No "Waiting for Client Response" — copy is settled in-house. */
+export type ContentDecision = Extract<
+  ReviewDecision,
+  "Approved" | "Changes Required" | "Rejected"
+>;
+
+export const CONTENT_DECISIONS: ContentDecision[] = [
+  "Approved",
+  "Changes Required",
+  "Rejected",
+];
+
+/** One verdict in a piece's history; rewrites keep the whole trail. */
+export interface ContentReview {
+  id: string;
+  contentId: string;
+  byUserId: string;
+  at: string;
+  decision: ContentDecision;
+  remarks: string;
+}
+
 export type ContentBillingType = "Count" | "Extra";
 
 export const CONTENT_BILLING_TYPES: ContentBillingType[] = ["Count", "Extra"];
@@ -570,8 +625,42 @@ export interface ContentEntry {
   billingType: ContentBillingType;
   /** The team member the piece is for. */
   allottedTo: string | null;
+  /**
+   * The writer submits a piece, and whoever may review its task decides on it.
+   * A piece written outside a content task stays "Not Started" and nobody is
+   * asked to look at it — the Content Bank is still a library first.
+   */
+  status: ContentStatus;
+  submittedAt: string | null;
+  reviews: ContentReview[];
   createdBy: string;
   createdAt: string;
+}
+
+/** How far through a content task we are. */
+export interface ContentProgress {
+  /** The denominator: the count asked for, or the number written if that is more. */
+  total: number;
+  written: number;
+  approved: number;
+  /** Written and waiting on a verdict. */
+  submitted: number;
+  /** 0–100, for the bar. */
+  percent: number;
+}
+
+export function contentProgress(task: Task, entries: ContentEntry[]): ContentProgress {
+  const mine = entries.filter((e) => e.taskId === task.id);
+  const approved = mine.filter((e) => e.status === "Approved").length;
+  const submitted = mine.filter((e) => e.status === "Submitted").length;
+  const total = Math.max(task.contentCount, mine.length);
+  return {
+    total,
+    written: mine.length,
+    approved,
+    submitted,
+    percent: total === 0 ? 0 : Math.round((approved / total) * 100),
+  };
 }
 
 /* ------------------------------------------------- Comments & Minutes */

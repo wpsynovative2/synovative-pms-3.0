@@ -349,6 +349,33 @@ export const canViewContentEntry = (
   return !!project && canViewProject(u, project, tasks);
 };
 
+/* -------------------------------------------------------- content tasks */
+
+/**
+ * A content task is a batch: one task carrying several pieces, each written,
+ * handed over and approved on its own.
+ */
+export const isContentTask = (t: Task) => t.kind === "content";
+
+/** The writer hands over their own piece, and only while it is still open. */
+export const canSubmitContent = (u: User, entry: ContentEntry) =>
+  entry.createdBy === u.id && entry.status !== "Approved";
+
+/**
+ * Deciding on a piece is the same right as reviewing the task it belongs to:
+ * whoever raised it, the Project Leader, and the global managers. Content
+ * written outside a task has nobody to answer to, so it is never reviewable.
+ */
+export function canReviewContent(
+  u: User,
+  entry: ContentEntry,
+  task: Task | null,
+  project: Project | null,
+): boolean {
+  if (!entry.taskId || !task) return false;
+  return canReviewTask(u, task, project);
+}
+
 /* -------------------------------------------------- Comments & Minutes */
 
 /**

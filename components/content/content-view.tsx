@@ -5,6 +5,7 @@ import { IconContent, IconExternal, IconLink } from "@/components/ui/icons";
 import { Badge, Card, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatDate } from "@/lib/calendar";
+import { TASK_STATUS_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import type { ContentEntry } from "@/lib/types";
 
@@ -29,6 +30,10 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-1.5">
         <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
+        {/* Only a piece written for a task is answerable to anyone. */}
+        {entry.taskId ? (
+          <Badge className={TASK_STATUS_STYLE[entry.status].chip}>{entry.status}</Badge>
+        ) : null}
         <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
         <Badge>{formatDate(entry.date)}</Badge>
         {project ? (
@@ -75,6 +80,29 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
                   <span className="min-w-0 flex-1">{link}</span>
                   <IconExternal size={12} className="shrink-0 text-ink-faint" />
                 </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {entry.reviews.length ? (
+        <Section title="Decisions">
+          <ul className="flex flex-col gap-1.5">
+            {[...entry.reviews].reverse().map((r) => (
+              <li
+                key={r.id}
+                className="rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]"
+              >
+                <span className="flex flex-wrap items-center gap-2">
+                  <Badge className={TASK_STATUS_STYLE[r.decision].chip}>{r.decision}</Badge>
+                  <span className="text-[11px] text-ink-faint">
+                    {userById(r.byUserId)?.fullName ?? "Unknown"} · {formatDate(r.at)}
+                  </span>
+                </span>
+                {r.remarks.trim() ? (
+                  <p className="mt-1 leading-relaxed text-ink-muted">{r.remarks}</p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -197,6 +225,9 @@ export function ContentCard({
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
+        {entry.taskId ? (
+          <Badge className={TASK_STATUS_STYLE[entry.status].chip}>{entry.status}</Badge>
+        ) : null}
         <Badge>{formatDate(entry.date)}</Badge>
         {entry.referenceLinks.length ? (
           <Badge>{entry.referenceLinks.length} refs</Badge>
