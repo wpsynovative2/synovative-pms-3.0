@@ -50,7 +50,14 @@ import {
 import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
 import { OBC_STATUSES, isAllotted, obcProgress } from "@/lib/types";
-import type { Obc, ObcItem, ObcService, ObcStatus, Priority } from "@/lib/types";
+import type {
+  Obc,
+  ObcItem,
+  ObcService,
+  ObcStatus,
+  Priority,
+  TaskKind,
+} from "@/lib/types";
 
 /**
  * An OBC goes by the name of the quote behind it — that is what the sales team
@@ -737,6 +744,15 @@ interface TaskDraft {
   estimatedHours: number;
   startDate: string;
   dueDate: string;
+  /*
+   * A content task is a batch: "five reels" is one task carrying five pieces,
+   * each written, allotted and approved on its own. It is fixed once the task
+   * exists - pieces hang off it - but freely changeable here, where nothing
+   * has been created yet.
+   */
+  kind: TaskKind;
+  /** Content tasks only: how many pieces were asked for. */
+  contentCount: number;
 }
 
 /**
@@ -860,6 +876,8 @@ function ConvertModal({
           estimatedHours: item.estimatedHours,
           startDate: from,
           dueDate: to,
+          kind: "standard" as const,
+          contentCount: 0,
         };
       }),
     );
@@ -884,7 +902,7 @@ function ConvertModal({
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
 
   /** A new row starts inside the project window, so its dates are always valid. */
-  const addDraft = (title = "") =>
+  const addDraft = (title = "", kind: TaskKind = "standard") =>
     setDrafts((ds) => [
       ...ds,
       {
@@ -897,10 +915,16 @@ function ConvertModal({
         estimatedHours: WORKDAY_HOURS / 2,
         startDate,
         dueDate: deadline,
+        kind,
+        // One piece is the smallest batch that means anything; whoever raises
+        // it is expected to set the count that was actually sold.
+        contentCount: kind === "content" ? 1 : 0,
       },
     ]);
 
-  const badDraft = drafts.some((d) => !d.title.trim() || !d.department);
+  const badDraft = drafts.some(
+    (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+  );
   const valid =
     name.trim() &&
     startDate &&
@@ -952,6 +976,8 @@ function ConvertModal({
           dueDate: clamp(d.dueDate < from ? from : d.dueDate),
           estimatedHours: d.estimatedHours,
           tags: [],
+          kind: d.kind,
+          contentCount: d.kind === "content" ? d.contentCount : 0,
         };
       }),
     );
@@ -1151,13 +1177,19 @@ function ConvertModal({
           <Field
             label="Tasks"
             hint="Optional — lay out the first tasks now, or later from the project itself."
-            error={touched && badDraft ? "Every task needs a title and a department." : undefined}
+            error={
+              touched && badDraft
+                ? "Every task needs a title and a department, and a content task at least one piece."
+                : undefined
+            }
           >
             <div className="flex flex-col gap-2.5">
               {drafts.map((d, i) => (
                 <div key={d.key} className="rounded-xl border border-line bg-surface-2 p-3">
                   <div className="mb-2.5 flex items-center gap-2">
-                    <span className="text-[11px] font-medium text-ink-faint">Task {i + 1}</span>
+                    <span className="text-[11px] font-medium text-ink-faint">
+                      {d.kind === "content" ? "Content task" : "Task"} {i + 1}
+                    </span>
                     <Button
                       size="sm"
                       variant="danger"
@@ -1170,6 +1202,45 @@ function ConvertModal({
                   </div>
 
                   <div className="flex flex-col gap-2.5">
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <Select
+                        value={d.kind}
+                        onChange={(e) => {
+                          const kind = e.target.value as TaskKind;
+                          setDraft(d.key, {
+                            kind,
+                            contentCount: kind === "content" ? Math.max(1, d.contentCount) : 0,
+                          });
+                        }}
+                        aria-label={`Type of task ${i + 1}`}
+                      >
+                        <option value="standard">Standard task</option>
+                        <option value="content">Content task</option>
+                      </Select>
+                      {d.kind === "content" ? (
+                        <Input
+                          type="number"
+                          min="1"
+                          value={d.contentCount ? String(d.contentCount) : ""}
+                          onChange={(e) =>
+                            setDraft(d.key, {
+                              contentCount: Math.max(0, Math.trunc(Number(e.target.value)) || 0),
+                            })
+                          }
+                          placeholder="How many pieces? e.g. 5"
+                          aria-label={`Pieces in task ${i + 1}`}
+                        />
+                      ) : null}
+                    </div>
+
+                    {d.kind === "content" ? (
+                      <p className="-mt-1 text-[11px] text-ink-faint">
+                        The writer drafts each piece in the Content Bank and may hand any
+                        of them to someone else. Each is approved on its own, and the task
+                        closes itself once they all are.
+                      </p>
+                    ) : null}
+
                     <Input
                       value={d.title}
                       onChange={(e) => setDraft(d.key, { title: e.target.value })}
@@ -1250,9 +1321,14 @@ function ConvertModal({
                 </div>
               ))}
 
-              <Button className="self-start" onClick={() => addDraft()}>
-                <IconPlus size={14} /> Add task
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => addDraft()}>
+                  <IconPlus size={14} /> Add task
+                </Button>
+                <Button onClick={() => addDraft("", "content")}>
+                  <IconPlus size={14} /> Add content task
+                </Button>
+              </div>
             </div>
           </Field>
           </div>
@@ -1301,15 +1377,24 @@ function ConvertModal({
                     {i.description}
                   </p>
                 ) : null}
-                {/* Straight from a sold service to the task that delivers it. */}
-                <Button
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => addDraft(i.service)}
-                  title={`Add a task for ${i.service}`}
-                >
-                  <IconPlus size={12} /> Add task for this
-                </Button>
+                {/* Straight from a sold service to the work that delivers it:
+                    one piece of work, or a batch of content written for it. */}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <Button
+                    size="sm"
+                    onClick={() => addDraft(i.service)}
+                    title={`Add a task for ${i.service}`}
+                  >
+                    <IconPlus size={12} /> Task
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => addDraft(i.service, "content")}
+                    title={`Add a content task for ${i.service}`}
+                  >
+                    <IconPlus size={12} /> Content task
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

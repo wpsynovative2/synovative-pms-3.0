@@ -490,7 +490,10 @@ export type NewProjectTaskInput = Pick<
   | "startDate"
   | "dueDate"
   | "tags"
->;
+> &
+  // As with NewTaskInput: a plain task says nothing and gets one, and only a
+  // content task fills these in.
+  Partial<Pick<Task, "kind" | "contentCount">>;
 
 export interface ProjectWithTasksInput {
   project: NewProjectInput;
@@ -713,9 +716,11 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
   return tasks.map((input) => {
     const startDate = clamp(input.startDate);
     return {
-      kind: "standard" as const,
-      contentCount: 0,
       ...input,
+      // After the spread, not before it: a caller passing `kind: undefined`
+      // outright would otherwise beat a default written above it.
+      kind: input.kind ?? "standard",
+      contentCount: input.kind === "content" ? (input.contentCount ?? 0) : 0,
       id: newId(),
       projectId: project.id,
       status: "Not Started" as const,
