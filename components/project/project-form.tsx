@@ -25,6 +25,7 @@ import type {
   Project,
   ProjectStatus,
   RecurrenceRule,
+  TaskKind,
 } from "@/lib/types";
 
 /**
@@ -42,6 +43,15 @@ interface TaskDraft {
   estimatedHours: number;
   startDate: string;
   dueDate: string;
+  /*
+   * A content task is a batch: "five reels" is one task carrying five pieces,
+   * each written, allotted and approved on its own. It is fixed once the task
+   * exists - pieces hang off it - but freely changeable here, where nothing
+   * has been created yet.
+   */
+  kind: TaskKind;
+  /** Content tasks only: how many pieces were asked for. */
+  contentCount: number;
 }
 
 /**
@@ -86,6 +96,8 @@ const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => 
   startDate: d.startDate,
   dueDate: d.dueDate,
   tags,
+  kind: d.kind,
+  contentCount: d.kind === "content" ? d.contentCount : 0,
 });
 
 interface FormState {
@@ -153,7 +165,7 @@ export function ProjectFormModal({
     setDrafts((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
 
   /** A new row starts inside the project window, so its dates are always valid. */
-  const addDraft = () =>
+  const addDraft = (kind: TaskKind = "standard") =>
     setDrafts((ds) => [
       ...ds,
       {
@@ -166,6 +178,10 @@ export function ProjectFormModal({
         estimatedHours: WORKDAY_HOURS / 2,
         startDate: form.startDate,
         dueDate: form.deadline,
+        kind,
+        // One piece is the smallest batch that means anything; whoever raises
+        // it is expected to set the count actually being written.
+        contentCount: kind === "content" ? 1 : 0,
       },
     ]);
 
@@ -212,6 +228,10 @@ export function ProjectFormModal({
         assigneeId: "",
         priority: item.priority,
         estimatedHours: item.estimatedHours,
+        // A project template lays out ordinary tasks; a batch of content is
+        // raised by hand, where its count can be said.
+        kind: "standard" as const,
+        contentCount: 0,
         ...templateDates(item, form.startDate, deadline, db.calendar),
         startOffsetDays: item.startOffsetDays,
         durationDays: item.durationDays,
@@ -255,8 +275,10 @@ export function ProjectFormModal({
         ? "The deadline must be on or after the start date."
         : undefined,
     repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
-    tasks: drafts.some((d) => !d.title.trim() || !d.department)
-      ? "Every task needs a title and a department."
+    tasks: drafts.some(
+      (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+    )
+      ? "Every task needs a title and a department, and a content task at least one piece."
       : undefined,
     templateTasks: templateDrafts.some((d) => !d.title.trim() || !d.department)
       ? "Every task needs a title and a department."
@@ -710,7 +732,7 @@ export function ProjectFormModal({
                 >
                   <div className="mb-2.5 flex items-center gap-2">
                     <span className="text-[11px] font-medium text-ink-faint">
-                      Task {i + 1}
+                      {d.kind === "content" ? "Content task" : "Task"} {i + 1}
                     </span>
                     <Button
                       size="sm"
@@ -726,6 +748,45 @@ export function ProjectFormModal({
                   </div>
 
                   <div className="flex flex-col gap-2.5">
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <Select
+                        value={d.kind}
+                        onChange={(e) => {
+                          const kind = e.target.value as TaskKind;
+                          setDraft(d.key, {
+                            kind,
+                            contentCount: kind === "content" ? Math.max(1, d.contentCount) : 0,
+                          });
+                        }}
+                        aria-label={`Type of task ${i + 1}`}
+                      >
+                        <option value="standard">Standard task</option>
+                        <option value="content">Content task</option>
+                      </Select>
+                      {d.kind === "content" ? (
+                        <Input
+                          type="number"
+                          min="1"
+                          value={d.contentCount ? String(d.contentCount) : ""}
+                          onChange={(e) =>
+                            setDraft(d.key, {
+                              contentCount: Math.max(0, Math.trunc(Number(e.target.value)) || 0),
+                            })
+                          }
+                          placeholder="How many pieces? e.g. 5"
+                          aria-label={`Pieces in task ${i + 1}`}
+                        />
+                      ) : null}
+                    </div>
+
+                    {d.kind === "content" ? (
+                      <p className="-mt-1 text-[11px] text-ink-faint">
+                        The writer drafts each piece in the Content Bank and may hand any
+                        of them to someone else. Each is approved on its own, and the task
+                        closes itself once they all are.
+                      </p>
+                    ) : null}
+
                     <Input
                       value={d.title}
                       onChange={(e) => setDraft(d.key, { title: e.target.value })}
@@ -807,9 +868,14 @@ export function ProjectFormModal({
                 </div>
               ))}
 
-              <Button className="self-start" onClick={addDraft}>
-                <IconPlus size={14} /> Add task
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => addDraft()}>
+                  <IconPlus size={14} /> Add task
+                </Button>
+                <Button onClick={() => addDraft("content")}>
+                  <IconPlus size={14} /> Add content task
+                </Button>
+              </div>
             </div>
           </Field>
         ) : null}
