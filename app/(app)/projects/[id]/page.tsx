@@ -9,7 +9,7 @@ import {
   ExpenseReviewModal,
 } from "@/components/expense/expense-dialogs";
 import { CollabPanel } from "@/components/collab/collab-panel";
-import { ContentDetail, ContentLinkRow } from "@/components/content/content-view";
+import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -39,7 +39,7 @@ import {
   IconUsers,
   IconWallet,
 } from "@/components/ui/icons";
-import { ConfirmDialog, Modal } from "@/components/ui/modal";
+import { ConfirmDialog } from "@/components/ui/modal";
 import {
   Avatar,
   Badge,
@@ -867,18 +867,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
       {/* Modals */}
       {openContentId && content.some((e) => e.id === openContentId) ? (
-        <Modal
-          open
+        <ContentDetailScreen
+          entry={content.find((e) => e.id === openContentId)!}
           onClose={() => setOpenContentId(null)}
-          size="lg"
-          title={(() => {
-            const entry = content.find((e) => e.id === openContentId)!;
-            return entry.caption.trim() || entry.type;
-          })()}
-          subtitle="From the Content Bank"
-        >
-          <ContentDetail entry={content.find((e) => e.id === openContentId)!} />
-        </Modal>
+        />
       ) : null}
 
       {editOpen ? (

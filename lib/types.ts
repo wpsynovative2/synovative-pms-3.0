@@ -600,6 +600,26 @@ export interface ContentReview {
   remarks: string;
 }
 
+/**
+ * Where a piece has got to once the words are written — separate from the
+ * review `status`, which is about the words themselves. Optional: a piece
+ * nobody has picked up has no stage.
+ */
+export type ContentStage =
+  | "Ready To Move"
+  | "Design Completed"
+  | "Scheduled"
+  | "Cancelled"
+  | "Carry Forwarded";
+
+export const CONTENT_STAGES: ContentStage[] = [
+  "Ready To Move",
+  "Design Completed",
+  "Scheduled",
+  "Cancelled",
+  "Carry Forwarded",
+];
+
 export type ContentBillingType = "Count" | "Extra";
 
 export const CONTENT_BILLING_TYPES: ContentBillingType[] = ["Count", "Extra"];
@@ -633,6 +653,8 @@ export interface ContentEntry {
   status: ContentStatus;
   submittedAt: string | null;
   reviews: ContentReview[];
+  /** Production stage, moved by `setContentStage`. */
+  stage: ContentStage | null;
   createdBy: string;
   createdAt: string;
 }

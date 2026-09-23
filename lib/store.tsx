@@ -46,6 +46,7 @@ import type {
   ContentDecision,
   ContentEntry,
   ContentReview,
+  ContentStage,
   Database,
   DriveFolder,
   Expense,
@@ -565,11 +566,12 @@ export type ObcInput = Omit<
 /**
  * Writing a piece. The workflow fields are deliberately not here: status,
  * submittedAt and the review trail are moved only by `submitContent` and
- * `reviewContent`, which re-check the rule in the database.
+ * `reviewContent`, and the stage only by `setContentStage` — each re-checks
+ * the rule in the database.
  */
 export type ContentInput = Omit<
   ContentEntry,
-  "id" | "createdBy" | "createdAt" | "status" | "submittedAt" | "reviews"
+  "id" | "createdBy" | "createdAt" | "status" | "submittedAt" | "reviews" | "stage"
 >;
 
 export type MinutesInput = Omit<MeetingMinutes, "id" | "createdBy" | "createdAt">;
@@ -696,6 +698,10 @@ interface StoreValue {
   submitContent: (entryId: string) => void;
   /** A verdict on one piece; the content task closes itself once all are approved. */
   reviewContent: (entryId: string, decision: ContentDecision, remarks: string) => void;
+  /** Hand a piece to someone (or take it back) without rewriting it. */
+  allotContent: (entryId: string, userId: string | null) => void;
+  /** Where the piece has got to after writing. */
+  setContentStage: (entryId: string, stage: ContentStage | null) => void;
 
   addComment: (entityType: CollabEntity, entityId: string, body: string) => void;
   deleteComment: (id: string) => void;
@@ -1961,6 +1967,7 @@ const crmActions = {
       status: "Not Started",
       submittedAt: null,
       reviews: [],
+      stage: null,
       createdBy: me(),
       createdAt: now(),
     };
@@ -2043,6 +2050,35 @@ const crmActions = {
             p_remarks: remarks,
           }),
         ),
+    );
+  },
+
+  /*
+   * Allotting and staging are narrower than editing, and held by more people
+   * than the writer, so they go through their own functions rather than the
+   * writer-only update policy (0022).
+   */
+  allotContent(entryId: string, userId: string | null) {
+    void commit(
+      ["content", "notifications"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId ? { ...e, allottedTo: userId } : e,
+        ),
+      }),
+      (c) => run(c.rpc("allot_content", { p_content_id: entryId, p_profile_id: userId })),
+    );
+  },
+
+  setContentStage(entryId: string, stage: ContentStage | null) {
+    void commit(
+      ["content"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) => (e.id === entryId ? { ...e, stage } : e)),
+      }),
+      (c) => run(c.rpc("set_content_stage", { p_content_id: entryId, p_stage: stage })),
     );
   },
 

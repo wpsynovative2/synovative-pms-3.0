@@ -1,5 +1,6 @@
 import type {
   ConfigStatus,
+  ContentStage,
   ObcStatus,
   PartyStatus,
   Priority,
@@ -142,6 +143,15 @@ interface StatusStyle {
 }
 
 /** Status → Tailwind classes, keyed off the semantic tokens in globals.css. */
+/** A piece's production stage, on the same status tokens tasks use. */
+export const CONTENT_STAGE_STYLE: Record<ContentStage, string> = {
+  "Ready To Move": "bg-st-inprogress/15 text-st-inprogress border-st-inprogress/30",
+  "Design Completed": "bg-st-approved/15 text-st-approved border-st-approved/30",
+  Scheduled: "bg-st-waiting/15 text-st-waiting border-st-waiting/30",
+  Cancelled: "bg-st-rejected/15 text-st-rejected border-st-rejected/30",
+  "Carry Forwarded": "bg-st-changes/15 text-st-changes border-st-changes/30",
+};
+
 export const TASK_STATUS_STYLE: Record<TaskStatus, StatusStyle> = {
   "Not Started": {
     dot: "bg-st-notstarted",

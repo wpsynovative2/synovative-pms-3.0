@@ -384,6 +384,7 @@ exists as a file of its own).
 | `0019_obc_service_allotment.sql` | OBC lines carry the project or task raised for them |
 | `0020_obc_delivery_services.sql` | The estimate (`obc_items`) and the delivery list (`obc_services`) split apart; allotment moves to the latter |
 | `0021_content_tasks.sql` | Content tasks: `tasks.kind` + `content_count`, per-piece status and `content_reviews` |
+| `0022_content_stage.sql` | `content_bank.stage` (production stage) plus `allot_content` / `set_content_stage` RPCs |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

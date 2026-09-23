@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ContentComposer } from "@/components/content/content-form";
-import { ContentDetail, ContentLinkRow } from "@/components/content/content-view";
+import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
 import {
   IconCheck,
   IconClose,
@@ -56,11 +56,13 @@ export function TaskContentSection({
   const user = currentUser!;
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
-  const [reading, setReading] = useState<ContentEntry | null>(null);
+  // Held by id so an allotment or status changed on the open screen shows at once.
+  const [readingId, setReadingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ContentEntry | null>(null);
   const [verdictOn, setVerdictOn] = useState<ContentEntry | null>(null);
 
   const entries = db.contentEntries.filter((e) => e.taskId === task.id);
+  const reading = readingId ? db.contentEntries.find((e) => e.id === readingId) : undefined;
   const batch = isContentTask(task);
   const progress = contentProgress(task, db.contentEntries);
 
@@ -151,7 +153,7 @@ export function TaskContentSection({
               task={task}
               project={project}
               numbered={batch}
-              onRead={() => setReading(e)}
+              onRead={() => setReadingId(e.id)}
               onEdit={() => {
                 setEditing(e);
                 setComposing(true);
@@ -171,7 +173,7 @@ export function TaskContentSection({
           <ul className="flex flex-col gap-2">
             {allotted.map((e) => (
               <li key={e.id}>
-                <ContentLinkRow entry={e} onOpen={() => setReading(e)} />
+                <ContentLinkRow entry={e} onOpen={() => setReadingId(e.id)} />
               </li>
             ))}
           </ul>
@@ -191,15 +193,11 @@ export function TaskContentSection({
       ) : null}
 
       {reading ? (
-        <Modal
-          open
-          onClose={() => setReading(null)}
-          size="lg"
-          title={reading.caption.trim() || reading.type}
-          subtitle="From the Content Bank"
-        >
-          <ContentDetail entry={reading} />
-        </Modal>
+        <ContentDetailScreen
+          entry={reading}
+          onClose={() => setReadingId(null)}
+          showTaskLink={false}
+        />
       ) : null}
 
       {verdictOn ? (

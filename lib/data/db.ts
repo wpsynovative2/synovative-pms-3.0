@@ -622,6 +622,7 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       status: (r.status as ContentEntry["status"]) ?? "Not Started",
       submittedAt: nullable(r.submitted_at),
       reviews: reviews.get(str(r.id)) ?? [],
+      stage: nullable(r.stage) as ContentEntry["stage"],
       allottedTo: nullable(r.allotted_to),
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),

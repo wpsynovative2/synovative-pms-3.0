@@ -418,9 +418,25 @@ function Allotment({
   value: string | null;
   onChange: (next: string | null) => void;
 }) {
+  const { onProject } = useAllotmentOptions(projectId);
+  return (
+    <Field
+      label="Allotment to"
+      hint={
+        onProject
+          ? "The team member who will build this — on this project or not."
+          : "Nobody is on this project yet; anyone can still be given the piece."
+      }
+    >
+      <AllotmentSelect projectId={projectId} value={value} onChange={onChange} />
+    </Field>
+  );
+}
+
+function useAllotmentOptions(projectId: string) {
   const { db, projectById } = useStore();
 
-  const { people, onProject } = useMemo(() => {
+  return useMemo(() => {
     const project = projectById(projectId);
     const ids = new Set<string>(project?.memberIds ?? []);
     if (project?.leaderId) ids.add(project.leaderId);
@@ -444,23 +460,29 @@ function Allotment({
       onProject: ids.size,
     };
   }, [db.tasks, db.users, projectId, projectById]);
+}
 
+/** The bare picker — the composer wraps it in a field, the reader uses it inline. */
+export function AllotmentSelect({
+  projectId,
+  value,
+  onChange,
+  disabled,
+}: {
+  projectId: string;
+  value: string | null;
+  onChange: (next: string | null) => void;
+  disabled?: boolean;
+}) {
+  const { people } = useAllotmentOptions(projectId);
   return (
-    <Field
-      label="Allotment to"
-      hint={
-        onProject
-          ? "The team member who will build this — on this project or not."
-          : "Nobody is on this project yet; anyone can still be given the piece."
-      }
-    >
-      <SearchSelect
-        allowClear
-        options={people}
-        value={value ?? ""}
-        onChange={(v) => onChange(v || null)}
-        placeholder="Nobody yet"
-      />
-    </Field>
+    <SearchSelect
+      allowClear
+      disabled={disabled}
+      options={people}
+      value={value ?? ""}
+      onChange={(v) => onChange(v || null)}
+      placeholder="Nobody yet"
+    />
   );
 }

@@ -4,15 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ContentComposer } from "@/components/content/content-form";
-import { ContentCard, ContentDetail } from "@/components/content/content-view";
+import { ContentCard, ContentDetailScreen } from "@/components/content/content-view";
 import {
   IconContent,
   IconEdit,
   IconPlus,
-  IconTasks,
   IconTrash,
 } from "@/components/ui/icons";
-import { ConfirmDialog, Drawer } from "@/components/ui/modal";
+import { ConfirmDialog } from "@/components/ui/modal";
 import {
   Button,
   Card,
@@ -43,7 +42,7 @@ import { CONTENT_TYPES, type ContentEntry, type ContentType } from "@/lib/types"
 type Scope = "all" | "mine" | "allotted";
 
 export default function ContentBankPage() {
-  const { db, currentUser, deleteContentEntry, taskById } = useStore();
+  const { db, currentUser, deleteContentEntry } = useStore();
   const user = currentUser!;
   const params = useSearchParams();
 
@@ -322,28 +321,14 @@ export default function ContentBankPage() {
       ) : null}
 
       {open ? (
-        <Drawer
-          open
+        <ContentDetailScreen
+          entry={open}
           onClose={() => setOpenId(null)}
-          title={open.caption.trim() || open.type}
-          subtitle="Content Bank entry"
-        >
-          <div className="flex flex-col gap-5">
-            <ContentDetail entry={open} />
-            {open.taskId && taskById(open.taskId) ? (
-              <Link
-                href={
-                  open.projectId
-                    ? `/projects/${open.projectId}?task=${open.taskId}`
-                    : `/tasks?task=${open.taskId}`
-                }
-                className="flex items-center gap-2 rounded-card border border-line-soft bg-surface-2 px-3 py-2 text-[12px] text-ink hover:border-brand-bright/40"
-              >
-                <IconTasks size={14} /> Open the task this was written for
-              </Link>
-            ) : null}
-          </div>
-        </Drawer>
+          onEdit={() => {
+            setEditing(open);
+            setComposing(true);
+          }}
+        />
       ) : null}
 
       <ConfirmDialog

@@ -376,6 +376,39 @@ export function canReviewContent(
   return canReviewTask(u, task, project);
 }
 
+/**
+ * Handing a piece on without rewriting it: the writer, whoever may review its
+ * task, the Project Leader and the global managers. Mirrors
+ * can_manage_content() in 0022.
+ */
+export function canAllotContent(
+  u: User,
+  entry: ContentEntry,
+  task: Task | null,
+  project: Project | null,
+): boolean {
+  if (entry.createdBy === u.id || isGlobalManager(u)) return true;
+  if (project && isProjectLeader(u, project)) return true;
+  return canReviewContent(u, entry, task, project);
+}
+
+/**
+ * Saying where a piece has got to. Everyone who may allot it, plus the person
+ * it is allotted to and the author desks on the project. Mirrors
+ * set_content_stage() in 0022.
+ */
+export function canSetContentStage(
+  u: User,
+  entry: ContentEntry,
+  task: Task | null,
+  project: Project | null,
+  tasks: Task[],
+): boolean {
+  if (canAllotContent(u, entry, task, project)) return true;
+  if (entry.allottedTo === u.id) return true;
+  return canWriteContent(u) && !!project && canViewProject(u, project, tasks);
+}
+
 /* -------------------------------------------------- Comments & Minutes */
 
 /**
