@@ -20,7 +20,7 @@ import {
   IconTasks,
   IconTrash,
 } from "@/components/ui/icons";
-import { ConfirmDialog, Drawer, FullScreen, Modal } from "@/components/ui/modal";
+import { ConfirmDialog, Drawer, FullScreen } from "@/components/ui/modal";
 import { ButtonLoader } from "@/components/ui/loader";
 import {
   Badge,
@@ -1547,12 +1547,17 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
   const valid = form.companyId && form.items.length > 0 && !badItem && !badService;
 
   return (
-    <Modal
+    /*
+     * The whole window. Two lists that are easy to confuse sit side by side
+     * rather than stacked: the estimate on the left in neutral grey, the
+     * delivery list on the right in the brand tint. Each scrolls on its own, so
+     * reaching the services never means scrolling past the estimate first.
+     */
+    <FullScreen
       open
       onClose={onClose}
-      size="xl"
       title={obc ? `Edit ${obcLabel(obc)}` : "Raise a New OBC"}
-      subtitle="Company, client and property, then the services that were quoted"
+      subtitle="Who it is for, what was estimated, and what we will deliver"
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -1576,257 +1581,319 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
         </>
       }
     >
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field
-            label="Company"
-            required
-            error={touched && !form.companyId ? "Required." : undefined}
-          >
-            <SearchSelect
-              options={db.companies.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
-              value={form.companyId}
-              onChange={(v) =>
-                setForm((f) => ({ ...f, companyId: v, clientId: null, propertyId: null }))
-              }
-              placeholder="Select"
-            />
-          </Field>
-          <Field label="Client" hint="Filtered by company.">
-            <SearchSelect
-              allowClear
-              disabled={!form.companyId}
-              options={clientOptions}
-              value={form.clientId ?? ""}
-              onChange={(v) => setForm((f) => ({ ...f, clientId: v || null, propertyId: null }))}
-              placeholder="Select"
-            />
-          </Field>
-          <Field label="Property" hint="Filtered by client.">
-            <SearchSelect
-              allowClear
-              disabled={!form.companyId}
-              options={propertyOptions}
-              value={form.propertyId ?? ""}
-              onChange={(v) => set("propertyId", v || null)}
-              placeholder="Select"
-            />
-          </Field>
-        </div>
-
-        {/* ---------------------------------------------------- Zoho --- */}
-        <section className="rounded-card border border-line-soft bg-surface-2 p-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <h4 className="text-[12px] font-semibold text-ink">Zoho CRM quote</h4>
-              <p className="text-[11px] text-ink-faint">
-                {form.zohoQuoteNumber
-                  ? `Pulled from quote ${form.zohoQuoteNumber}${
-                      fetched?.subject ? ` — ${fetched.subject}` : ""
-                    }.`
-                  : "Paste the quote ID or quote number to pull its lines."}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <Input
-              className="min-w-56 flex-1 font-mono"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void loadQuote();
-                }
-              }}
-              placeholder="588860000019985003"
-              aria-label="Zoho quote ID or number"
-            />
-            <Button disabled={!reference.trim() || fetching} onClick={loadQuote}>
-              {fetching ? <ButtonLoader /> : <IconSearch size={13} />}
-              {fetching ? "Fetching…" : "Fetch quote"}
-            </Button>
-          </div>
-
-          <p className="mt-2 text-[11px] text-ink-faint">
-            Either the record ID or the Quote Number printed on the estimate works — they
-            are different numbers and this accepts both. Pulling replaces the estimate
-            lines below; the delivery list is left alone.
-          </p>
-        </section>
-
-        <Field
-          label="The estimate"
-          required
-          hint="What the client bought, and the brief that came with it. Reference only — work is raised from the delivery list below."
-          error={
-            touched && form.items.length === 0
-              ? "An OBC needs at least one line."
-              : touched && badItem
-                ? "Every line needs a service."
-                : undefined
-          }
-        >
-          <div className="flex flex-col gap-2">
-            {form.items.map((i) => (
-              <div
-                key={i.id}
-                className="rounded-card border border-line-soft bg-surface-2 p-2.5"
+      <div className="mx-auto flex w-full max-w-[1700px] flex-col gap-4 px-4 py-4 sm:px-6 lg:h-full">
+        {/* --------------------------------- who it is for, and the pull --- */}
+        <div className="grid shrink-0 gap-4 lg:grid-cols-[1.35fr_1fr]">
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field
+                label="Company"
+                required
+                error={touched && !form.companyId ? "Required." : undefined}
               >
-                <div className="grid gap-2 sm:grid-cols-[2fr_0.6fr_auto]">
-                  <Input
-                    value={i.service}
-                    onChange={(e) => setItem(i.id, { service: e.target.value })}
-                    placeholder="Product / service"
-                    aria-label="Service"
-                    list="obc-services"
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    value={i.quantity}
-                    onChange={(e) => setItem(i.id, { quantity: Number(e.target.value) || 0 })}
-                    placeholder="Qty"
-                    aria-label="Quantity"
-                  />
-                  <Button
-                    variant="ghost"
-                    aria-label="Remove line"
-                    onClick={() =>
-                      set(
-                        "items",
-                        form.items.filter((x) => x.id !== i.id),
-                      )
-                    }
-                  >
-                    <IconTrash size={14} />
-                  </Button>
-                </div>
-                <Input
-                  className="mt-2"
-                  value={i.description}
-                  onChange={(e) => setItem(i.id, { description: e.target.value })}
-                  placeholder="Short description"
-                  aria-label="Short description"
+                <SearchSelect
+                  options={db.companies.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    hint: c.city,
+                  }))}
+                  value={form.companyId}
+                  onChange={(v) =>
+                    setForm((f) => ({ ...f, companyId: v, clientId: null, propertyId: null }))
+                  }
+                  placeholder="Select"
                 />
-                <Textarea
-                  className="mt-2"
-                  rows={3}
-                  value={i.briefDescription}
-                  onChange={(e) => setItem(i.id, { briefDescription: e.target.value })}
-                  placeholder="Brief description — what this deliverable has to contain"
-                  aria-label="Brief description"
+              </Field>
+              <Field label="Client" hint="Filtered by company.">
+                <SearchSelect
+                  allowClear
+                  disabled={!form.companyId}
+                  options={clientOptions}
+                  value={form.clientId ?? ""}
+                  onChange={(v) =>
+                    setForm((f) => ({ ...f, clientId: v || null, propertyId: null }))
+                  }
+                  placeholder="Select"
                 />
-              </div>
-            ))}
-            <datalist id="obc-services">
-              {db.services.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-            <div>
-              <Button size="sm" onClick={() => set("items", [...form.items, blankItem()])}>
-                <IconPlus size={14} /> Add line
+              </Field>
+              <Field label="Property" hint="Filtered by client.">
+                <SearchSelect
+                  allowClear
+                  disabled={!form.companyId}
+                  options={propertyOptions}
+                  value={form.propertyId ?? ""}
+                  onChange={(v) => set("propertyId", v || null)}
+                  placeholder="Select"
+                />
+              </Field>
+            </div>
+
+            <Field label="Notes">
+              <Textarea
+                rows={2}
+                value={form.notes}
+                onChange={(e) => set("notes", e.target.value)}
+                placeholder="Anything the delivery team should know before the project starts…"
+              />
+            </Field>
+          </div>
+
+          <section className="rounded-card border border-line-soft bg-surface-2 p-3">
+            <h4 className="text-[12px] font-semibold text-ink">Zoho CRM quote</h4>
+            <p className="text-[11px] text-ink-faint">
+              {form.zohoQuoteNumber
+                ? `Pulled from quote ${form.zohoQuoteNumber}${
+                    fetched?.subject ? ` — ${fetched.subject}` : ""
+                  }.`
+                : "Paste the quote ID or quote number to pull its lines."}
+            </p>
+
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <Input
+                className="min-w-48 flex-1 font-mono"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void loadQuote();
+                  }
+                }}
+                placeholder="588860000019985003"
+                aria-label="Zoho quote ID or number"
+              />
+              <Button disabled={!reference.trim() || fetching} onClick={loadQuote}>
+                {fetching ? <ButtonLoader /> : <IconSearch size={13} />}
+                {fetching ? "Fetching…" : "Fetch quote"}
               </Button>
             </div>
-          </div>
-        </Field>
 
-        <Field
-          label="Services to deliver"
-          hint="What we will actually do — usually far more lines than the estimate has. A manager raises projects and individual tasks from these."
-          error={touched && badService ? "Every service needs a name." : undefined}
-        >
-          <div className="flex flex-col gap-2">
-            {form.services.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-faint">
-                Nothing listed yet. Nobody can raise work from this OBC until there is.
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+              The record ID or the Quote Number both work — they are different numbers and
+              this accepts either. Pulling replaces the estimate on the left; the delivery
+              list on the right is left alone.
+            </p>
+          </section>
+        </div>
+
+        {/* ------------------------------------------- the two lists, side by side --- */}
+        <div className="grid min-h-0 gap-4 lg:flex-1 lg:grid-cols-2">
+          {/* -------------------------------------------------- the estimate --- */}
+          <section className="flex max-h-[60vh] min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-surface-2/40 lg:max-h-none">
+            <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line-soft px-3 py-2.5">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-surface-3 text-ink-muted">
+                <IconQuote size={14} />
+              </span>
+              <div className="min-w-0">
+                <h4 className="text-[13px] font-semibold text-ink">The estimate</h4>
+                <p className="text-[10px] text-ink-faint">
+                  What the client bought. Reference only.
+                </p>
+              </div>
+              <Badge className="ml-auto border-line bg-surface-3 text-ink-muted">
+                {form.items.length} {form.items.length === 1 ? "line" : "lines"}
+              </Badge>
+              <Button size="sm" onClick={() => set("items", [...form.items, blankItem()])}>
+                <IconPlus size={13} /> Add line
+              </Button>
+            </header>
+
+            {touched && (form.items.length === 0 || badItem) ? (
+              <p className="shrink-0 border-b border-line-soft bg-st-rejected/10 px-3 py-1.5 text-[11px] text-st-rejected">
+                {form.items.length === 0
+                  ? "An OBC needs at least one estimate line."
+                  : "Every line needs a service."}
               </p>
             ) : null}
 
-            {form.services.map((x) => {
-              const allotted = isAllotted(x);
-              return (
-                <div
-                  key={x.id}
-                  className="rounded-card border border-line-soft bg-surface-2 p-2.5"
-                >
-                  <div className="grid gap-2 sm:grid-cols-[2fr_0.6fr_auto]">
-                    <Input
-                      value={x.service}
-                      onChange={(e) => setService(x.id, { service: e.target.value })}
-                      placeholder="Service we will deliver"
-                      aria-label="Service"
-                      list="obc-services"
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      value={x.quantity}
-                      onChange={(e) =>
-                        setService(x.id, { quantity: Number(e.target.value) || 0 })
-                      }
-                      placeholder="Qty"
-                      aria-label="Quantity"
-                    />
-                    <Button
-                      variant="ghost"
-                      aria-label="Remove service"
-                      // Removing one that already has work behind it would
-                      // strand the project or task it was raised for.
-                      disabled={allotted}
-                      title={allotted ? "Work has been raised for this service" : undefined}
-                      onClick={() =>
-                        set(
-                          "services",
-                          form.services.filter((o) => o.id !== x.id),
-                        )
-                      }
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {form.items.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-line px-3 py-6 text-center text-[12px] text-ink-faint">
+                  Nothing pulled yet. Fetch the quote above, or add the lines by hand.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {form.items.map((i) => (
+                    <div
+                      key={i.id}
+                      className="rounded-card border border-line-soft bg-surface p-2.5"
                     >
-                      <IconTrash size={14} />
-                    </Button>
-                  </div>
-                  <Textarea
-                    className="mt-2"
-                    rows={2}
-                    value={x.description}
-                    onChange={(e) => setService(x.id, { description: e.target.value })}
-                    placeholder="What this service has to deliver"
-                    aria-label="Service description"
-                  />
-                  {allotted ? (
-                    <p className="mt-1.5 text-[11px] text-ink-faint">
-                      Already allotted — editing the name here does not rename the work
-                      raised from it.
-                    </p>
-                  ) : null}
+                      <div className="grid gap-2 sm:grid-cols-[2fr_0.55fr_auto]">
+                        <Input
+                          value={i.service}
+                          onChange={(e) => setItem(i.id, { service: e.target.value })}
+                          placeholder="Product / service"
+                          aria-label="Service"
+                          list="obc-services"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          value={i.quantity}
+                          onChange={(e) =>
+                            setItem(i.id, { quantity: Number(e.target.value) || 0 })
+                          }
+                          placeholder="Qty"
+                          aria-label="Quantity"
+                        />
+                        <Button
+                          variant="ghost"
+                          aria-label="Remove line"
+                          onClick={() =>
+                            set(
+                              "items",
+                              form.items.filter((x) => x.id !== i.id),
+                            )
+                          }
+                        >
+                          <IconTrash size={14} />
+                        </Button>
+                      </div>
+                      <Input
+                        className="mt-2"
+                        value={i.description}
+                        onChange={(e) => setItem(i.id, { description: e.target.value })}
+                        placeholder="Short description"
+                        aria-label="Short description"
+                      />
+                      <Textarea
+                        className="mt-2"
+                        rows={3}
+                        value={i.briefDescription}
+                        onChange={(e) => setItem(i.id, { briefDescription: e.target.value })}
+                        placeholder="Brief description — what this deliverable has to contain"
+                        aria-label="Brief description"
+                      />
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
+              )}
+            </div>
+          </section>
 
-            <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" onClick={() => set("services", [...form.services, blankService()])}>
-                <IconPlus size={14} /> Add service
-              </Button>
+          {/* ---------------------------------------- what we will deliver --- */}
+          <section className="flex max-h-[60vh] min-h-0 flex-col overflow-hidden rounded-xl border border-brand-bright/30 bg-brand/5 lg:max-h-none">
+            <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-brand-bright/20 px-3 py-2.5">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-brand/20 text-brand-ink">
+                <IconProjects size={14} />
+              </span>
+              <div className="min-w-0">
+                <h4 className="text-[13px] font-semibold text-ink">Services to deliver</h4>
+                <p className="text-[10px] text-ink-faint">
+                  What we will actually do. Work is raised from these.
+                </p>
+              </div>
+              <Badge className="ml-auto border-brand-bright/30 bg-brand/15 text-brand-ink">
+                {form.services.length}
+              </Badge>
               {form.items.some((i) => i.service.trim()) ? (
-                <Button size="sm" onClick={copyFromEstimate}>
-                  <IconQuote size={14} /> Copy from the estimate
+                <Button size="sm" onClick={copyFromEstimate} title="Copy from the estimate">
+                  <IconQuote size={13} /> Copy
                 </Button>
               ) : null}
-            </div>
-          </div>
-        </Field>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => set("services", [...form.services, blankService()])}
+              >
+                <IconPlus size={13} /> Add service
+              </Button>
+            </header>
 
-        <Field label="Notes">
-          <Textarea
-            rows={2}
-            value={form.notes}
-            onChange={(e) => set("notes", e.target.value)}
-            placeholder="Anything the delivery team should know before the project starts…"
-          />
-        </Field>
+            {touched && badService ? (
+              <p className="shrink-0 border-b border-line-soft bg-st-rejected/10 px-3 py-1.5 text-[11px] text-st-rejected">
+                Every service needs a name.
+              </p>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {form.services.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-brand-bright/30 px-3 py-6 text-center text-[12px] text-ink-faint">
+                  Nothing listed yet. An estimate line is usually several services here —
+                  copy them across and add the rest.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {form.services.map((x, at) => {
+                    const allotted = isAllotted(x);
+                    return (
+                      <div
+                        key={x.id}
+                        className="rounded-card border border-brand-bright/20 bg-surface p-2.5"
+                      >
+                        <div className="flex gap-2">
+                          {/* Numbered, because ten or twelve of these are hard
+                              to keep your place in otherwise. */}
+                          <span className="mt-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[10px] font-semibold text-brand-ink">
+                            {at + 1}
+                          </span>
+                          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[2fr_0.55fr_auto]">
+                            <Input
+                              value={x.service}
+                              onChange={(e) => setService(x.id, { service: e.target.value })}
+                              placeholder="Service we will deliver"
+                              aria-label="Service"
+                              list="obc-services"
+                            />
+                            <Input
+                              type="number"
+                              min="0"
+                              value={x.quantity}
+                              onChange={(e) =>
+                                setService(x.id, { quantity: Number(e.target.value) || 0 })
+                              }
+                              placeholder="Qty"
+                              aria-label="Quantity"
+                            />
+                            <Button
+                              variant="ghost"
+                              aria-label="Remove service"
+                              // Removing one that already has work behind it
+                              // would strand the project or task it raised.
+                              disabled={allotted}
+                              title={
+                                allotted ? "Work has been raised for this service" : undefined
+                              }
+                              onClick={() =>
+                                set(
+                                  "services",
+                                  form.services.filter((o) => o.id !== x.id),
+                                )
+                              }
+                            >
+                              <IconTrash size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                        <Textarea
+                          className="mt-2"
+                          rows={2}
+                          value={x.description}
+                          onChange={(e) => setService(x.id, { description: e.target.value })}
+                          placeholder="What this service has to deliver"
+                          aria-label="Service description"
+                        />
+                        {allotted ? (
+                          <p className="mt-1.5 text-[11px] text-ink-faint">
+                            Already allotted — renaming it here does not rename the work
+                            raised from it.
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <datalist id="obc-services">
+          {db.services.map((x) => (
+            <option key={x} value={x} />
+          ))}
+        </datalist>
       </div>
-    </Modal>
+    </FullScreen>
   );
 }
