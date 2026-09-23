@@ -216,7 +216,16 @@ Finance still cannot verify an expense.
 A hand-rolled store on `useSyncExternalStore` — no Redux, no React Query. It is
 the only place that writes to Supabase from the browser.
 
-**Reads are scoped.** `Scope` in [`lib/data/db.ts`](lib/data/db.ts) groups
+**Reads are scoped, and scopes fail independently.** `loadScopes` settles each
+scope on its own and returns `{ data, failures }` rather than throwing. This
+matters: a refresh asks for every deferred scope at once, so when it was a
+plain `Promise.all` one unreadable table (a migration not yet run) emptied
+Companies, Clients, Properties, OBCs, Expenses, Vendors and Templates along
+with it — indistinguishable from data loss. A broken scope now keeps whatever
+it had, the rest still loads, and the toast names the scope and says a
+migration is probably pending. Repeat failures are reported once.
+
+`Scope` in [`lib/data/db.ts`](lib/data/db.ts) groups
 tables that change together: `master`, `users`, `projects`, `tasks`,
 `expenses`, `vendors`, `templates`, `calendar`, `notifications`, `links`,
 `crm`, `content`, `collab`. On sign-in the `CORE_SCOPES` load first

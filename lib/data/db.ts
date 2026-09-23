@@ -676,13 +676,48 @@ const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>>
   collab: loadCollab,
 };
 
-/** Fetch the given scopes in parallel and return the slices to merge in. */
+export interface ScopeFailure {
+  scope: Scope;
+  message: string;
+}
+
+export interface ScopeLoad {
+  /** Everything that did load, ready to merge in. */
+  data: Partial<Database>;
+  /** Scopes that did not. Their slice is simply absent rather than empty. */
+  failures: ScopeFailure[];
+}
+
+/**
+ * Fetch the given scopes in parallel, each standing or falling on its own.
+ *
+ * This used to be a plain `Promise.all`, which meant one unreadable table
+ * discarded the whole batch: a migration not yet run against `content_reviews`
+ * emptied Companies, Clients, Properties, OBCs, Expenses, Vendors and
+ * Templates too, because a refresh asks for all of them at once. A reader
+ * cannot tell that from real data loss.
+ *
+ * Failures are returned rather than thrown so the caller can show what broke
+ * *and* keep everything that did not.
+ */
 export async function loadScopes(
   sb: SupabaseClient,
   scopes: Iterable<Scope>,
-): Promise<Partial<Database>> {
-  const parts = await Promise.all(Array.from(new Set(scopes), (s) => LOADERS[s](sb)));
-  return Object.assign({}, ...parts);
+): Promise<ScopeLoad> {
+  const wanted = Array.from(new Set(scopes));
+  const settled = await Promise.allSettled(wanted.map((s) => LOADERS[s](sb)));
+
+  const data: Partial<Database> = {};
+  const failures: ScopeFailure[] = [];
+  settled.forEach((result, at) => {
+    if (result.status === "fulfilled") {
+      Object.assign(data, result.value);
+      return;
+    }
+    const reason = result.reason as { message?: string } | undefined;
+    failures.push({ scope: wanted[at], message: reason?.message ?? String(result.reason) });
+  });
+  return { data, failures };
 }
 
 /* ------------------------------------------------------------ row writers */

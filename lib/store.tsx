@@ -32,6 +32,7 @@ import {
   templateItemRow,
   toNotification,
   type Scope,
+  type ScopeFailure,
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
@@ -196,21 +197,51 @@ function scheduleFlush() {
   void flush();
 }
 
+/**
+ * What a broken scope should say. A table PostgREST cannot find is nearly
+ * always a migration that has not been run, so say that rather than leaving
+ * someone to read "schema cache" and conclude their data is gone.
+ */
+function describeFailures(failures: ScopeFailure[]): string {
+  const names = failures.map((f) => f.scope).join(", ");
+  const missing = failures.some((f) => /schema cache|does not exist|find the table/i.test(f.message));
+  const detail = failures[0]?.message ?? "";
+  return missing
+    ? `Couldn't load ${names}: ${detail}. This usually means a database migration is still to be run — everything else is unaffected, and no data has been lost.`
+    : `Couldn't load ${names}: ${detail}`;
+}
+
+/*
+ * A scope that keeps failing would otherwise toast on every save and every
+ * time the tab regains focus. Say it once, and again only if what is broken
+ * changes.
+ */
+let reportedFailures = "";
+
 async function flush() {
   const scopes = Array.from(queuedScopes);
   queuedScopes.clear();
   refreshing = true;
   const epoch = writeEpoch;
   try {
-    const slice = await loadScopes(sb(), scopes);
+    const { data, failures } = await loadScopes(sb(), scopes);
     if (writeEpoch !== epoch) {
       // A write started while we were fetching — this data may predate it.
       for (const s of scopes) queuedScopes.add(s);
     } else if (state.userId) {
-      setDb({ ...state.db, ...slice });
-      if (scopes.length === ALL_SCOPES.length) lastFullRefresh = Date.now();
+      // Whatever did load is applied; a scope that failed keeps what it had.
+      setDb({ ...state.db, ...data });
+      if (scopes.length === ALL_SCOPES.length && failures.length === 0) {
+        lastFullRefresh = Date.now();
+      }
     }
+
+    const signature = failures.map((f) => f.scope).sort().join("|");
+    if (signature && signature !== reportedFailures) toast(describeFailures(failures));
+    if (signature !== reportedFailures) reportedFailures = signature;
   } catch (err) {
+    // loadScopes reports per-scope problems rather than throwing, so reaching
+    // here means something broader went wrong - no session, no network.
     toast(`Couldn't load the latest data: ${friendlyError(err)}`);
   } finally {
     refreshing = false;
@@ -312,6 +343,7 @@ function resetSession() {
   channel?.unsubscribe();
   channel = null;
   queuedScopes.clear();
+  reportedFailures = "";
   setState({ db: EMPTY_DB, auth: "signed-out", userId: null });
 }
 
@@ -329,8 +361,11 @@ async function activate(userId: string): Promise<{ ok: boolean; error?: string }
   activating = userId;
   setState({ auth: "loading", userId });
   try {
-    const db = await loadScopes(sb(), CORE_SCOPES);
-    const full = { ...EMPTY_DB, ...db };
+    // The core scopes are not optional: without users there is no way to tell
+    // whether this login may be here at all, so a failure is fatal to sign-in.
+    const { data, failures } = await loadScopes(sb(), CORE_SCOPES);
+    if (failures.length) throw new Error(describeFailures(failures));
+    const full = { ...EMPTY_DB, ...data };
     const me = full.users.find((u) => u.id === userId);
     if (!me) {
       await sb().auth.signOut();
