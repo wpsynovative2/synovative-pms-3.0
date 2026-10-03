@@ -72,6 +72,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0024_content_without_review.sql` | Content pieces are no longer approved one by one: the writer sets each piece's status, and a content task is submitted and reviewed as a whole |
 | `0025_content_allotment_task.sql` | Content is allotted by managers, the Project Leader or Team Leaders only, and always onto a task the allottee holds on the project (created on the spot if needed) |
 | `0026_content_slots.sql` | A content task for N pieces creates N empty pieces ("<task> Count 1" …) for the writer to fill; extras show as "3/5 + 2" |
+| `0027_ready_to_design.sql` | The first content status reads "Ready To Design" instead of "Ready To Move" |
 
 ### 4. The first Super Admin
 

@@ -127,10 +127,9 @@ export function TaskContentSection({
               ) : null}
             </span>
             <span className="text-[11px] text-ink-faint">
-              {progress.staged} with a status
               {progress.filled < progress.target
-                ? ` · ${progress.target - progress.filled} still to write`
-                : ""}
+                ? `${progress.target - progress.filled} without a status`
+                : "All have a status"}
               {progress.extras
                 ? ` · ${progress.extras} extra${progress.extras === 1 ? "" : "s"}`
                 : ""}

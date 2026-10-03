@@ -611,14 +611,14 @@ export interface ContentReview {
  * nobody has picked up has no stage.
  */
 export type ContentStage =
-  | "Ready To Move"
+  | "Ready To Design"
   | "Design Completed"
   | "Scheduled"
   | "Cancelled"
   | "Carry Forwarded";
 
 export const CONTENT_STAGES: ContentStage[] = [
-  "Ready To Move",
+  "Ready To Design",
   "Design Completed",
   "Scheduled",
   "Cancelled",
@@ -695,12 +695,14 @@ export const contentLabel = (e: Pick<ContentEntry, "title" | "caption" | "type">
 export interface ContentProgress {
   /** The count asked for. */
   target: number;
-  /** Target pieces with something written in them. */
+  /**
+   * Target pieces the writer has given a status. A status is the writer
+   * saying the piece is done, so a slot with words in it but no status does
+   * not count yet.
+   */
   filled: number;
   /** Pieces written beyond the target. */
   extras: number;
-  /** Pieces the writer has given a stage. */
-  staged: number;
   /** 0–100, filled against the target, for the bar. */
   percent: number;
   /** "3/5", or "3/5 + 2" once extras exist. */
@@ -711,13 +713,12 @@ export function contentProgress(task: Task, entries: ContentEntry[]): ContentPro
   const mine = entries.filter((e) => e.taskId === task.id);
   const slots = mine.filter((e) => e.slot !== null);
   const target = task.contentCount;
-  const filled = slots.filter((e) => !isContentEmpty(e)).length;
+  const filled = slots.filter((e) => e.stage !== null).length;
   const extras = mine.length - slots.length;
   return {
     target,
     filled,
     extras,
-    staged: mine.filter((e) => e.stage).length,
     percent: target === 0 ? 0 : Math.min(100, Math.round((filled / target) * 100)),
     label: `${filled}/${target}${extras ? ` + ${extras}` : ""}`,
   };
