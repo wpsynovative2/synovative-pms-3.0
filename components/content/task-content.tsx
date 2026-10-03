@@ -53,18 +53,20 @@ export function TaskContentSection({
 
   /*
    * A designer's own task carries no content of its own - the writer filed it
-   * against theirs. What the designer needs is the piece that was put in their
-   * name on the same project, so it is listed here too rather than making them
-   * go looking for the writer's task.
+   * against theirs. What the designer needs is the piece allotted onto this
+   * task (0025), so it is listed here for anyone looking at the task. Pieces
+   * allotted before 0025 name no task; those still show on every task their
+   * holder has on the project, as they always did.
    */
-  const allotted = isAssignee(user, task)
-    ? db.contentEntries.filter(
-        (e) =>
+  const allotted = db.contentEntries.filter(
+    (e) =>
+      e.taskId !== task.id &&
+      (e.allottedTaskId === task.id ||
+        (!e.allottedTaskId &&
+          isAssignee(user, task) &&
           e.projectId === task.projectId &&
-          e.allottedTo === user.id &&
-          e.taskId !== task.id,
-      )
-    : [];
+          e.allottedTo === user.id)),
+  );
 
   // Individual tasks have no project to file content against, so the writer's
   // controls only appear on project work.
@@ -149,7 +151,7 @@ export function TaskContentSection({
       {allotted.length ? (
         <div className="mt-3">
           <h4 className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-            Allotted to you on this project
+            Content allotted to this task
           </h4>
           <ul className="flex flex-col gap-2">
             {allotted.map((e) => (

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { AllotmentSelect } from "@/components/content/content-form";
+import { useState } from "react";
+import { AllotDialog } from "@/components/content/allot-dialog";
 import {
+  IconChevronDown,
   IconContent,
   IconEdit,
   IconExternal,
@@ -10,7 +12,7 @@ import {
   IconTasks,
 } from "@/components/ui/icons";
 import { FullScreen } from "@/components/ui/modal";
-import { Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
+import { Avatar, Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatDate } from "@/lib/calendar";
 import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
@@ -90,14 +92,27 @@ export function ContentDetailScreen({
 }
 
 export function ContentDetail({ entry }: { entry: ContentEntry }) {
-  const { currentUser, userById, projectById, taskById, allotContent } = useStore();
+  const { currentUser, userById, projectById, taskById } = useStore();
   const user = currentUser!;
   const writer = userById(entry.createdBy);
   const allotted = userById(entry.allottedTo);
   const project = projectById(entry.projectId) ?? null;
-  const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
+  const allottedTask = entry.allottedTaskId ? taskById(entry.allottedTaskId) : undefined;
+  const [allotting, setAllotting] = useState(false);
 
-  const mayAllot = canAllotContent(user, entry, task, project);
+  const mayAllot = canAllotContent(user, project);
+  const allotmentLabel = (
+    <span className="block min-w-0">
+      <span className={cx("block truncate text-[13px]", allotted ? "text-ink" : "text-ink-faint")}>
+        {allotted?.fullName ?? "Nobody yet"}
+      </span>
+      {allottedTask ? (
+        <span className="block truncate text-[11px] text-ink-faint">
+          on {allottedTask.title}
+        </span>
+      ) : null}
+    </span>
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -113,13 +128,16 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         </Fact>
         <Fact label="Allotment to">
           {mayAllot ? (
-            <AllotmentSelect
-              projectId={entry.projectId}
-              value={entry.allottedTo}
-              onChange={(next) => allotContent(entry.id, next)}
-            />
+            <button
+              type="button"
+              onClick={() => setAllotting(true)}
+              className="flex min-h-9.5 w-full items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 py-1 text-left hover:border-brand-bright/40"
+            >
+              <span className="min-w-0 flex-1">{allotmentLabel}</span>
+              <IconChevronDown size={14} className="shrink-0 text-ink-faint" />
+            </button>
           ) : (
-            <span className="text-[13px] text-ink">{allotted?.fullName ?? "Nobody yet"}</span>
+            allotmentLabel
           )}
         </Fact>
         <Fact label="Status">
@@ -176,7 +194,19 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
             {project.name}
           </Link>
         ) : null}
+        {allottedTask ? (
+          <Link
+            href={`/projects/${allottedTask.projectId}?task=${allottedTask.id}`}
+            className="hover:text-ink"
+          >
+            Allotted on: {allottedTask.title}
+          </Link>
+        ) : null}
       </div>
+
+      {allotting && project ? (
+        <AllotDialog entry={entry} project={project} onClose={() => setAllotting(false)} />
+      ) : null}
     </div>
   );
 }
@@ -310,10 +340,11 @@ export function ContentCard({
   /** Off where the list is already filed under the project (the Content Bank). */
   showProject?: boolean;
 }) {
-  const { userById, projectById } = useStore();
+  const { userById, projectById, taskById } = useStore();
   const writer = userById(entry.createdBy);
   const project = projectById(entry.projectId);
   const allotted = userById(entry.allottedTo);
+  const allottedTask = entry.allottedTaskId ? taskById(entry.allottedTaskId) : undefined;
 
   return (
     <Card className="flex flex-col p-4">
@@ -336,7 +367,23 @@ export function ContentCard({
                 : "Not allotted yet"}
           </p>
         </div>
-        <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
+        <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1.5">
+          <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
+          {/* Who has it, at a glance - the card's other question after "what is it". */}
+          {allotted ? (
+            <span
+              className="flex max-w-full items-center gap-1.5 text-[11px] text-ink-muted"
+              title={
+                allottedTask
+                  ? `Allotted to ${allotted.fullName} on ${allottedTask.title}`
+                  : `Allotted to ${allotted.fullName}`
+              }
+            >
+              <Avatar name={allotted.fullName} size={18} />
+              <span className="truncate">{allotted.fullName}</span>
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">

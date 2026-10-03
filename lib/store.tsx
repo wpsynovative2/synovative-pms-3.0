@@ -562,14 +562,31 @@ export type ObcInput = Omit<
 >;
 
 /**
- * Writing a piece. The stage is deliberately not here: it is moved only by
- * `setContentStage`, which re-checks the rule in the database. status,
- * submittedAt and the review trail are legacy (0021) and no longer written.
+ * Writing a piece. The stage and the allotment are deliberately not here: they
+ * are moved only by `setContentStage` and `allotContent`, which re-check the
+ * rule in the database. status, submittedAt and the review trail are legacy
+ * (0021) and no longer written.
  */
 export type ContentInput = Omit<
   ContentEntry,
-  "id" | "createdBy" | "createdAt" | "status" | "submittedAt" | "reviews" | "stage"
+  | "id"
+  | "createdBy"
+  | "createdAt"
+  | "status"
+  | "submittedAt"
+  | "reviews"
+  | "stage"
+  | "allottedTo"
+  | "allottedTaskId"
 >;
+
+/**
+ * Who a piece is handed to, and the task of theirs it is for: one they
+ * already hold on the project, or a new one raised in the same step (0025).
+ */
+export type ContentAllotment =
+  | { userId: string; taskId: string }
+  | { userId: string; newTask: NewTaskInput };
 
 export type MinutesInput = Omit<MeetingMinutes, "id" | "createdBy" | "createdAt">;
 
@@ -691,8 +708,8 @@ interface StoreValue {
   updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
   deleteContentEntry: (id: string) => void;
 
-  /** Hand a piece to someone (or take it back) without rewriting it. */
-  allotContent: (entryId: string, userId: string | null) => void;
+  /** Hand a piece to someone on one of their tasks, or take it back (null). */
+  allotContent: (entryId: string, allotment: ContentAllotment | null) => void;
   /** Where the piece has got to after writing. */
   setContentStage: (entryId: string, stage: ContentStage | null) => void;
 
@@ -1993,11 +2010,12 @@ const crmActions = {
     const entry: ContentEntry = {
       ...input,
       id: newId(),
-      // Nothing is written yet as far as the reviewer is concerned.
       status: "Not Started",
       submittedAt: null,
       reviews: [],
       stage: null,
+      allottedTo: null,
+      allottedTaskId: null,
       createdBy: me(),
       createdAt: now(),
     };
@@ -2036,16 +2054,49 @@ const crmActions = {
    * than the writer, so they go through their own functions rather than the
    * writer-only update policy (0022).
    */
-  allotContent(entryId: string, userId: string | null) {
+  allotContent(entryId: string, allotment: ContentAllotment | null) {
+    // A new task is created first, in the same ordered write, so the
+    // function can check the piece lands on a task the allottee holds.
+    const task: Task | null =
+      allotment && "newTask" in allotment
+        ? {
+            kind: "standard",
+            contentCount: 0,
+            ...allotment.newTask,
+            recurrence: null,
+            id: newId(),
+            createdBy: me(),
+            createdAt: now(),
+            sessions: [],
+            submissions: [],
+            reviews: [],
+            remarks: [],
+          }
+        : null;
+    const userId = allotment?.userId ?? null;
+    const taskId = task?.id ?? (allotment && "taskId" in allotment ? allotment.taskId : null);
+
     void commit(
-      ["content", "notifications"],
+      task ? ["content", "tasks", "notifications"] : ["content", "notifications"],
       (db) => ({
         ...db,
+        tasks: task ? [...db.tasks, task] : db.tasks,
         contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId ? { ...e, allottedTo: userId } : e,
+          e.id === entryId ? { ...e, allottedTo: userId, allottedTaskId: taskId } : e,
         ),
       }),
-      (c) => run(c.rpc("allot_content", { p_content_id: entryId, p_profile_id: userId })),
+      async (c) => {
+        if (task) {
+          await run(c.from("tasks").insert({ ...taskRow(task), created_by: me() }));
+        }
+        await run(
+          c.rpc("allot_content", {
+            p_content_id: entryId,
+            p_profile_id: userId,
+            p_task_id: taskId,
+          }),
+        );
+      },
     );
   },
 

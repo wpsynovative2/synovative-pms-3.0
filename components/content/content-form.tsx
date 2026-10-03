@@ -43,7 +43,6 @@ const blank = (projectId: string, taskId: string | null): Draft => ({
   description: "",
   referenceLinks: [],
   billingType: "Count",
-  allottedTo: null,
 });
 
 const fromEntry = (entry: ContentEntry): Draft => ({
@@ -57,7 +56,6 @@ const fromEntry = (entry: ContentEntry): Draft => ({
   description: entry.description,
   referenceLinks: entry.referenceLinks,
   billingType: entry.billingType,
-  allottedTo: entry.allottedTo,
 });
 
 /** A piece needs somewhere to live and something in it. */
@@ -108,7 +106,6 @@ export function ContentComposer({
     const next: Draft = {
       ...blank(last?.projectId ?? projectId ?? "", last?.taskId ?? taskId),
       date: last?.date ?? todayISO(),
-      allottedTo: last?.allottedTo ?? null,
       billingType: last?.billingType ?? "Count",
     };
     setDrafts((list) => [...list, next]);
@@ -142,7 +139,6 @@ export function ContentComposer({
         description: d.description,
         referenceLinks: d.referenceLinks.map((l) => l.trim()).filter(Boolean),
         billingType: d.billingType,
-        allottedTo: d.allottedTo,
       };
       if (entry) updateContentEntry(entry.id, payload);
       else createContentEntry(payload);
@@ -309,7 +305,7 @@ export function ContentComposer({
                     <SearchSelect
                       options={projectOptions}
                       value={active.projectId}
-                      onChange={(v) => setDraft(active.key, { projectId: v, allottedTo: null })}
+                      onChange={(v) => setDraft(active.key, { projectId: v })}
                       placeholder="Which project is this for?"
                     />
                   </Field>
@@ -347,12 +343,6 @@ export function ContentComposer({
                 <ReferenceLinks
                   links={active.referenceLinks}
                   onChange={(referenceLinks) => setDraft(active.key, { referenceLinks })}
-                />
-
-                <Allotment
-                  projectId={active.projectId}
-                  value={active.allottedTo}
-                  onChange={(allottedTo) => setDraft(active.key, { allottedTo })}
                 />
               </div>
             </div>
@@ -399,90 +389,5 @@ function ReferenceLinks({
         </div>
       </div>
     </Field>
-  );
-}
-
-/**
- * Who the piece is handed to. The project's own team comes first, because that
- * is the usual answer - but not the only one: the designer or editor who will
- * build the creative often has no task on the project yet, and allotting the
- * content is how they are brought on to it. So the whole active directory is
- * offered, with everyone else listed under their department.
- */
-function Allotment({
-  projectId,
-  value,
-  onChange,
-}: {
-  projectId: string;
-  value: string | null;
-  onChange: (next: string | null) => void;
-}) {
-  const { onProject } = useAllotmentOptions(projectId);
-  return (
-    <Field
-      label="Allotment to"
-      hint={
-        onProject
-          ? "The team member who will build this — on this project or not."
-          : "Nobody is on this project yet; anyone can still be given the piece."
-      }
-    >
-      <AllotmentSelect projectId={projectId} value={value} onChange={onChange} />
-    </Field>
-  );
-}
-
-function useAllotmentOptions(projectId: string) {
-  const { db, projectById } = useStore();
-
-  return useMemo(() => {
-    const project = projectById(projectId);
-    const ids = new Set<string>(project?.memberIds ?? []);
-    if (project?.leaderId) ids.add(project.leaderId);
-    for (const t of db.tasks) {
-      if (t.projectId === projectId && t.assigneeId) ids.add(t.assigneeId);
-    }
-    const active = db.users.filter((u) => u.active);
-    const toOption = (u: (typeof active)[number]) => ({
-      value: u.id,
-      label: u.fullName,
-      hint: ids.has(u.id) ? "On this project" : u.departments[0],
-      avatarName: u.fullName,
-    });
-    // On the project first, then everyone else - the list is searchable, so
-    // ordering is about what the eye lands on rather than what is reachable.
-    return {
-      people: [
-        ...active.filter((u) => ids.has(u.id)).map(toOption),
-        ...active.filter((u) => !ids.has(u.id)).map(toOption),
-      ],
-      onProject: ids.size,
-    };
-  }, [db.tasks, db.users, projectId, projectById]);
-}
-
-/** The bare picker — the composer wraps it in a field, the reader uses it inline. */
-export function AllotmentSelect({
-  projectId,
-  value,
-  onChange,
-  disabled,
-}: {
-  projectId: string;
-  value: string | null;
-  onChange: (next: string | null) => void;
-  disabled?: boolean;
-}) {
-  const { people } = useAllotmentOptions(projectId);
-  return (
-    <SearchSelect
-      allowClear
-      disabled={disabled}
-      options={people}
-      value={value ?? ""}
-      onChange={(v) => onChange(v || null)}
-      placeholder="Nobody yet"
-    />
   );
 }

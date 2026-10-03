@@ -349,8 +349,16 @@ old decisions are not lost, and nothing writes them any more.
 
 **Content Bank.** Written by Content Writers and Social Media Marketing,
 against a project they hold a task on. The library page groups entries under
-their project. A piece can be allotted to anyone active, on the project or not;
-the allottee gets a notification and can read that piece.
+their project. Writers do **not** allot: since `0025` allotting is for global
+managers, the project's Leader and Team Leaders (`canAllotContent` /
+`can_allot_content`, the same people who may create tasks there), and a guard
+trigger stops a writer setting `allotted_to` through their own update policy.
+Every allotment names one of the allottee's tasks on that project
+(`content_bank.allotted_task_id`) — picked from theirs (pre-selected when there
+is exactly one), or created in the same step by `AllotDialog`. Someone with no
+task on the project must be given one. The piece then shows on that task; the
+allottee gets a notification and can read the piece. `task_id` is still the
+*writer's* task.
 
 ---
 
@@ -386,6 +394,7 @@ exists as a file of its own).
 | `0022_content_stage.sql` | `content_bank.stage` (production stage) plus `allot_content` / `set_content_stage` RPCs |
 | `0023_property_clients.sql` | A property lists several client contacts (`property_clients`); `properties.client_id` stays as the first |
 | `0024_content_without_review.sql` | Per-piece content review removed; the writer sets each piece's stage and the content task is reviewed as a task |
+| `0025_content_allotment_task.sql` | Allotting is managers / Project Leader / Team Leaders only, and always onto one of the allottee's tasks (`allotted_task_id`) |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

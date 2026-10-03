@@ -30,7 +30,15 @@ import {
   canWriteContent,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import { CONTENT_TYPES, type ContentEntry, type ContentType } from "@/lib/types";
+import {
+  CONTENT_BILLING_TYPES,
+  CONTENT_STAGES,
+  CONTENT_TYPES,
+  type ContentBillingType,
+  type ContentEntry,
+  type ContentStage,
+  type ContentType,
+} from "@/lib/types";
 
 /**
  * Module 5 — the Content Bank.
@@ -41,6 +49,19 @@ import { CONTENT_TYPES, type ContentEntry, type ContentType } from "@/lib/types"
  */
 type Scope = "all" | "mine" | "allotted";
 
+/** Stands for "nobody" in the assignee filter and "not set" in the status one. */
+const NONE = "__none__";
+
+type SortKey = "newest" | "oldest" | "assignee" | "writer" | "status";
+
+const SORTS: { value: SortKey; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "assignee", label: "Assignee A–Z" },
+  { value: "writer", label: "Writer A–Z" },
+  { value: "status", label: "Status" },
+];
+
 export default function ContentBankPage() {
   const { db, currentUser, deleteContentEntry } = useStore();
   const user = currentUser!;
@@ -50,6 +71,11 @@ export default function ContentBankPage() {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<ContentType | "all">("all");
   const [projectId, setProjectId] = useState(params.get("project") ?? "");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [writerId, setWriterId] = useState("");
+  const [stage, setStage] = useState<ContentStage | typeof NONE | "">("");
+  const [billing, setBilling] = useState<ContentBillingType | "">("");
+  const [sort, setSort] = useState<SortKey>("newest");
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
@@ -83,18 +109,90 @@ export default function ContentBankPage() {
       (e) =>
         (type === "all" || e.type === type) &&
         (!projectId || e.projectId === projectId) &&
+        (!assigneeId ||
+          (assigneeId === NONE ? !e.allottedTo : e.allottedTo === assigneeId)) &&
+        (!writerId || e.createdBy === writerId) &&
+        (!stage || (stage === NONE ? !e.stage : e.stage === stage)) &&
+        (!billing || e.billingType === billing) &&
         (!q ||
           e.caption.toLowerCase().includes(q) ||
           e.description.toLowerCase().includes(q) ||
           e.onPic.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q)),
     );
-  }, [scoped, query, type, projectId]);
+  }, [scoped, query, type, projectId, assigneeId, writerId, stage, billing]);
+
+  const filtering =
+    !!query.trim() ||
+    type !== "all" ||
+    !!projectId ||
+    !!assigneeId ||
+    !!writerId ||
+    !!stage ||
+    !!billing;
+
+  const clearFilters = () => {
+    setQuery("");
+    setType("all");
+    setProjectId("");
+    setAssigneeId("");
+    setWriterId("");
+    setStage("");
+    setBilling("");
+  };
+
+  // Only people who actually appear on a visible piece are offered.
+  const peopleOptions = useMemo(() => {
+    const options = (ids: Set<string | null>) =>
+      db.users
+        .filter((u) => ids.has(u.id))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        .map((u) => ({ value: u.id, label: u.fullName, avatarName: u.fullName }));
+    return {
+      assignees: [
+        { value: NONE, label: "Not allotted" },
+        ...options(new Set(visible.map((e) => e.allottedTo))),
+      ],
+      writers: options(new Set(visible.map((e) => e.createdBy))),
+    };
+  }, [visible, db.users]);
 
   const projectOptions = useMemo(() => {
     const ids = new Set(visible.map((e) => e.projectId));
     return db.projects.filter((p) => ids.has(p.id)).map((p) => ({ value: p.id, label: p.name }));
   }, [visible, db.projects]);
+
+  /*
+   * Order inside each project. Newest is the default because that is the
+   * piece being worked on; the others answer "what does each person have" and
+   * "what is still to move". Ties always fall back to newest first.
+   */
+  const compare = useMemo(() => {
+    const name = (id: string | null) =>
+      (id ? db.users.find((u) => u.id === id)?.fullName : undefined) ?? "";
+    const newest = (a: ContentEntry, b: ContentEntry) =>
+      b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt);
+    // Unallotted and unset sort last, not first.
+    const last = (x: string) => x || "\uffff";
+    const stageRank = (e: ContentEntry) =>
+      e.stage ? CONTENT_STAGES.indexOf(e.stage) : CONTENT_STAGES.length;
+    return (a: ContentEntry, b: ContentEntry) => {
+      switch (sort) {
+        case "oldest":
+          return -newest(a, b);
+        case "assignee":
+          return (
+            last(name(a.allottedTo)).localeCompare(last(name(b.allottedTo))) || newest(a, b)
+          );
+        case "writer":
+          return name(a.createdBy).localeCompare(name(b.createdBy)) || newest(a, b);
+        case "status":
+          return stageRank(a) - stageRank(b) || newest(a, b);
+        default:
+          return newest(a, b);
+      }
+    };
+  }, [sort, db.users]);
 
   /*
    * The library is read one project at a time — "what have we written for
@@ -113,16 +211,14 @@ export default function ContentBankPage() {
       .map(([id, entries]) => ({
         id,
         project: db.projects.find((p) => p.id === id) ?? null,
-        entries: [...entries].sort(
-          (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt),
-        ),
+        entries: [...entries].sort(compare),
       }))
       .sort((a, b) => {
         // A project that has gone missing sorts last rather than first.
         if (!a.project || !b.project) return a.project ? -1 : b.project ? 1 : 0;
         return a.project.name.localeCompare(b.project.name);
       });
-  }, [filtered, db.projects]);
+  }, [filtered, db.projects, compare]);
 
   const open = openId ? visible.find((e) => e.id === openId) : undefined;
 
@@ -228,6 +324,71 @@ export default function ContentBankPage() {
             placeholder="Any project"
           />
         </div>
+        <div className="w-52">
+          <SearchSelect
+            allowClear
+            options={peopleOptions.assignees}
+            value={assigneeId}
+            onChange={setAssigneeId}
+            placeholder="Any assignee"
+          />
+        </div>
+        <div className="w-52">
+          <SearchSelect
+            allowClear
+            options={peopleOptions.writers}
+            value={writerId}
+            onChange={setWriterId}
+            placeholder="Any writer"
+          />
+        </div>
+        <Select
+          className="w-auto min-w-40"
+          value={stage}
+          onChange={(e) => setStage(e.target.value as ContentStage | typeof NONE | "")}
+          aria-label="Status"
+        >
+          <option value="">Any status</option>
+          <option value={NONE}>Not set</option>
+          {CONTENT_STAGES.map((st) => (
+            <option key={st} value={st}>
+              {st}
+            </option>
+          ))}
+        </Select>
+        <Select
+          className="w-auto min-w-36"
+          value={billing}
+          onChange={(e) => setBilling(e.target.value as ContentBillingType | "")}
+          aria-label="Billing type"
+        >
+          <option value="">Any billing</option>
+          {CONTENT_BILLING_TYPES.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+        </Select>
+        <Select
+          className="w-auto min-w-40"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          aria-label="Sort by"
+        >
+          {SORTS.map((o) => (
+            <option key={o.value} value={o.value}>
+              Sort: {o.label}
+            </option>
+          ))}
+        </Select>
+        {filtering ? (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        ) : null}
+        <span className="ml-auto text-[12px] text-ink-faint">
+          {filtered.length} of {scoped.length} pieces
+        </span>
       </div>
 
       {filtered.length === 0 ? (

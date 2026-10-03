@@ -359,25 +359,20 @@ export const canViewContentEntry = (
 export const isContentTask = (t: Task) => t.kind === "content";
 
 /**
- * Handing a piece on without rewriting it: the writer, whoever may review its
- * task, the Project Leader and the global managers. Mirrors
- * can_manage_content() in 0022.
+ * Handing a piece on. Writers write; allotting is for the people who plan the
+ * work - global managers, the Project Leader and Team Leaders - who are also
+ * the ones who may create the task the piece is for. Mirrors
+ * can_allot_content() in 0025.
  */
-export function canAllotContent(
-  u: User,
-  entry: ContentEntry,
-  task: Task | null,
-  project: Project | null,
-): boolean {
-  if (entry.createdBy === u.id || isGlobalManager(u)) return true;
-  if (project && isProjectLeader(u, project)) return true;
-  // Whoever may review the task the piece was written for.
-  return !!entry.taskId && !!task && canReviewTask(u, task, project);
+export function canAllotContent(u: User, project: Project | null): boolean {
+  if (!project) return false;
+  return isGlobalManager(u) || isProjectLeader(u, project) || isTeamLeader(u);
 }
 
 /**
- * Saying where a piece has got to. Everyone who may allot it, plus the person
- * it is allotted to and the author desks on the project. Mirrors
+ * Saying where a piece has got to: its writer, the global managers, the
+ * Project Leader, whoever may review the writer's task, the person it is
+ * allotted to, and the author desks on the project. Mirrors
  * set_content_stage() in 0022.
  */
 export function canSetContentStage(
@@ -387,7 +382,9 @@ export function canSetContentStage(
   project: Project | null,
   tasks: Task[],
 ): boolean {
-  if (canAllotContent(u, entry, task, project)) return true;
+  if (entry.createdBy === u.id || isGlobalManager(u)) return true;
+  if (project && isProjectLeader(u, project)) return true;
+  if (entry.taskId && task && canReviewTask(u, task, project)) return true;
   if (entry.allottedTo === u.id) return true;
   return canWriteContent(u) && !!project && canViewProject(u, project, tasks);
 }

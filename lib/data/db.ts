@@ -636,6 +636,7 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       reviews: reviews.get(str(r.id)) ?? [],
       stage: nullable(r.stage) as ContentEntry["stage"],
       allottedTo: nullable(r.allotted_to),
+      allottedTaskId: nullable(r.allotted_task_id),
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),
     }))
@@ -910,7 +911,6 @@ export const CONTENT_COLUMNS: Record<string, string> = {
   description: "description",
   referenceLinks: "reference_links",
   billingType: "billing_type",
-  allottedTo: "allotted_to",
 };
 
 /** Line items are rewritten wholesale whenever their parent is saved. */

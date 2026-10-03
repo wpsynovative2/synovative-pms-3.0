@@ -70,6 +70,7 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0022_content_stage.sql` | A piece carries a production stage (Ready To Move, Design Completed, Scheduled, Cancelled, Carry Forwarded), and can be allotted or moved on from the piece itself by more people than its writer |
 | `0023_property_clients.sql` | A property can list several client contacts; the first is still the one its Drive folder is named after |
 | `0024_content_without_review.sql` | Content pieces are no longer approved one by one: the writer sets each piece's status, and a content task is submitted and reviewed as a whole |
+| `0025_content_allotment_task.sql` | Content is allotted by managers, the Project Leader or Team Leaders only, and always onto a task the allottee holds on the project (created on the spot if needed) |
 
 ### 4. The first Super Admin
 

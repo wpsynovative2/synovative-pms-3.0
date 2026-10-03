@@ -651,6 +651,11 @@ export interface ContentEntry {
   /** The team member the piece is for. */
   allottedTo: string | null;
   /**
+   * The allottee's task on this project that the piece is for (0025). Set
+   * together with `allottedTo`; null on pieces allotted before 0025.
+   */
+  allottedTaskId: string | null;
+  /**
    * Legacy (0021): the per-piece review verdict. Pieces are no longer
    * reviewed one by one (0024); the writer reports progress through `stage`.
    */
