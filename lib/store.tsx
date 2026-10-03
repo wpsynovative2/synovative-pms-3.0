@@ -564,17 +564,13 @@ export type ObcInput = Omit<
 /**
  * Writing a piece. The stage and the allotment are deliberately not here: they
  * are moved only by `setContentStage` and `allotContent`, which re-check the
- * rule in the database. status, submittedAt and the review trail are legacy
- * (0021) and no longer written.
+ * rule in the database.
  */
 export type ContentInput = Omit<
   ContentEntry,
   | "id"
   | "createdBy"
   | "createdAt"
-  | "status"
-  | "submittedAt"
-  | "reviews"
   | "stage"
   | "allottedTo"
   | "allottedTaskId"
@@ -2022,9 +2018,6 @@ const crmActions = {
     const entry: ContentEntry = {
       ...input,
       id: newId(),
-      status: "Not Started",
-      submittedAt: null,
-      reviews: [],
       stage: null,
       allottedTo: null,
       allottedTaskId: null,

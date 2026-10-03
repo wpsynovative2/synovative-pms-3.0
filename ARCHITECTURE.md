@@ -106,6 +106,7 @@ lib/
   supabase/             browser / server / service-role clients, route auth
   google/, zoho/, uploads.ts, theme.ts
 supabase/migrations/    numbered, run in order — the real schema and security
+supabase/archive/       the original step-by-step migrations the baseline replaces
 scripts/create-admin.mjs
 proxy.ts                session refresh + routing (Next 16 "middleware")
 ```
@@ -353,8 +354,8 @@ Content Bank and project lists (`isContentEmpty`). Pieces are
 has got to through its stage (shown as "Status" — Ready To Design, Design
 Completed, Scheduled, Cancelled, Carry Forwarded, via `set_content_stage`), and
 the content task is submitted and reviewed as a whole like any other task.
-`content_bank.status` and `content_reviews` are legacy from `0021`, kept so
-old decisions are not lost, and nothing writes them any more.
+The per-piece verdict (`content_bank.status`, `content_reviews`) was dropped
+in `0028`.
 
 **Content Bank.** Written by Content Writers and Social Media Marketing,
 against a project they hold a task on. The library page groups entries under
@@ -373,39 +374,34 @@ allottee gets a notification and can read the piece. `task_id` is still the
 
 ## 8. The database
 
-`supabase/migrations/` is numbered and **append-only**. Never edit a shipped
-migration — add the next number. Two practical reasons: deployed databases have
-already run the old file, and Postgres cannot use a new enum value in the same
-transaction that adds it (which is why [`0013_crm_enums.sql`](supabase/migrations/0013_crm_enums.sql)
-exists as a file of its own).
+`supabase/migrations/` starts with a **baseline** (`0001`–`0008`): the whole
+schema as it stands, grouped by kind rather than by history. It was generated
+from the final state of the original 28-step chain, now in `supabase/archive/`,
+and checked object by object (tables, columns, constraints, indexes, functions,
+triggers, policies, views, jobs, seed data) to build an identical database.
 
-| File | What it adds |
+| File | What it holds |
 | --- | --- |
-| `0001_schema.sql` | Tables, enums, master data, aggregate views |
-| `0002_rls.sql` | RLS = the §4.2 matrix, plus the workflow functions |
-| `0003_jobs.sql` | `pg_cron`: auto-stop, reminders, notification pruning |
-| `0004_recurrence.sql` | Repeats and their daily generator |
-| `0005_app_support.sql` | Profile guards, server-side notifications, Realtime |
-| `0006_operational_links.sql` | Link groups and links |
-| `0007_account_guards.sql` | Account seniority |
-| `0008_task_visibility.sql` | Team Leaders lose blanket read access |
-| `0009_review_outcomes.sql` | "Waiting for Client Response" |
-| `0010_flexible_assignment.sql` | Optional leader/assignee, new overdue rule |
-| `0011_capacity_and_task_home.sql` | Per-person daily capacity |
-| `0012_recurrence_pause.sql` | Pausing a repeat |
-| `0013_crm_enums.sql` | The `content_allotted` notification type |
-| `0014_crm_modules.sql` | Companies → OBCs, Content Bank, comments, minutes |
-| `0015`–`0017` | OBC line details, quote name, master-data admin |
-| `0018_content_authors.sql` | SMM writes content; allottee can read it |
-| `0019_obc_service_allotment.sql` | OBC lines carry the project or task raised for them |
-| `0020_obc_delivery_services.sql` | The estimate (`obc_items`) and the delivery list (`obc_services`) split apart; allotment moves to the latter |
-| `0021_content_tasks.sql` | Content tasks: `tasks.kind` + `content_count`, per-piece status and `content_reviews` |
-| `0022_content_stage.sql` | `content_bank.stage` (production stage) plus `allot_content` / `set_content_stage` RPCs |
-| `0023_property_clients.sql` | A property lists several client contacts (`property_clients`); `properties.client_id` stays as the first |
-| `0024_content_without_review.sql` | Per-piece content review removed; the writer sets each piece's stage and the content task is reviewed as a task |
-| `0025_content_allotment_task.sql` | Allotting is managers / Project Leader / Team Leaders only, and always onto one of the allottee's tasks (`allotted_task_id`) |
-| `0026_content_slots.sql` | Content tasks get their target pieces as empty slots (`title`, `slot`), kept in step with the task by trigger |
-| `0027_ready_to_design.sql` | The `content_stage` value "Ready To Move" renamed to "Ready To Design" |
+| `0001_types.sql` | Extensions (`uuid-ossp`, `pg_cron`), every enum, the OBC code sequence, `ist_today()` |
+| `0002_tables.sql` | Every table with its keys, checks, indexes and comments; foreign keys at the end |
+| `0003_seed.sql` | Master data: departments and services |
+| `0004_functions.sql` | Permission predicates, workflow functions (timer, submit, review, allot, stage, slots), trigger functions |
+| `0005_views.sql` | Aggregate views |
+| `0006_triggers.sql` | Notification and invariant triggers |
+| `0007_rls.sql` | Row Level Security on every table, and every policy |
+| `0008_jobs.sql` | `pg_cron` schedules and the Realtime publication |
+
+From here the folder is **append-only**: never edit a shipped file — add
+`0009_…` and onwards, and run it on every database. Two practical reasons:
+deployed databases have already run the old file, and Postgres cannot use a new
+enum value in the same transaction that adds it, so an `alter type … add value`
+needs a file of its own before anything uses the value.
+
+`supabase/archive/` is history, not a second schema: it is what the original
+database was built from, one step at a time. Code comments that cite a number
+(`0022`, `0025`, `0026` …) refer to those files, where the reasoning for each
+change is written out. A database built from the archive needs every archive
+file up to `0028`; after that it takes the same new files as a fresh one.
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

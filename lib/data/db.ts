@@ -6,7 +6,6 @@ import type {
   Comment,
   Company,
   ContentEntry,
-  ContentReview,
   Database,
   DriveFolder,
   Expense,
@@ -606,19 +605,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
 }
 
 async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, reviewRows] = await Promise.all([
-    fetchAll(sb, "content_bank", "created_at", "id"),
-    fetchAll(sb, "content_reviews", "content_id", "created_at", "id"),
-  ]);
-
-  const reviews = groupBy<ContentReview>(reviewRows, "content_id", (r) => ({
-    id: str(r.id),
-    contentId: str(r.content_id),
-    byUserId: str(r.by_profile_id),
-    at: str(r.created_at),
-    decision: r.decision as ContentReview["decision"],
-    remarks: str(r.remarks),
-  }));
+  const rows = await fetchAll(sb, "content_bank", "created_at", "id");
   const contentEntries: ContentEntry[] = rows
     .map((r) => ({
       id: str(r.id),
@@ -633,9 +620,6 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       description: str(r.description),
       referenceLinks: (r.reference_links as string[]) ?? [],
       billingType: r.billing_type as ContentEntry["billingType"],
-      status: (r.status as ContentEntry["status"]) ?? "Not Started",
-      submittedAt: nullable(r.submitted_at),
-      reviews: reviews.get(str(r.id)) ?? [],
       stage: nullable(r.stage) as ContentEntry["stage"],
       allottedTo: nullable(r.allotted_to),
       allottedTaskId: nullable(r.allotted_task_id),
@@ -708,7 +692,7 @@ export interface ScopeLoad {
  * Fetch the given scopes in parallel, each standing or falling on its own.
  *
  * This used to be a plain `Promise.all`, which meant one unreadable table
- * discarded the whole batch: a migration not yet run against `content_reviews`
+ * discarded the whole batch: a migration not yet run against one content table
  * emptied Companies, Clients, Properties, OBCs, Expenses, Vendors and
  * Templates too, because a refresh asks for all of them at once. A reader
  * cannot tell that from real data loss.

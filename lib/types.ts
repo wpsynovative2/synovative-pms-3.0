@@ -566,49 +566,8 @@ export const CONTENT_TYPES: ContentType[] = [
 ];
 
 /**
- * Where one piece of content has got to. Deliberately a subset of TaskStatus,
- * so the status chips, colours and language are the ones everyone already
- * reads on tasks.
- */
-export type ContentStatus = Extract<
-  TaskStatus,
-  "Not Started" | "Submitted" | "Changes Required" | "Rejected" | "Approved"
->;
-
-export const CONTENT_STATUSES: ContentStatus[] = [
-  "Not Started",
-  "Submitted",
-  "Changes Required",
-  "Rejected",
-  "Approved",
-];
-
-/** A verdict on one piece. No "Waiting for Client Response" — copy is settled in-house. */
-export type ContentDecision = Extract<
-  ReviewDecision,
-  "Approved" | "Changes Required" | "Rejected"
->;
-
-export const CONTENT_DECISIONS: ContentDecision[] = [
-  "Approved",
-  "Changes Required",
-  "Rejected",
-];
-
-/** One verdict in a piece's history; rewrites keep the whole trail. */
-export interface ContentReview {
-  id: string;
-  contentId: string;
-  byUserId: string;
-  at: string;
-  decision: ContentDecision;
-  remarks: string;
-}
-
-/**
- * Where a piece has got to once the words are written — separate from the
- * review `status`, which is about the words themselves. Optional: a piece
- * nobody has picked up has no stage.
+ * Where a piece has got to — shown as its "Status". The writer sets it, and
+ * a target piece counts as done once it has one. Optional: null until then.
  */
 export type ContentStage =
   | "Ready To Design"
@@ -663,13 +622,6 @@ export interface ContentEntry {
    * together with `allottedTo`; null on pieces allotted before 0025.
    */
   allottedTaskId: string | null;
-  /**
-   * Legacy (0021): the per-piece review verdict. Pieces are no longer
-   * reviewed one by one (0024); the writer reports progress through `stage`.
-   */
-  status: ContentStatus;
-  submittedAt: string | null;
-  reviews: ContentReview[];
   /** Production stage, moved by `setContentStage`. */
   stage: ContentStage | null;
   createdBy: string;

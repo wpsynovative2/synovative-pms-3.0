@@ -41,38 +41,31 @@ Without Cloudinary, everything works except attaching bills to expenses.
 
 ### 3. Database
 
-Run the files in [`supabase/migrations`](supabase/migrations) **in order** — paste
-each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
+**A new Supabase project:** run the eight files in
+[`supabase/migrations`](supabase/migrations) **in order** — paste each into the
+Supabase **SQL editor**, or use `supabase db push` with the CLI. They are the
+whole schema in its current form:
 
-| File | What it does |
+| File | What it holds |
 | --- | --- |
-| `0001_schema.sql` | Tables, master data (departments, services), aggregate views |
-| `0002_rls.sql` | Row Level Security — the §4.2 permission matrix, enforced — and the workflow functions (timer, submit, review, expense verdict) |
-| `0003_jobs.sql` | `pg_cron`: 11:59 PM auto-stop, due / overdue reminders, notification pruning |
-| `0004_recurrence.sql` | Repeating projects & individual tasks, and their daily generator |
-| `0005_app_support.sql` | Profile-edit guard, server-side notifications, members-only reads, Realtime |
-| `0006_operational_links.sql` | Operational links: groups and links, managers edit / everyone reads |
-| `0007_account_guards.sql` | Account seniority: an HR Admin can't edit an Admin or a Super Admin, an Admin can't edit a Super Admin |
-| `0008_task_visibility.sql` | Team Leaders lose blanket read access: a project needs at least one of your tasks in it |
-| `0009_review_outcomes.sql` | The "Waiting for Client Response" review outcome and task status |
-| `0010_flexible_assignment.sql` | Optional Project Leader and assignee, department-wide Team Leader visibility, and the new overdue rule |
-| `0011_capacity_and_task_home.sql` | Per-person daily capacity, and individual tasks moving under `/tasks` |
-| `0012_recurrence_pause.sql` | Pausing a repeat, which skips the dates it covers rather than banking them |
-| `0013_crm_enums.sql` | The `content_allotted` notification type (its own file — Postgres can't use a new enum value in the transaction that adds it) |
-| `0014_crm_modules.sql` | Companies, Clients, Properties, OBCs and the Content Bank, plus Comments and Minutes of Meeting, and their RLS |
-| `0015_obc_line_details.sql` | OBC lines carry Zoho's short and brief descriptions instead of rate and amount — pricing stays in Zoho |
-| `0016_obc_quote_name.sql` | OBCs are known by their Zoho quote name; the generated code stays as the fallback and stable handle |
-| `0017_master_data_admin.sql` | A Super Admin can add and retire departments and services; foreign keys still refuse to drop a name in use |
-| `0018_content_authors.sql` | Social Media Marketing writes in the Content Bank alongside Content Writers, and a piece can be allotted to — and read by — someone with no task on the project |
-| `0019_obc_service_allotment.sql` | An OBC is allotted service by service: each quoted line records the project or individual task raised for it, and the OBC is Allotted only once none is left |
-| `0020_obc_delivery_services.sql` | The estimate and the work split in two: `obc_items` stays the Zoho estimate (reference), and `obc_services` is the delivery list a Business Development Executive writes by hand and a manager raises work from |
-| `0021_content_tasks.sql` | Content tasks: one task carrying N pieces, each submitted by its writer and approved, rejected or sent back on its own; the task approves itself once the batch stands |
-| `0022_content_stage.sql` | A piece carries a production stage (Ready To Move, Design Completed, Scheduled, Cancelled, Carry Forwarded), and can be allotted or moved on from the piece itself by more people than its writer |
-| `0023_property_clients.sql` | A property can list several client contacts; the first is still the one its Drive folder is named after |
-| `0024_content_without_review.sql` | Content pieces are no longer approved one by one: the writer sets each piece's status, and a content task is submitted and reviewed as a whole |
-| `0025_content_allotment_task.sql` | Content is allotted by managers, the Project Leader or Team Leaders only, and always onto a task the allottee holds on the project (created on the spot if needed) |
-| `0026_content_slots.sql` | A content task for N pieces creates N empty pieces ("<task> Count 1" …) for the writer to fill; extras show as "3/5 + 2" |
-| `0027_ready_to_design.sql` | The first content status reads "Ready To Design" instead of "Ready To Move" |
+| `0001_types.sql` | Extensions (`uuid-ossp`, `pg_cron`), every enum, the OBC code sequence, `ist_today()` |
+| `0002_tables.sql` | Every table with its keys, checks, indexes and comments; foreign keys at the end |
+| `0003_seed.sql` | Master data: departments and services |
+| `0004_functions.sql` | Permission predicates, workflow functions (timer, submit, review, allot, stage, slots), trigger functions |
+| `0005_views.sql` | Aggregate views |
+| `0006_triggers.sql` | Notification and invariant triggers |
+| `0007_rls.sql` | Row Level Security on every table, and every policy |
+| `0008_jobs.sql` | `pg_cron` schedules and the Realtime publication |
+
+**A database built before the baseline existed** (the original project): do
+**not** run the baseline on it. It was built from the step-by-step history in
+[`supabase/archive`](supabase/archive) (`0001_schema.sql` …
+`0028_drop_content_review_legacy.sql`); run any of those it has not had yet, in
+order, and it ends up identical to a fresh baseline install.
+
+**Changing the schema later:** add the next number in `supabase/migrations`
+(`0009_…`, `0010_…`) and run it on every database — new and old are the same
+from here on.
 
 ### 4. The first Super Admin
 
@@ -202,7 +195,8 @@ lib/
   recurrence.ts       Repeat rules
   time.ts / analytics.ts   Time maths, project stats, workload, reports
 scripts/create-admin.mjs   First Super Admin
-supabase/migrations/       Schema, RLS, jobs
+supabase/migrations/       Schema baseline (0001–0008) + later changes
+supabase/archive/          The original step-by-step history (0001–0028)
 ```
 
 **Security.** Row Level Security in Postgres is the real boundary: every read and
