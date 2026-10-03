@@ -73,7 +73,7 @@ import {
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
-import type { Expense, TaskStatus } from "@/lib/types";
+import { isContentEmpty, type Expense, type TaskStatus } from "@/lib/types";
 
 /** One hop of the Company → Client → Property → OBC chain behind a project. */
 interface CrmLink {
@@ -139,7 +139,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     [db.expenses, id],
   );
   const content = useMemo(
-    () => db.contentEntries.filter((e) => e.projectId === id),
+    // Untouched slots are placeholders on their task, not written content.
+    () => db.contentEntries.filter((e) => e.projectId === id && !isContentEmpty(e)),
     [db.contentEntries, id],
   );
 

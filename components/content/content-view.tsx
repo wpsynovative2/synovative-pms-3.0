@@ -22,7 +22,12 @@ import {
   canSetContentStage,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import { CONTENT_STAGES, type ContentEntry, type ContentStage } from "@/lib/types";
+import {
+  CONTENT_STAGES,
+  contentLabel,
+  type ContentEntry,
+  type ContentStage,
+} from "@/lib/types";
 
 /*
  * Reading a Content Bank entry. Everyone on the project sees the same thing —
@@ -62,7 +67,7 @@ export function ContentDetailScreen({
     <FullScreen
       open
       onClose={onClose}
-      title={entry.caption.trim() || entry.type}
+      title={contentLabel(entry)}
       subtitle={project ? `${project.name} · Content Bank entry` : "Content Bank entry"}
       toolbar={
         mayEdit ? (
@@ -290,7 +295,7 @@ export function ContentLinkRow({
 }) {
   const { userById } = useStore();
   const allotted = userById(entry.allottedTo);
-  const label = entry.caption.trim() || entry.type;
+  const label = contentLabel(entry);
 
   const inner = (
     <>
@@ -357,7 +362,7 @@ export function ContentCard({
             onClick={onOpen}
             className="block max-w-full truncate text-left text-[14px] font-semibold text-ink hover:text-brand-bright"
           >
-            {entry.caption.trim() || entry.type}
+            {contentLabel(entry)}
           </button>
           <p className="truncate text-[11px] text-ink-faint">
             {showProject

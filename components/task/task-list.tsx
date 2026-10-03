@@ -401,10 +401,10 @@ export function TaskRow({
           <OverdueBadge task={task} />
           {batch ? (
             <span
-              title="Pieces written"
+              title="Pieces written, of those asked for, plus extras"
               className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink"
             >
-              {batch.written}/{batch.total}
+              {batch.label}
             </span>
           ) : null}
         </span>

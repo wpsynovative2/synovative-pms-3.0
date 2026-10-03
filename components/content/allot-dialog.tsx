@@ -5,12 +5,12 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconPlus, IconTasks } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Badge, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
+import { Avatar, Badge, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import { PRIORITIES, TASK_STATUS_STYLE, WORKDAY_HOURS } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
-import type { ContentEntry, Priority, Project } from "@/lib/types";
+import { contentLabel, type ContentEntry, type Priority, type Project } from "@/lib/types";
 
 /*
  * Allotting a piece: who builds it, and on which of their tasks (0025).
@@ -52,25 +52,35 @@ export function AllotDialog({
   );
   const [touched, setTouched] = useState(false);
 
-  // The project's own people first, then everyone else under their department.
+  /*
+   * The project's own people and everyone else are shown apart, so nobody
+   * mistakes an outsider for a teammate: insiders as cards with their task
+   * count, outsiders in a searchable picker of their own.
+   */
   const people = useMemo(() => {
-    const onProject = new Set<string>();
-    if (project.leaderId) onProject.add(project.leaderId);
+    const taskCount = new Map<string, number>();
     for (const t of db.tasks) {
-      if (t.projectId === project.id && t.assigneeId) onProject.add(t.assigneeId);
+      if (t.projectId === project.id && t.assigneeId) {
+        taskCount.set(t.assigneeId, (taskCount.get(t.assigneeId) ?? 0) + 1);
+      }
     }
-    const active = db.users.filter((u) => u.active);
-    const toOption = (u: (typeof active)[number]) => ({
-      value: u.id,
-      label: u.fullName,
-      hint: onProject.has(u.id) ? "On this project" : u.departments[0],
-      avatarName: u.fullName,
-    });
-    return [
-      ...active.filter((u) => onProject.has(u.id)).map(toOption),
-      ...active.filter((u) => !onProject.has(u.id)).map(toOption),
-    ];
-  }, [db.tasks, db.users, project]);
+    const active = db.users
+      .filter((u) => u.active)
+      .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    const inside = active.filter((u) => taskCount.has(u.id));
+    return {
+      inside: inside.map((u) => ({ user: u, tasks: taskCount.get(u.id) ?? 0 })),
+      outside: active
+        .filter((u) => !taskCount.has(u.id))
+        .map((u) => ({
+          value: u.id,
+          label: u.fullName,
+          hint: u.departments[0],
+          avatarName: u.fullName,
+        })),
+    };
+  }, [db.tasks, db.users, project.id]);
+  const pickedOutsider = people.outside.some((o) => o.value === userId);
 
   const theirTasks = useMemo(
     () =>
@@ -147,7 +157,7 @@ export function AllotDialog({
       onClose={onClose}
       size="md"
       title="Allot this piece"
-      subtitle={`${entry.caption.trim() || entry.type} · ${project.name}`}
+      subtitle={`${contentLabel(entry)} · ${project.name}`}
       footer={
         <>
           {entry.allottedTo ? (
@@ -171,12 +181,64 @@ export function AllotDialog({
     >
       <div className="flex flex-col gap-4">
         <Field label="Allotment to" required error={touched ? errors.user : undefined}>
-          <SearchSelect
-            options={people}
-            value={userId}
-            onChange={pickUser}
-            placeholder="Pick a team member"
-          />
+          <div className="flex flex-col gap-3">
+            <div className="rounded-card border border-brand-bright/30 bg-brand/5 p-3">
+              <p className="mb-2 text-[11px] font-medium tracking-wide text-brand-ink uppercase">
+                On this project ({people.inside.length})
+              </p>
+              {people.inside.length === 0 ? (
+                <p className="text-[12px] text-ink-faint">Nobody holds a task here yet.</p>
+              ) : (
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {people.inside.map(({ user: u, tasks }) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      aria-pressed={userId === u.id}
+                      onClick={() => pickUser(u.id)}
+                      className={cx(
+                        "flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
+                        userId === u.id
+                          ? "border-brand-bright/60 bg-brand/15"
+                          : "border-line-soft bg-surface hover:border-brand-bright/40",
+                      )}
+                    >
+                      <Avatar name={u.fullName} size={24} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-ink">
+                          {u.fullName}
+                        </span>
+                        <span className="block truncate text-[11px] text-ink-faint">
+                          {tasks} {tasks === 1 ? "task" : "tasks"} here · {u.departments[0] ?? ""}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div
+              className={cx(
+                "rounded-card border border-dashed p-3",
+                pickedOutsider ? "border-st-submitted/50 bg-st-submitted/5" : "border-line",
+              )}
+            >
+              <p className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                Someone outside the project
+              </p>
+              <SearchSelect
+                allowClear
+                options={people.outside}
+                value={pickedOutsider ? userId : ""}
+                onChange={(v) => (v ? pickUser(v) : pickUser(""))}
+                placeholder="Search everyone else…"
+              />
+              <p className="mt-1.5 text-[11px] text-ink-faint">
+                They have no task here, so a new task is created for them on this project.
+              </p>
+            </div>
+          </div>
         </Field>
 
         {userId ? (
@@ -348,7 +410,7 @@ function blankTask(
   const start = nextWorkingDay(from, calendar);
   const due = addWorkingDays(start, 2, calendar);
   return {
-    title: `Design — ${entry.caption.trim() || entry.type}`,
+    title: `Design — ${contentLabel(entry)}`,
     department:
       userDepartments?.find((d) => departments.includes(d)) ?? userDepartments?.[0] ?? "",
     priority: "Medium",

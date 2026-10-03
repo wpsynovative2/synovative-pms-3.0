@@ -639,6 +639,14 @@ export interface ContentEntry {
   projectId: string;
   /** The writer's task, when the piece was written for one. */
   taskId: string | null;
+  /** The piece's name; slots start as "<task> Count <n>" (0026). */
+  title: string;
+  /**
+   * Which of a content task's target pieces this is, 1..contentCount. The
+   * database creates and removes slots with the task; null for extras and
+   * for library pieces.
+   */
+  slot: number | null;
   date: string;
   type: ContentType;
   /** Rich text — what appears on the creative itself. */
@@ -668,25 +676,50 @@ export interface ContentEntry {
   createdAt: string;
 }
 
+/** Rich text counts as empty once its tags are stripped. Mirrors content_is_empty() (0026). */
+const richEmpty = (html: string) =>
+  html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim().length === 0;
+
+/** Nothing written in the piece yet — an untouched slot. */
+export const isContentEmpty = (e: ContentEntry) =>
+  richEmpty(e.onPic) &&
+  richEmpty(e.description) &&
+  !e.caption.trim() &&
+  e.referenceLinks.length === 0;
+
+/** What a piece is called wherever it is listed. */
+export const contentLabel = (e: Pick<ContentEntry, "title" | "caption" | "type">) =>
+  e.title.trim() || e.caption.trim() || e.type;
+
 /** How far through a content task we are. */
 export interface ContentProgress {
-  /** The denominator: the count asked for, or the number written if that is more. */
-  total: number;
-  written: number;
-  /** Written pieces the writer has given a stage. */
+  /** The count asked for. */
+  target: number;
+  /** Target pieces with something written in them. */
+  filled: number;
+  /** Pieces written beyond the target. */
+  extras: number;
+  /** Pieces the writer has given a stage. */
   staged: number;
-  /** 0–100, written against the total, for the bar. */
+  /** 0–100, filled against the target, for the bar. */
   percent: number;
+  /** "3/5", or "3/5 + 2" once extras exist. */
+  label: string;
 }
 
 export function contentProgress(task: Task, entries: ContentEntry[]): ContentProgress {
   const mine = entries.filter((e) => e.taskId === task.id);
-  const total = Math.max(task.contentCount, mine.length);
+  const slots = mine.filter((e) => e.slot !== null);
+  const target = task.contentCount;
+  const filled = slots.filter((e) => !isContentEmpty(e)).length;
+  const extras = mine.length - slots.length;
   return {
-    total,
-    written: mine.length,
+    target,
+    filled,
+    extras,
     staged: mine.filter((e) => e.stage).length,
-    percent: total === 0 ? 0 : Math.round((mine.length / total) * 100),
+    percent: target === 0 ? 0 : Math.min(100, Math.round((filled / target) * 100)),
+    label: `${filled}/${target}${extras ? ` + ${extras}` : ""}`,
   };
 }
 

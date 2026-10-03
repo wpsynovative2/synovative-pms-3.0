@@ -578,6 +578,7 @@ export type ContentInput = Omit<
   | "stage"
   | "allottedTo"
   | "allottedTaskId"
+  | "slot"
 >;
 
 /**
@@ -835,7 +836,7 @@ const actions = {
     const rows = projectTaskRows(created, tasks);
 
     void commit(
-      ["projects", "tasks"],
+      withSlots(["projects", "tasks"], rows.some((t) => t.kind === "content")),
       (db) => ({ ...db, projects: [created, ...db.projects], tasks: [...db.tasks, ...rows] }),
       async (c) => {
         await insertProject(c, created);
@@ -910,7 +911,8 @@ const actions = {
       remarks: [],
     };
     void commit(
-      ["tasks"],
+      // A content task's slots are laid out by the database (0026).
+      withSlots(["tasks"], task.kind === "content"),
       (db) => ({ ...db, tasks: [...db.tasks, task] }),
       (c) =>
         run(
@@ -932,9 +934,13 @@ const actions = {
     const status = reassigned ? (patch.status ?? "Not Started") : (patch.status ?? before.status);
     const effective: Partial<Task> = { ...patch, status };
     const isIndividual = (patch.projectId ?? before.projectId) === null;
+    // Slots follow a content task's target, assignee and title (0026).
+    const slotsMove =
+      before.kind === "content" &&
+      ("contentCount" in patch || "assigneeId" in patch || "title" in patch);
 
     void commit(
-      ["tasks"],
+      withSlots(["tasks"], slotsMove),
       (db) => mapTask(db, id, (t) => ({ ...t, ...effective })),
       (c) => {
         const columns: Record<string, unknown> = patchColumns(effective, TASK_COLUMNS);
@@ -947,8 +953,9 @@ const actions = {
   },
 
   deleteTask(id: string) {
+    const isBatch = state.db.tasks.find((t) => t.id === id)?.kind === "content";
     void commit(
-      ["tasks"],
+      withSlots(["tasks"], isBatch),
       (db) => ({ ...db, tasks: db.tasks.filter((t) => t.id !== id) }),
       (c) => run(c.from("tasks").delete().eq("id", id)),
     );
@@ -1424,6 +1431,11 @@ const linkActions = {
     );
   },
 };
+
+/** Content tasks also change the Content Bank, where their slots live. */
+function withSlots(scopes: Scope[], content: boolean): Scope[] {
+  return content ? [...scopes, "content"] : scopes;
+}
 
 /* ----------------------------------------------------------------- CRM */
 
@@ -1911,7 +1923,7 @@ const crmActions = {
     const done = services.length > 0 && services.every(isAllotted);
 
     void commit(
-      ["crm", "projects", "tasks"],
+      withSlots(["crm", "projects", "tasks"], rows.some((t) => t.kind === "content")),
       (db) => ({
         ...db,
         projects: [created, ...db.projects],
@@ -2016,6 +2028,8 @@ const crmActions = {
       stage: null,
       allottedTo: null,
       allottedTaskId: null,
+      // Only the database lays out slots; anything a writer adds is an extra.
+      slot: null,
       createdBy: me(),
       createdAt: now(),
     };

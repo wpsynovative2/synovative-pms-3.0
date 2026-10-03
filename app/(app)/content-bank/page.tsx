@@ -34,6 +34,7 @@ import {
   CONTENT_BILLING_TYPES,
   CONTENT_STAGES,
   CONTENT_TYPES,
+  isContentEmpty,
   type ContentBillingType,
   type ContentEntry,
   type ContentStage,
@@ -91,8 +92,10 @@ export default function ContentBankPage() {
    */
   const visible = useMemo(
     () =>
-      db.contentEntries.filter((e) =>
-        canViewContentEntry(user, e, db.projects, db.tasks),
+      db.contentEntries.filter(
+        (e) =>
+          // An untouched slot is a placeholder on its task, not library content.
+          !isContentEmpty(e) && canViewContentEntry(user, e, db.projects, db.tasks),
       ),
     [db.contentEntries, db.projects, db.tasks, user],
   );

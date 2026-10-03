@@ -41,6 +41,7 @@ import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects"
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { addDays, addWorkingDays, formatDate, todayISO } from "@/lib/calendar";
 import {
+  CONTENT_WRITER_DEPARTMENT,
   OBC_STATUS_LABEL,
   OBC_STATUS_STYLE,
   PRIORITIES,
@@ -746,7 +747,7 @@ interface TaskDraft {
   dueDate: string;
   /*
    * A content task is a batch: "five reels" is one task carrying five pieces,
-   * each written, allotted and approved on its own. It is fixed once the task
+   * each written and given a status on its own. It is fixed once the task
    * exists - pieces hang off it - but freely changeable here, where nothing
    * has been created yet.
    */
@@ -909,7 +910,8 @@ function ConvertModal({
         key: crypto.randomUUID(),
         title,
         description: "",
-        department: "",
+        // A content task starts with the writers' desk.
+        department: kind === "content" ? CONTENT_WRITER_DEPARTMENT : "",
         assigneeId: "",
         priority,
         estimatedHours: WORKDAY_HOURS / 2,
@@ -1210,6 +1212,9 @@ function ConvertModal({
                           setDraft(d.key, {
                             kind,
                             contentCount: kind === "content" ? Math.max(1, d.contentCount) : 0,
+                            ...(kind === "content" && d.department !== CONTENT_WRITER_DEPARTMENT
+                              ? { department: CONTENT_WRITER_DEPARTMENT, assigneeId: "" }
+                              : {}),
                           });
                         }}
                         aria-label={`Type of task ${i + 1}`}
@@ -1235,9 +1240,8 @@ function ConvertModal({
 
                     {d.kind === "content" ? (
                       <p className="-mt-1 text-[11px] text-ink-faint">
-                        The writer drafts each piece in the Content Bank and may hand any
-                        of them to someone else. Each is approved on its own, and the task
-                        closes itself once they all are.
+                        The writer drafts each piece in the Content Bank and sets its
+                        status; the task is submitted and reviewed as a whole.
                       </p>
                     ) : null}
 

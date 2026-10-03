@@ -339,7 +339,14 @@ triggers and existing rows depend on the words.
 one submit/review cycle; `content` is a *batch* — "five reels" is one task
 carrying five Content Bank pieces. `tasks.content_count` is the target, a
 floor rather than a ceiling: the writer may add more and the denominator
-follows whichever is larger (`contentProgress` in `lib/types.ts`). Pieces are
+follows whichever is larger (`contentProgress` in `lib/types.ts`). Since `0026`
+the target pieces exist from the moment the task does: a trigger on `tasks`
+lays out *slots* (`content_bank.slot` 1..N, titled "<task> Count n") owned by
+the task's assignee, adds or trims empty slots when the count changes, moves
+empty ones to a new assignee, and refuses a direct delete of a slot. The writer
+fills slots in; anything added beyond them is an *extra* (`slot` null, billed
+Extra by default) and the count reads "3/5 + 2". Empty slots are hidden from the
+Content Bank and project lists (`isContentEmpty`). Pieces are
 **not** reviewed one by one: since `0024` the writer reports where each piece
 has got to through its stage (shown as "Status" — Ready To Move, Design
 Completed, Scheduled, Cancelled, Carry Forwarded, via `set_content_stage`), and
@@ -395,6 +402,7 @@ exists as a file of its own).
 | `0023_property_clients.sql` | A property lists several client contacts (`property_clients`); `properties.client_id` stays as the first |
 | `0024_content_without_review.sql` | Per-piece content review removed; the writer sets each piece's stage and the content task is reviewed as a task |
 | `0025_content_allotment_task.sql` | Allotting is managers / Project Leader / Team Leaders only, and always onto one of the allottee's tasks (`allotted_task_id`) |
+| `0026_content_slots.sql` | Content tasks get their target pieces as empty slots (`title`, `slot`), kept in step with the task by trigger |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

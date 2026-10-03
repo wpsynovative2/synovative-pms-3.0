@@ -11,6 +11,7 @@ import { RichTextEditor } from "@/components/ui/rich-text";
 import { SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
+  CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
   REVIEWER_ONLY_STATUSES,
   TASK_STATUSES,
@@ -98,7 +99,7 @@ export function TaskFormModal({
   const [templateId, setTemplateId] = useState("");
   /*
    * A content task is a batch: "five reels" is one task carrying five pieces,
-   * each written, handed out and approved on its own. The kind is fixed once
+   * each written and given a status on its own. The kind is fixed once
    * the task exists - pieces already hang off it - but the count is a target
    * and stays editable.
    */
@@ -277,13 +278,22 @@ export function TaskFormModal({
               hint={
                 task
                   ? "Fixed once the task exists."
-                  : "A content task carries several pieces, each approved on its own."
+                  : "A content task carries several pieces, written in the Content Bank."
               }
             >
               <Select
                 value={kind}
                 disabled={!!task}
-                onChange={(e) => setKind(e.target.value as TaskKind)}
+                onChange={(e) => {
+                  const next = e.target.value as TaskKind;
+                  setKind(next);
+                  // Content is written by the writers' desk, so that is the
+                  // department a content task starts in. Still changeable.
+                  if (next === "content" && form.department !== CONTENT_WRITER_DEPARTMENT) {
+                    set("department", CONTENT_WRITER_DEPARTMENT);
+                    set("assigneeId", "");
+                  }
+                }}
               >
                 <option value="standard">Standard task</option>
                 <option value="content">Content task</option>

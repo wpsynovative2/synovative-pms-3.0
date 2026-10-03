@@ -328,8 +328,12 @@ export const canWriteContent = (u: User) =>
 export const canEditContentEntry = (u: User, entry: ContentEntry) =>
   canWriteContent(u) && entry.createdBy === u.id;
 
+/**
+ * A slot is one of the pieces a content task asked for; it is cleared rather
+ * than deleted, and the database refuses the delete (0026).
+ */
 export const canDeleteContentEntry = (u: User, entry: ContentEntry) =>
-  canEditContentEntry(u, entry) || canDeleteCrm(u);
+  entry.slot === null && (canEditContentEntry(u, entry) || canDeleteCrm(u));
 
 /**
  * Reading follows the project: anyone holding at least one task on it — plus

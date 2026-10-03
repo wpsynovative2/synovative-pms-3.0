@@ -12,6 +12,7 @@ import { useStore, type ContentInput } from "@/lib/store";
 import {
   CONTENT_BILLING_TYPES,
   CONTENT_TYPES,
+  contentLabel,
   type ContentBillingType,
   type ContentEntry,
   type ContentType,
@@ -32,23 +33,29 @@ interface Draft extends ContentInput {
   key: string;
 }
 
-const blank = (projectId: string, taskId: string | null): Draft => ({
+const blank = (
+  projectId: string,
+  taskId: string | null,
+  billingType: ContentBillingType = "Count",
+): Draft => ({
   key: crypto.randomUUID(),
   projectId,
   taskId,
+  title: "",
   date: todayISO(),
   type: "Static Design",
   onPic: "",
   caption: "",
   description: "",
   referenceLinks: [],
-  billingType: "Count",
+  billingType,
 });
 
 const fromEntry = (entry: ContentEntry): Draft => ({
   key: entry.id,
   projectId: entry.projectId,
   taskId: entry.taskId,
+  title: entry.title,
   date: entry.date,
   type: entry.type,
   onPic: entry.onPic,
@@ -75,8 +82,12 @@ export function ContentComposer({
   entry?: ContentEntry;
   onClose: () => void;
 }) {
-  const { db, currentUser, projectById, createContentEntry, updateContentEntry } = useStore();
+  const { db, currentUser, projectById, taskById, createContentEntry, updateContentEntry } =
+    useStore();
   const user = currentUser!;
+  // A content task's target pieces already exist as slots, so anything added
+  // here goes beyond what was asked for - billed extra unless said otherwise.
+  const extraByDefault = !!taskId && taskById(taskId)?.kind === "content";
 
   // Projects the writer actually works on — the same set they may file against.
   const projectOptions = useMemo(() => {
@@ -89,7 +100,9 @@ export function ContentComposer({
   }, [db.projects, db.tasks, user.id, projectId]);
 
   const [drafts, setDrafts] = useState<Draft[]>(() =>
-    entry ? [fromEntry(entry)] : [blank(projectId ?? "", taskId)],
+    entry
+      ? [fromEntry(entry)]
+      : [blank(projectId ?? "", taskId, extraByDefault ? "Extra" : "Count")],
   );
   const [activeKey, setActiveKey] = useState<string>(() => drafts[0]?.key ?? "");
   const [touched, setTouched] = useState(false);
@@ -106,7 +119,7 @@ export function ContentComposer({
     const next: Draft = {
       ...blank(last?.projectId ?? projectId ?? "", last?.taskId ?? taskId),
       date: last?.date ?? todayISO(),
-      billingType: last?.billingType ?? "Count",
+      billingType: last?.billingType ?? (extraByDefault ? "Extra" : "Count"),
     };
     setDrafts((list) => [...list, next]);
     setActiveKey(next.key);
@@ -132,6 +145,7 @@ export function ContentComposer({
       const payload: ContentInput = {
         projectId: d.projectId,
         taskId: d.taskId,
+        title: d.title.trim(),
         date: d.date,
         type: d.type,
         onPic: d.onPic,
@@ -210,7 +224,7 @@ export function ContentComposer({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13px] font-medium text-ink">
-                          {d.caption.trim() || d.type}
+                          {contentLabel(d)}
                         </span>
                         <span className="block truncate text-[11px] text-ink-faint">
                           {d.billingType}
@@ -236,7 +250,7 @@ export function ContentComposer({
                   <IconContent size={16} />
                 </span>
                 <h3 className="text-[15px] font-semibold text-ink">
-                  {active.caption.trim() || active.type}
+                  {contentLabel(active)}
                 </h3>
                 {touched && incomplete(active) ? (
                   <Badge className="border-st-rejected/30 bg-st-rejected/15 text-st-rejected">
@@ -256,6 +270,14 @@ export function ContentComposer({
               </div>
 
               <div className="flex flex-col gap-5">
+                <Field label="Title" hint="What the team calls this piece.">
+                  <Input
+                    value={active.title}
+                    onChange={(e) => setDraft(active.key, { title: e.target.value })}
+                    placeholder="e.g. Navratri offer — static 1"
+                  />
+                </Field>
+
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Field label="Date" required>
                     <DatePicker
