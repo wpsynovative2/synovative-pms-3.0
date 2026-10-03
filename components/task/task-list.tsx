@@ -374,7 +374,7 @@ export function TaskRow({
   const project = task.projectId ? projectById(task.projectId) : null;
   const elapsed = taskElapsedMs(task);
   const running = isTimerRunning(task);
-  // A content task's real progress is its approved pieces, not its status.
+  // A content task also shows how many of its pieces are written.
   const batch = task.kind === "content" ? contentProgress(task, db.contentEntries) : null;
 
   return (
@@ -400,8 +400,11 @@ export function TaskRow({
           <RecurrenceBadge item={task} />
           <OverdueBadge task={task} />
           {batch ? (
-            <span className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink">
-              {batch.approved}/{batch.total}
+            <span
+              title="Pieces written"
+              className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink"
+            >
+              {batch.written}/{batch.total}
             </span>
           ) : null}
         </span>

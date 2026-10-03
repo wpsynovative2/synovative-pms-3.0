@@ -159,7 +159,7 @@ export default function ClientsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((c) => {
             const company = companyById(c.companyId);
-            const properties = db.properties.filter((p) => p.clientId === c.id);
+            const properties = db.properties.filter((p) => p.clientIds.includes(c.id));
             return (
               <Card key={c.id} className="flex flex-col p-4">
                 <div className="flex items-start gap-2.5">
@@ -270,7 +270,7 @@ function ClientDrawer({ client, onClose }: { client: Client; onClose: () => void
   const { db, companyById, userById } = useStore();
   const [pane, setPane] = useState<Pane>("details");
   const company = companyById(client.companyId);
-  const properties = db.properties.filter((p) => p.clientId === client.id);
+  const properties = db.properties.filter((p) => p.clientIds.includes(client.id));
 
   return (
     <Drawer

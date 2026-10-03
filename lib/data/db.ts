@@ -467,6 +467,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     propertyRows,
     configRows,
     folderRows,
+    contactRows,
     obcRows,
     itemRows,
     serviceRows,
@@ -476,6 +477,11 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     fetchAll(sb, "properties", "name", "id"),
     fetchAll(sb, "property_configs", "property_id", "position", "id"),
     fetchAll(sb, "property_drive_folders", "property_id", "name"),
+    // Until 0023 has run there is no list; each property falls back to the one
+    // contact on its row rather than taking the whole CRM scope down with it.
+    fetchAll(sb, "property_clients", "property_id", "position", "client_id").catch(
+      () => null,
+    ),
     fetchAll(sb, "obcs", "created_at", "id"),
     fetchAll(sb, "obc_items", "obc_id", "position", "id"),
     fetchAll(sb, "obc_services", "obc_id", "position", "id"),
@@ -528,12 +534,18 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     url: str(r.url),
   }));
 
+  const contacts = contactRows
+    ? groupBy<string>(contactRows, "property_id", (r) => str(r.client_id))
+    : null;
+
   const properties: Property[] = propertyRows.map((r) => {
     const id = str(r.id);
+    const clientId = nullable(r.client_id);
     return {
       id,
       companyId: str(r.company_id),
-      clientId: nullable(r.client_id),
+      clientId,
+      clientIds: contacts ? (contacts.get(id) ?? []) : clientId ? [clientId] : [],
       name: str(r.name),
       description: str(r.description),
       address: str(r.address),

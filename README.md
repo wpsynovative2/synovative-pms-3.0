@@ -68,6 +68,8 @@ each into the Supabase **SQL editor**, or use `supabase db push` with the CLI:
 | `0020_obc_delivery_services.sql` | The estimate and the work split in two: `obc_items` stays the Zoho estimate (reference), and `obc_services` is the delivery list a Business Development Executive writes by hand and a manager raises work from |
 | `0021_content_tasks.sql` | Content tasks: one task carrying N pieces, each submitted by its writer and approved, rejected or sent back on its own; the task approves itself once the batch stands |
 | `0022_content_stage.sql` | A piece carries a production stage (Ready To Move, Design Completed, Scheduled, Cancelled, Carry Forwarded), and can be allotted or moved on from the piece itself by more people than its writer |
+| `0023_property_clients.sql` | A property can list several client contacts; the first is still the one its Drive folder is named after |
+| `0024_content_without_review.sql` | Content pieces are no longer approved one by one: the writer sets each piece's status, and a content task is submitted and reviewed as a whole |
 
 ### 4. The first Super Admin
 

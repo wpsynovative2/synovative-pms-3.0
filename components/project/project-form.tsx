@@ -112,6 +112,8 @@ interface FormState {
   priority: Priority;
   leaderId: string;
   memberIds: string[];
+  /** Optional — work raised by hand need not belong to a property. */
+  propertyId: string;
 }
 
 export function ProjectFormModal({
@@ -145,6 +147,7 @@ export function ProjectFormModal({
     priority: project?.priority ?? "Medium",
     leaderId: project?.leaderId ?? "",
     memberIds: project?.memberIds ?? [],
+    propertyId: project?.propertyId ?? "",
   });
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(
     project?.recurrence?.rule ?? null,
@@ -186,6 +189,41 @@ export function ProjectFormModal({
     ]);
 
   const template = db.projectTemplates.find((t) => t.id === templateId);
+
+  // A project raised from an OBC takes its chain from the OBC, and edits to
+  // the OBC push it down (updateObc), so the two are never allowed to differ.
+  const chainFromObc = !!project?.obcId;
+
+  const propertyOptions = useMemo(
+    () =>
+      db.properties.map((p) => ({
+        value: p.id,
+        label: p.name,
+        hint: db.companies.find((c) => c.id === p.companyId)?.name,
+      })),
+    [db.properties, db.companies],
+  );
+
+  /** Picking a property fills the client name when nobody has typed one yet. */
+  const pickProperty = (id: string) => {
+    const property = db.properties.find((p) => p.id === id);
+    const company = db.companies.find((c) => c.id === property?.companyId);
+    setForm((f) => ({
+      ...f,
+      propertyId: id,
+      clientName: f.clientName.trim() || !company ? f.clientName : company.name,
+    }));
+  };
+
+  /** The CRM chain a property brings with it; no property, no chain. */
+  const chainFor = (id: string) => {
+    const property = db.properties.find((p) => p.id === id);
+    return {
+      propertyId: property?.id ?? null,
+      companyId: property?.companyId ?? null,
+      clientId: property?.clientId ?? null,
+    };
+  };
 
   const userOptions = useMemo(
     () =>
@@ -302,6 +340,7 @@ export function ProjectFormModal({
       priority: form.priority,
       leaderId: form.leaderId || null,
       memberIds: form.memberIds,
+      ...(chainFromObc ? {} : chainFor(form.propertyId)),
       ...(mayRepeat
         ? { recurrence: seriesFor(project?.recurrence, repeat, form.startDate) }
         : {}),
@@ -384,6 +423,24 @@ export function ProjectFormModal({
             />
           </Field>
         </div>
+
+        <Field
+          label="Property"
+          hint={
+            chainFromObc
+              ? "Set by the OBC this project was raised from."
+              : "Optional. Links the project to a property and its company."
+          }
+        >
+          <SearchSelect
+            allowClear
+            disabled={chainFromObc}
+            options={propertyOptions}
+            value={form.propertyId}
+            onChange={pickProperty}
+            placeholder="No property"
+          />
+        </Field>
 
         <Field label="Project colour" required>
           <ColorPicker

@@ -6,10 +6,14 @@ import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
   IconBuilding,
+  IconChevronDown,
+  IconChevronRight,
+  IconComment,
   IconContact,
   IconEdit,
   IconExternal,
   IconFolder,
+  IconMinutes,
   IconPlus,
   IconProperty,
   IconTrash,
@@ -30,7 +34,7 @@ import {
   Tabs,
   Textarea,
 } from "@/components/ui/primitives";
-import { SearchSelect } from "@/components/ui/selects";
+import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { formatINR } from "@/lib/analytics";
 import {
   CONFIG_STATUS_STYLE,
@@ -175,7 +179,7 @@ export default function PropertiesPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((p) => {
             const company = companyById(p.companyId);
-            const client = clientById(p.clientId);
+            const contacts = contactNames(p, clientById);
             const open = p.configs.filter((c) => c.status === "Open").length;
             return (
               <Card key={p.id} className="flex flex-col p-4">
@@ -207,9 +211,14 @@ export default function PropertiesPage() {
                   ) : null}
                 </div>
 
-                <p className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-muted">
-                  <IconContact size={13} />
-                  {client?.fullName ?? "No client linked"}
+                <p
+                  className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-muted"
+                  title={contacts.join(", ")}
+                >
+                  <IconContact size={13} className="shrink-0" />
+                  <span className="truncate">
+                    {contacts.length ? contacts.join(", ") : "No client linked"}
+                  </span>
                 </p>
 
                 {p.configs.length ? (
@@ -280,6 +289,16 @@ export default function PropertiesPage() {
   );
 }
 
+/** A property's contacts by name, in the order they were listed. */
+function contactNames(
+  property: Property,
+  clientById: (id: string | null | undefined) => { fullName: string } | undefined,
+) {
+  return property.clientIds
+    .map((id) => clientById(id)?.fullName)
+    .filter((n): n is string => !!n);
+}
+
 /* --------------------------------------------------------------- drawer */
 
 type Pane = "details" | "collab";
@@ -299,6 +318,7 @@ function PropertyDrawer({
 
   const company = companyById(property.companyId);
   const client = clientById(property.clientId);
+  const contacts = contactNames(property, clientById);
   const made = !!property.driveFolderId;
 
   const createDirectory = async () => {
@@ -328,7 +348,9 @@ function PropertyDrawer({
       open
       onClose={onClose}
       title={property.name}
-      subtitle={`${company?.name ?? "Unknown company"} · ${client?.fullName ?? "No client linked"}`}
+      subtitle={`${company?.name ?? "Unknown company"} · ${
+        contacts.length ? contacts.join(", ") : "No client linked"
+      }`}
       headerExtra={
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge>{property.configs.length} configurations</Badge>
@@ -494,10 +516,112 @@ function PropertyDrawer({
             </section>
           </div>
         ) : (
-          <CollabPanel entityType="property" entityId={property.id} />
+          <div className="flex flex-col gap-6">
+            <CollabPanel entityType="property" entityId={property.id} />
+            <PropertyProjectsLog propertyId={property.id} />
+          </div>
         )}
       </div>
     </Drawer>
+  );
+}
+
+/**
+ * The projects running on this property, each with its own comments and
+ * minutes, so the property's tab reads as the whole conversation about it.
+ * Only projects the viewer can see are in the store, so nobody is shown a
+ * thread they could not open on the project itself.
+ */
+function PropertyProjectsLog({ propertyId }: { propertyId: string }) {
+  const { db } = useStore();
+  const [openIds, setOpenIds] = useState<string[]>([]);
+
+  const projects = useMemo(
+    () =>
+      db.projects
+        .filter((p) => p.propertyId === propertyId)
+        .sort((a, b) => b.startDate.localeCompare(a.startDate)),
+    [db.projects, propertyId],
+  );
+
+  const counts = useMemo(() => {
+    const comments = new Map<string, number>();
+    const minutes = new Map<string, number>();
+    for (const c of db.comments) {
+      if (c.entityType === "project") comments.set(c.entityId, (comments.get(c.entityId) ?? 0) + 1);
+    }
+    for (const m of db.minutes) {
+      if (m.entityType === "project") minutes.set(m.entityId, (minutes.get(m.entityId) ?? 0) + 1);
+    }
+    return { comments, minutes };
+  }, [db.comments, db.minutes]);
+
+  const toggle = (id: string) =>
+    setOpenIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  return (
+    <section className="border-t border-line-soft pt-5">
+      <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+        Projects on this property ({projects.length})
+      </h3>
+      {projects.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">
+          No project you can see is linked to this property yet.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {projects.map((p) => {
+            const open = openIds.includes(p.id);
+            return (
+              <li key={p.id} className="rounded-card border border-line-soft bg-surface-2">
+                <div className="flex items-center gap-2 px-3 py-2.5">
+                  <button
+                    onClick={() => toggle(p.id)}
+                    aria-expanded={open}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  >
+                    {open ? (
+                      <IconChevronDown size={14} className="shrink-0 text-ink-faint" />
+                    ) : (
+                      <IconChevronRight size={14} className="shrink-0 text-ink-faint" />
+                    )}
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: p.color }}
+                    />
+                    <span className="truncate text-[13px] font-medium text-ink">{p.name}</span>
+                  </button>
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] text-ink-faint"
+                    title="Comments"
+                  >
+                    <IconComment size={12} /> {counts.comments.get(p.id) ?? 0}
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-1 text-[11px] text-ink-faint"
+                    title="Minutes of Meeting"
+                  >
+                    <IconMinutes size={12} /> {counts.minutes.get(p.id) ?? 0}
+                  </span>
+                  <Link
+                    href={`/projects/${p.id}`}
+                    title="Open the project"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-ink-muted hover:text-ink"
+                  >
+                    <IconExternal size={12} />
+                  </Link>
+                </div>
+                {open ? (
+                  <div className="border-t border-line-soft px-3 py-3">
+                    <CollabPanel entityType="project" entityId={p.id} />
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -524,6 +648,7 @@ function PropertyFormModal({
   const [form, setForm] = useState<PropertyInput>({
     companyId: property?.companyId ?? defaultCompanyId ?? "",
     clientId: property?.clientId ?? null,
+    clientIds: property?.clientIds ?? [],
     name: property?.name ?? "",
     description: property?.description ?? "",
     address: property?.address ?? "",
@@ -556,7 +681,7 @@ function PropertyFormModal({
       onClose={onClose}
       size="xl"
       title={property ? "Edit property" : "Add property"}
-      subtitle="Linked to a company and a client, with its unit mix as line items"
+      subtitle="Linked to a company and its contacts, with its unit mix as line items"
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -594,28 +719,29 @@ function PropertyFormModal({
                 setForm((f) => ({
                   ...f,
                   companyId: v,
-                  // The old contact belongs to the old company.
+                  // The old contacts belong to the old company.
                   clientId: null,
+                  clientIds: [],
                 }))
               }
               placeholder="Select a company"
             />
           </Field>
           <Field
-            label="Client"
+            label="Clients"
             hint={
               form.companyId
-                ? "Only this company's contacts are listed."
+                ? "Only this company's contacts are listed. The first one names the Drive folder."
                 : "Pick a company first."
             }
           >
-            <SearchSelect
-              allowClear
+            <MultiSelect
               disabled={!form.companyId}
               options={clientOptions}
-              value={form.clientId ?? ""}
-              onChange={(v) => set("clientId", v || null)}
-              placeholder="Nobody linked yet"
+              value={form.clientIds}
+              onChange={(v) => set("clientIds", v)}
+              placeholder="Search contacts…"
+              emptyLabel="Nobody linked yet"
             />
           </Field>
         </div>

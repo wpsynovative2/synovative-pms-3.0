@@ -1556,7 +1556,7 @@ function ObcFormModal({ obc, onClose }: { obc: Obc | null; onClose: () => void }
   // otherwise — the deck's "filtered by client".
   const propertyOptions = db.properties
     .filter((p) =>
-      form.clientId ? p.clientId === form.clientId : p.companyId === form.companyId,
+      form.clientId ? p.clientIds.includes(form.clientId) : p.companyId === form.companyId,
     )
     .map((p) => ({ value: p.id, label: p.name }));
 

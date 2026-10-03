@@ -413,8 +413,13 @@ export interface DriveFolder {
 export interface Property {
   id: string;
   companyId: string;
-  /** null — the property exists before anyone is named as its contact. */
+  /**
+   * The first of `clientIds`, kept on the row because the Drive folder tree is
+   * named after it. null — the property exists before anyone is named.
+   */
   clientId: string | null;
+  /** Every contact who speaks for this property, in order (0023). */
+  clientIds: string[];
   name: string;
   description: string;
   address: string;
@@ -646,9 +651,8 @@ export interface ContentEntry {
   /** The team member the piece is for. */
   allottedTo: string | null;
   /**
-   * The writer submits a piece, and whoever may review its task decides on it.
-   * A piece written outside a content task stays "Not Started" and nobody is
-   * asked to look at it — the Content Bank is still a library first.
+   * Legacy (0021): the per-piece review verdict. Pieces are no longer
+   * reviewed one by one (0024); the writer reports progress through `stage`.
    */
   status: ContentStatus;
   submittedAt: string | null;
@@ -664,24 +668,20 @@ export interface ContentProgress {
   /** The denominator: the count asked for, or the number written if that is more. */
   total: number;
   written: number;
-  approved: number;
-  /** Written and waiting on a verdict. */
-  submitted: number;
-  /** 0–100, for the bar. */
+  /** Written pieces the writer has given a stage. */
+  staged: number;
+  /** 0–100, written against the total, for the bar. */
   percent: number;
 }
 
 export function contentProgress(task: Task, entries: ContentEntry[]): ContentProgress {
   const mine = entries.filter((e) => e.taskId === task.id);
-  const approved = mine.filter((e) => e.status === "Approved").length;
-  const submitted = mine.filter((e) => e.status === "Submitted").length;
   const total = Math.max(task.contentCount, mine.length);
   return {
     total,
     written: mine.length,
-    approved,
-    submitted,
-    percent: total === 0 ? 0 : Math.round((approved / total) * 100),
+    staged: mine.filter((e) => e.stage).length,
+    percent: total === 0 ? 0 : Math.round((mine.length / total) * 100),
   };
 }
 

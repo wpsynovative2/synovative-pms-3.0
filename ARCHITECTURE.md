@@ -339,14 +339,13 @@ triggers and existing rows depend on the words.
 one submit/review cycle; `content` is a *batch* — "five reels" is one task
 carrying five Content Bank pieces. `tasks.content_count` is the target, a
 floor rather than a ceiling: the writer may add more and the denominator
-follows whichever is larger (`contentProgress` in `lib/types.ts`). Each piece
-carries its own `status` and a `content_reviews` trail. The writer submits a
-piece (`submit_content`); whoever may review the *task* decides on it
-(`review_content`, gated by `can_review_task`). When every piece is approved,
-`sync_content_task` approves the task itself — and re-opens it if a piece
-stops being approved — so the batch and the task can never disagree. Pieces
-written outside a content task stay "Not Started" and answer to nobody; the
-Content Bank is still a library first.
+follows whichever is larger (`contentProgress` in `lib/types.ts`). Pieces are
+**not** reviewed one by one: since `0024` the writer reports where each piece
+has got to through its stage (shown as "Status" — Ready To Move, Design
+Completed, Scheduled, Cancelled, Carry Forwarded, via `set_content_stage`), and
+the content task is submitted and reviewed as a whole like any other task.
+`content_bank.status` and `content_reviews` are legacy from `0021`, kept so
+old decisions are not lost, and nothing writes them any more.
 
 **Content Bank.** Written by Content Writers and Social Media Marketing,
 against a project they hold a task on. The library page groups entries under
@@ -385,6 +384,8 @@ exists as a file of its own).
 | `0020_obc_delivery_services.sql` | The estimate (`obc_items`) and the delivery list (`obc_services`) split apart; allotment moves to the latter |
 | `0021_content_tasks.sql` | Content tasks: `tasks.kind` + `content_count`, per-piece status and `content_reviews` |
 | `0022_content_stage.sql` | `content_bank.stage` (production stage) plus `allot_content` / `set_content_stage` RPCs |
+| `0023_property_clients.sql` | A property lists several client contacts (`property_clients`); `properties.client_id` stays as the first |
+| `0024_content_without_review.sql` | Per-piece content review removed; the writer sets each piece's stage and the content task is reviewed as a task |
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

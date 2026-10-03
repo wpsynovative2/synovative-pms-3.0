@@ -43,9 +43,7 @@ import type {
   CollabEntity,
   Comment,
   Company,
-  ContentDecision,
   ContentEntry,
-  ContentReview,
   ContentStage,
   Database,
   DriveFolder,
@@ -564,10 +562,9 @@ export type ObcInput = Omit<
 >;
 
 /**
- * Writing a piece. The workflow fields are deliberately not here: status,
- * submittedAt and the review trail are moved only by `submitContent` and
- * `reviewContent`, and the stage only by `setContentStage` — each re-checks
- * the rule in the database.
+ * Writing a piece. The stage is deliberately not here: it is moved only by
+ * `setContentStage`, which re-checks the rule in the database. status,
+ * submittedAt and the review trail are legacy (0021) and no longer written.
  */
 export type ContentInput = Omit<
   ContentEntry,
@@ -694,10 +691,6 @@ interface StoreValue {
   updateContentEntry: (id: string, patch: Partial<ContentInput>) => void;
   deleteContentEntry: (id: string) => void;
 
-  /** The writer hands one piece to its reviewer. */
-  submitContent: (entryId: string) => void;
-  /** A verdict on one piece; the content task closes itself once all are approved. */
-  reviewContent: (entryId: string, decision: ContentDecision, remarks: string) => void;
   /** Hand a piece to someone (or take it back) without rewriting it. */
   allotContent: (entryId: string, userId: string | null) => void;
   /** Where the piece has got to after writing. */
@@ -1428,6 +1421,22 @@ function withoutCrmChain(input: NewProjectInput) {
   };
 }
 
+/** A property's contacts, rewritten wholesale like its unit mix. */
+async function rewritePropertyClients(c: SupabaseClient, propertyId: string, clientIds: string[]) {
+  await run(c.from("property_clients").delete().eq("property_id", propertyId));
+  if (clientIds.length) {
+    await run(
+      c.from("property_clients").insert(
+        clientIds.map((clientId, position) => ({
+          property_id: propertyId,
+          client_id: clientId,
+          position,
+        })),
+      ),
+    );
+  }
+}
+
 /**
  * Line items belong to their parent, so they are rewritten wholesale rather
  * than diffed: the form always hands back the complete list.
@@ -1586,15 +1595,29 @@ const crmActions = {
   },
 
   deleteClient(id: string) {
+    // The property survives its contact; it just loses the link. Where they
+    // were the first contact, the next one on the list takes their place.
+    const promoted = state.db.properties
+      .filter((p) => p.clientId === id)
+      .map((p) => ({ id: p.id, clientId: p.clientIds.find((x) => x !== id) ?? null }))
+      .filter((p) => p.clientId);
     void commit(
       ["crm"],
       (db) => ({
         ...db,
         clients: db.clients.filter((x) => x.id !== id),
-        // The property survives its contact; it just loses the link.
-        properties: db.properties.map((p) => (p.clientId === id ? { ...p, clientId: null } : p)),
+        properties: db.properties.map((p) => {
+          if (!p.clientIds.includes(id) && p.clientId !== id) return p;
+          const clientIds = p.clientIds.filter((x) => x !== id);
+          return { ...p, clientIds, clientId: clientIds[0] ?? null };
+        }),
       }),
-      (c) => run(c.from("clients").delete().eq("id", id)),
+      async (c) => {
+        await run(c.from("clients").delete().eq("id", id));
+        for (const p of promoted) {
+          await run(c.from("properties").update({ client_id: p.clientId }).eq("id", p.id));
+        }
+      },
     );
   },
 
@@ -1603,6 +1626,7 @@ const crmActions = {
   createProperty(input: PropertyInput): Property {
     const property: Property = {
       ...input,
+      clientId: input.clientIds[0] ?? null,
       id: newId(),
       driveFolderId: "",
       driveFolderUrl: "",
@@ -1617,16 +1641,21 @@ const crmActions = {
         await run(
           c.from("properties").insert({
             id: property.id,
-            ...patchColumns(input, PROPERTY_COLUMNS),
+            ...patchColumns(property, PROPERTY_COLUMNS),
           }),
         );
         await rewriteConfigs(c, property.id, property.configs);
+        await rewritePropertyClients(c, property.id, property.clientIds);
       },
     );
     return property;
   },
 
-  updateProperty(id: string, patch: Partial<PropertyInput>) {
+  updateProperty(id: string, input: Partial<PropertyInput>) {
+    // The first contact on the list is the one the row carries.
+    const patch = input.clientIds
+      ? { ...input, clientId: input.clientIds[0] ?? null }
+      : input;
     void commit(
       ["crm"],
       (db) => ({
@@ -1639,6 +1668,7 @@ const crmActions = {
           await run(c.from("properties").update(columns).eq("id", id));
         }
         if (patch.configs) await rewriteConfigs(c, id, patch.configs);
+        if (patch.clientIds) await rewritePropertyClients(c, id, patch.clientIds);
       },
     );
   },
@@ -2000,58 +2030,6 @@ const crmActions = {
   },
 
   /* ------------------------------------------------ comments & minutes */
-
-  /**
-   * Submitting and reviewing a piece both go through SECURITY DEFINER
-   * functions, for the same reason the task workflow does: the rule about who
-   * may do it is re-checked in the database rather than trusted from here.
-   * `review_content` also settles the parent content task - all pieces
-   * approved and the task approves itself - so the two can never disagree.
-   */
-  submitContent(entryId: string) {
-    void commit(
-      ["content", "tasks", "notifications"],
-      (db) => ({
-        ...db,
-        contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId
-            ? { ...e, status: "Submitted" as const, submittedAt: now() }
-            : e,
-        ),
-      }),
-      (c) => run(c.rpc("submit_content", { p_content_id: entryId })),
-    );
-  },
-
-  reviewContent(entryId: string, decision: ContentDecision, remarks: string) {
-    const review: ContentReview = {
-      id: newId(),
-      contentId: entryId,
-      byUserId: me(),
-      at: now(),
-      decision,
-      remarks,
-    };
-    void commit(
-      ["content", "tasks", "notifications"],
-      (db) => ({
-        ...db,
-        contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId
-            ? { ...e, status: decision, reviews: [...e.reviews, review] }
-            : e,
-        ),
-      }),
-      (c) =>
-        run(
-          c.rpc("review_content", {
-            p_content_id: entryId,
-            p_decision: decision,
-            p_remarks: remarks,
-          }),
-        ),
-    );
-  },
 
   /*
    * Allotting and staging are narrower than editing, and held by more people

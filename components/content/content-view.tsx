@@ -13,7 +13,7 @@ import { FullScreen } from "@/components/ui/modal";
 import { Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatDate } from "@/lib/calendar";
-import { CONTENT_STAGE_STYLE, TASK_STATUS_STYLE } from "@/lib/master-data";
+import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import {
   canAllotContent,
   canEditContentEntry,
@@ -90,8 +90,7 @@ export function ContentDetailScreen({
 }
 
 export function ContentDetail({ entry }: { entry: ContentEntry }) {
-  const { db, currentUser, userById, projectById, taskById, allotContent, setContentStage } =
-    useStore();
+  const { currentUser, userById, projectById, taskById, allotContent } = useStore();
   const user = currentUser!;
   const writer = userById(entry.createdBy);
   const allotted = userById(entry.allottedTo);
@@ -99,7 +98,6 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
   const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
 
   const mayAllot = canAllotContent(user, entry, task, project);
-  const mayStage = canSetContentStage(user, entry, task, project, db.tasks);
 
   return (
     <div className="flex flex-col gap-5">
@@ -125,26 +123,7 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
           )}
         </Fact>
         <Fact label="Status">
-          {mayStage ? (
-            <Select
-              aria-label="Status"
-              value={entry.stage ?? ""}
-              onChange={(e) =>
-                setContentStage(entry.id, (e.target.value || null) as ContentStage | null)
-              }
-            >
-              <option value="">Not set</option>
-              {CONTENT_STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </Select>
-          ) : entry.stage ? (
-            <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>{entry.stage}</Badge>
-          ) : (
-            <span className="text-[13px] text-ink-faint">Not set</span>
-          )}
+          <ContentStageControl entry={entry} />
         </Fact>
       </Card>
 
@@ -190,38 +169,8 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         )}
       </Section>
 
-      {entry.reviews.length ? (
-        <Section title="Decisions">
-          <ul className="flex flex-col gap-1.5">
-            {[...entry.reviews].reverse().map((r) => (
-              <li
-                key={r.id}
-                className="rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]"
-              >
-                <span className="flex flex-wrap items-center gap-2">
-                  <Badge className={TASK_STATUS_STYLE[r.decision].chip}>{r.decision}</Badge>
-                  <span className="text-[11px] text-ink-faint">
-                    {userById(r.byUserId)?.fullName ?? "Unknown"} · {formatDate(r.at)}
-                  </span>
-                </span>
-                {r.remarks.trim() ? (
-                  <p className="mt-1 leading-relaxed text-ink-muted">{r.remarks}</p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </Section>
-      ) : null}
-
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line-soft pt-3 text-[11px] text-ink-faint">
         <span>Written by {writer?.fullName ?? "Unknown"}</span>
-        {/* Only a piece written for a task is answerable to anyone. */}
-        {entry.taskId ? (
-          <span className="flex items-center gap-1.5">
-            Review
-            <Badge className={TASK_STATUS_STYLE[entry.status].chip}>{entry.status}</Badge>
-          </span>
-        ) : null}
         {project ? (
           <Link href={`/projects/${project.id}`} className="hover:text-ink">
             {project.name}
@@ -229,6 +178,41 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * A piece's status - its stage. The writer sets it, as do the others
+ * set_content_stage() allows (the allottee, the reviewers, the author desks);
+ * everyone else reads it.
+ */
+export function ContentStageControl({ entry }: { entry: ContentEntry }) {
+  const { db, currentUser, projectById, taskById, setContentStage } = useStore();
+  const project = projectById(entry.projectId) ?? null;
+  const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
+
+  if (canSetContentStage(currentUser!, entry, task, project, db.tasks)) {
+    return (
+      <Select
+        aria-label="Status"
+        value={entry.stage ?? ""}
+        onChange={(e) =>
+          setContentStage(entry.id, (e.target.value || null) as ContentStage | null)
+        }
+      >
+        <option value="">Not set</option>
+        {CONTENT_STAGES.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+  return entry.stage ? (
+    <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>{entry.stage}</Badge>
+  ) : (
+    <span className="text-[13px] text-ink-faint">Not set</span>
   );
 }
 
@@ -357,9 +341,6 @@ export function ContentCard({
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
-        {entry.taskId ? (
-          <Badge className={TASK_STATUS_STYLE[entry.status].chip}>{entry.status}</Badge>
-        ) : null}
         {entry.stage ? (
           <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>{entry.stage}</Badge>
         ) : null}
