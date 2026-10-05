@@ -414,6 +414,7 @@ Since the baseline:
 | File | What it changes |
 | --- | --- |
 | `0009_recurring_blueprints.sql` | Repeating projects / tasks become blueprints; every occurrence (the first included) is created on its date, named for its month |
+| `0010_rls_performance.sql` | Read policies work out the caller's visible projects / tasks once per query (`my_project_ids`, `my_task_ids`) instead of once per row — same visibility, several times faster |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number
@@ -529,6 +530,12 @@ Traps worth naming:
    the event handler instead. This bites whenever you want "keep B in sync with
    A".
 2. **Permission changes need SQL too** (§5). A new migration, not an edit.
+   Project / task *visibility* lives in two SQL places since `0010`:
+   `can_see_project()` / `can_see_task()` (used by write rules and workflow
+   functions) and `my_project_ids()` / `my_task_ids()` (used by the read
+   policies, evaluated once per query). Change one, change the other. In a
+   policy, wrap `auth.uid()` and role checks as `(select …)` and compare arrays
+   as `= any ((select f())::uuid[])`, or Postgres runs them once per row.
 3. **Don't bypass `commit()`** in `store.tsx` (§6).
 4. **Working days, not calendar days** — `addWorkingDays`, not `addDays`, for
    anything a person is expected to deliver on.
