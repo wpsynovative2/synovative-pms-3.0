@@ -1,6 +1,7 @@
 "use client";
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import { splitBlueprints } from "./recurrence";
 import {
   createContext,
   useCallback,
@@ -597,7 +598,14 @@ export interface DriveResult {
 type Result = Promise<{ ok: boolean; error?: string }>;
 
 interface StoreValue {
+  /** Everything the signed-in user may see, minus repeating blueprints. */
   db: Database;
+  /**
+   * Repeating projects and individual tasks are blueprints (0009): the plan
+   * each occurrence is copied from. They live on the Recurrence page only, so
+   * they are kept out of `db` and handed out here.
+   */
+  blueprints: { projects: Project[]; tasks: Task[] };
   /** False until we know who is signed in and their data has loaded. */
   ready: boolean;
   /** False when .env.local lacks the Supabase keys. */
@@ -831,22 +839,29 @@ const actions = {
     };
     const rows = projectTaskRows(created, tasks);
 
+    const blueprint = !!created.recurrence;
     void commit(
-      withSlots(["projects", "tasks"], rows.some((t) => t.kind === "content")),
+      blueprint
+        ? ["projects", "tasks", "content", "notifications"]
+        : withSlots(["projects", "tasks"], rows.some((t) => t.kind === "content")),
       (db) => ({ ...db, projects: [created, ...db.projects], tasks: [...db.tasks, ...rows] }),
       async (c) => {
         await insertProject(c, created);
         if (rows.length) {
           await run(c.from("tasks").insert(rows.map((t) => ({ ...taskRow(t), created_by: me() }))));
         }
+        // A blueprint whose first date is today is copied now, not at 00:05.
+        if (blueprint) await run(c.rpc("run_due_recurrences"));
       },
     );
     return created;
   },
 
   updateProject(id: string, patch: Partial<Project>) {
+    // Moving a blueprint's first date to today makes it due now.
+    const blueprint = !!state.db.projects.find((p) => p.id === id)?.recurrence;
     void commit(
-      ["projects"],
+      blueprint ? ["projects", "tasks", "content", "notifications"] : ["projects"],
       (db) => ({ ...db, projects: db.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)) }),
       async (c) => {
         const columns: Record<string, unknown> = patchColumns(patch, PROJECT_COLUMNS);
@@ -872,6 +887,7 @@ const actions = {
             );
           }
         }
+        if (blueprint && patch.startDate) await run(c.rpc("run_due_recurrences"));
       },
     );
   },
@@ -906,18 +922,22 @@ const actions = {
       reviews: [],
       remarks: [],
     };
+    const blueprint = !!task.recurrence;
     void commit(
       // A content task's slots are laid out by the database (0026).
-      withSlots(["tasks"], task.kind === "content"),
+      blueprint ? ["tasks", "notifications"] : withSlots(["tasks"], task.kind === "content"),
       (db) => ({ ...db, tasks: [...db.tasks, task] }),
-      (c) =>
-        run(
+      async (c) => {
+        await run(
           c.from("tasks").insert({
             ...taskRow(task),
             created_by: me(),
             ...seriesColumns(task.recurrence),
           }),
-        ),
+        );
+        // A repeating task whose first date is today is copied now.
+        if (blueprint) await run(c.rpc("run_due_recurrences"));
+      },
     );
     return task;
   },
@@ -2217,7 +2237,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     void init();
   }, []);
 
-  const { db, auth, userId, toasts } = snapshot;
+  const { db: everything, auth, userId, toasts } = snapshot;
+
+  // Blueprints are taken out once here, so no page has to remember to.
+  const { db, blueprints } = useMemo(() => {
+    const split = splitBlueprints(everything.projects, everything.tasks);
+    const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
+    return {
+      db: {
+        ...everything,
+        projects: split.projects,
+        tasks: split.tasks,
+        contentEntries: everything.contentEntries.filter(
+          (e) => !e.taskId || !hiddenTasks.has(e.taskId),
+        ),
+      },
+      blueprints: { projects: split.blueprintProjects, tasks: split.blueprintTasks },
+    };
+  }, [everything]);
 
   const currentUser = useMemo(
     () => (auth === "signed-in" ? (db.users.find((u) => u.id === userId) ?? null) : null),
@@ -2228,8 +2265,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (id: string | null | undefined) => (id ? db.users.find((u) => u.id === id) : undefined),
     [db.users],
   );
-  const projectById = useCallback((id: string) => db.projects.find((p) => p.id === id), [db.projects]);
-  const taskById = useCallback((id: string) => db.tasks.find((t) => t.id === id), [db.tasks]);
+  // Lookups by id still find a blueprint: a link or a form handed one by the
+  // Recurrence page must work. Only lists leave them out.
+  const projectById = useCallback(
+    (id: string) => everything.projects.find((p) => p.id === id),
+    [everything.projects],
+  );
+  const taskById = useCallback(
+    (id: string) => everything.tasks.find((t) => t.id === id),
+    [everything.tasks],
+  );
   const vendorById = useCallback((id: string) => db.vendors.find((v) => v.id === id), [db.vendors]);
   const companyById = useCallback(
     (id: string | null | undefined) => (id ? db.companies.find((x) => x.id === id) : undefined),
@@ -2251,6 +2296,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<StoreValue>(
     () => ({
       db,
+      blueprints,
       ready: auth === "signed-in" || auth === "signed-out",
       configured: isSupabaseConfigured,
       currentUser,
@@ -2272,6 +2318,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       db,
+      blueprints,
       auth,
       currentUser,
       toasts,

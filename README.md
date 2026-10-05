@@ -67,6 +67,12 @@ order, and it ends up identical to a fresh baseline install.
 (`0009_…`, `0010_…`) and run it on every database — new and old are the same
 from here on.
 
+Added since the baseline (run on every database):
+
+| File | What it does |
+| --- | --- |
+| `0009_recurring_blueprints.sql` | A repeating project is a blueprint kept on the Recurrence page; a real project — with its tasks and content tasks, named "<name> – Month Year" — is created on each date it repeats, the first included |
+
 ### 4. The first Super Admin
 
 ```bash

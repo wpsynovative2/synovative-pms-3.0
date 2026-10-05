@@ -295,12 +295,24 @@ labelled in the picker**, not merely rejected on submit. HR overrides re-open
 specific days. Task dates are also bounded by the project window (§9.1). Use
 `addWorkingDays` / `nextWorkingDay` / `snapToWorkingDay`, never raw date maths.
 
-**Recurrence.** A repeating project or individual task stores a
-`RecurrenceSeries` on the *source*, which is occurrence #1 and the template
-every later copy is made from. Generated occurrences carry a `SeriesLink` back.
-A `pg_cron` job at 00:05 IST materialises what is due. Pausing skips the dates
-it covers rather than banking them. Only Super Admin / Admin / Manager may set
-a rule (`canSetRecurrence`).
+**Recurrence.** A repeating project or individual task is a **blueprint**
+(`0009`): the plan each occurrence is copied from. It is set up on the
+Recurrence page only (the project and task forms offer *Repeat* only when opened
+with `recurring`), and anything carrying a `RecurrenceSeries` is a blueprint —
+copies never carry one. The store splits blueprints out of `db` and hands them
+out as `blueprints`, so no other page lists them; `projectById` / `taskById`
+still find them by id. In SQL, `is_blueprint_project()` keeps them quiet: no
+assignment or overdue notifications, no timers, no content slots.
+
+A `pg_cron` job at 00:05 IST creates **every** occurrence, the first included,
+as a real project (tasks, content tasks with their slots, members, services,
+company / client / property) or task, named by `occurrence_name()` —
+"<name> – November 2026", or the name with `[Month]` / `[Year]` filled in. Each
+copy carries a `SeriesLink` back to its blueprint. Saving a blueprint calls
+`run_due_recurrences()`, so one whose first date is today appears at once.
+Pausing skips the dates it covers rather than banking them. Deleting a blueprint
+ends the series and keeps everything it created. Only Super Admin / Admin /
+Manager may set a rule (`canSetRecurrence`).
 
 **Templates → project (§13).** Applying a template on the create-project form
 pre-fills the project *and* seeds an editable list of task rows. Rows follow
@@ -396,6 +408,12 @@ From here the folder is **append-only**: never edit a shipped file — add
 deployed databases have already run the old file, and Postgres cannot use a new
 enum value in the same transaction that adds it, so an `alter type … add value`
 needs a file of its own before anything uses the value.
+
+Since the baseline:
+
+| File | What it changes |
+| --- | --- |
+| `0009_recurring_blueprints.sql` | Repeating projects / tasks become blueprints; every occurrence (the first included) is created on its date, named for its month |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

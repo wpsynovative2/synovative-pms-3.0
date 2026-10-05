@@ -54,8 +54,7 @@ import {
 } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatINR, projectStats } from "@/lib/analytics";
-import { formatDate, formatDateTime, snapToWorkingDay } from "@/lib/calendar";
-import { describeRule, upcomingOccurrences } from "@/lib/recurrence";
+import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
   EXPENSE_STATUS_STYLE,
   PRIORITY_STYLE,
@@ -163,6 +162,23 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     );
   }
 
+  // A blueprint is a plan, not a project (0009); it is managed in Recurrence.
+  if (project.recurrence) {
+    return (
+      <Card>
+        <EmptyState
+          title="This is a repeating project's blueprint"
+          body="Projects are created from it on each date it repeats. Its tasks and rule are managed on the Recurrence page."
+          action={
+            <Button onClick={() => router.push(`/recurrence?series=${project.id}`)}>
+              Open in Recurrence
+            </Button>
+          }
+        />
+      </Card>
+    );
+  }
+
   if (!canViewProject(user, project, db.tasks)) {
     return (
       <Card>
@@ -224,14 +240,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const mayAddExpense = canAddExpense(user, project);
   const mayReviewExpense = canReviewExpense(user);
 
-  // Repeating series (source) or one of its generated copies.
-  const series = project.recurrence;
-  const nextOccurrence = series
-    ? upcomingOccurrences(series.rule, series.anchor, series.cursor, 1)[0]
-    : undefined;
-  const seriesSource = project.series
-    ? db.projects.find((p) => p.id === project.series!.sourceId)
-    : undefined;
+  // A copy made by a repeating blueprint links back to it in Recurrence.
+  const seriesSource = project.series ? projectById(project.series.sourceId) : undefined;
 
   const underReview = tasks.filter((t) => UNDER_REVIEW.includes(t.status));
   const forReview = underReview.filter((t) => isMyReviewQueue(user, t, project));
@@ -273,24 +283,12 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                 {formatDate(project.startDate)} → {formatDate(project.deadline)}
               </Badge>
             </div>
-            {series ? (
-              <p className="mt-2.5 text-[12px] text-ink-muted">
-                Repeats {describeRule(series.rule, series.anchor).replace(/^./, (c) => c.toLowerCase())}.{" "}
-                {nextOccurrence ? (
-                  <span className="text-ink-faint">
-                    Next copy on {formatDate(snapToWorkingDay(nextOccurrence.date, db.calendar))}{" "}
-                    (repeat #{nextOccurrence.index}).
-                  </span>
-                ) : (
-                  <span className="text-ink-faint">No more repeats to come.</span>
-                )}
-              </p>
-            ) : project.series ? (
+            {project.series ? (
               <p className="mt-2.5 text-[12px] text-ink-muted">
                 Repeat #{project.series.index} of{" "}
                 {seriesSource ? (
                   <Link
-                    href={`/projects/${seriesSource.id}`}
+                    href={`/recurrence?series=${seriesSource.id}`}
                     className="text-brand-ink hover:underline"
                   >
                     {seriesSource.name}
@@ -919,11 +917,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           router.push("/projects");
         }}
         title="Delete this project?"
-        body={
-          series
-            ? "Its tasks, time logs and expenses are removed too, and the series stops repeating. Copies already created are kept. This cannot be undone."
-            : "Its tasks, time logs and expenses are removed too. This cannot be undone."
-        }
+        body="Its tasks, time logs and expenses are removed too. This cannot be undone."
       />
     </div>
   );

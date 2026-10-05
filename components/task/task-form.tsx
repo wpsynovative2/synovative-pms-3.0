@@ -53,6 +53,7 @@ export function TaskFormModal({
   defaultTitle,
   defaultDescription,
   onCreated,
+  recurring = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -71,6 +72,8 @@ export function TaskFormModal({
    * was raised from, which is how an OBC's quoted lines find their task.
    */
   onCreated?: (created: Task) => void;
+  /** Opened from the Recurrence page: a repeating blueprint, rule required. */
+  recurring?: boolean;
 }) {
   const { db, currentUser, createTask, updateTask } = useStore();
   const calendar = db.calendar;
@@ -114,6 +117,7 @@ export function TaskFormModal({
   // Individual tasks repeat on their own (project tasks repeat with their
   // project); only the series source carries the rule.
   const mayRepeat =
+    recurring &&
     mode === "individual" &&
     !!currentUser &&
     canSetRecurrence(currentUser) &&
@@ -164,7 +168,11 @@ export function TaskFormModal({
       (form.dueDate < form.startDate
         ? "The due date must be on or after the start date."
         : undefined),
-    repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
+    repeat: mayRepeat
+      ? repeat
+        ? ruleError(repeat, form.startDate)
+        : "Pick how often it repeats."
+      : undefined,
     contentCount:
       isContent && (!contentCount || Number.isNaN(pieces) || pieces < 1)
         ? "How many pieces? At least one."
@@ -230,7 +238,11 @@ export function TaskFormModal({
       open={open}
       onClose={onClose}
       title={
-        task
+        recurring
+          ? task
+            ? "Edit repeating task"
+            : "New repeating task"
+          : task
           ? isContent
             ? "Edit content task"
             : "Edit task"
@@ -460,7 +472,7 @@ export function TaskFormModal({
             label="Repeat"
             hint={
               repeat
-                ? "Each repeat creates a fresh copy of this task for the same assignee, with the due date moved by the same amount."
+                ? "On each date a task named “<title> – <Month> <Year>” is created for the same assignee, with the due date moved by the same amount."
                 : undefined
             }
           >
@@ -475,7 +487,7 @@ export function TaskFormModal({
         ) : task?.series ? (
           <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
             Repeat #{task.series.index} of a repeating task. The repeat rule is edited on
-            the original task.
+            the Recurrence page.
           </p>
         ) : null}
 

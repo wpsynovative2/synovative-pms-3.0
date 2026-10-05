@@ -122,13 +122,19 @@ export function ProjectFormModal({
   onClose,
   project,
   onCreated,
+  recurring = false,
 }: {
   open: boolean;
   onClose: () => void;
   project?: Project;
   onCreated?: (p: Project) => void;
+  /**
+   * Opened from the Recurrence page: this is a repeating blueprint, and the
+   * repeat rule is required. Everywhere else a project does not repeat.
+   */
+  recurring?: boolean;
 }) {
-  const { db, currentUser, createProjectWithTasks, updateProject } = useStore();
+  const { db, currentUser, projectById, createProjectWithTasks, updateProject } = useStore();
 
   const defaultStart = nextWorkingDay(todayISO(), db.calendar);
   const [templateId, setTemplateId] = useState("");
@@ -156,11 +162,10 @@ export function ProjectFormModal({
   const [drafts, setDrafts] = useState<TaskDraft[]>([]);
   const [touched, setTouched] = useState(false);
 
-  // Only the source of a series carries the rule; generated copies don't repeat.
-  const mayRepeat = !!currentUser && canSetRecurrence(currentUser) && !project?.series;
-  const seriesSource = project?.series
-    ? db.projects.find((p) => p.id === project.series!.sourceId)
-    : undefined;
+  // Only a blueprint carries the rule (0009); copies and ordinary projects don't.
+  const mayRepeat =
+    recurring && !!currentUser && canSetRecurrence(currentUser) && !project?.series;
+  const seriesSource = project?.series ? projectById(project.series.sourceId) : undefined;
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -314,7 +319,11 @@ export function ProjectFormModal({
       form.deadline < form.startDate
         ? "The deadline must be on or after the start date."
         : undefined,
-    repeat: mayRepeat ? ruleError(repeat, form.startDate) : undefined,
+    repeat: mayRepeat
+      ? repeat
+        ? ruleError(repeat, form.startDate)
+        : "Pick how often it repeats."
+      : undefined,
     tasks: drafts.some(
       (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
     )
@@ -372,11 +381,21 @@ export function ProjectFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={project ? "Edit project" : "Create project"}
+      title={
+        recurring
+          ? project
+            ? "Edit repeating project"
+            : "New repeating project"
+          : project
+            ? "Edit project"
+            : "Create project"
+      }
       subtitle={
-        project
-          ? undefined
-          : "Start blank, or pick a template to create the project and its tasks together."
+        recurring
+          ? "A blueprint: on each date it repeats, a project with these tasks is created in Projects."
+          : project
+            ? undefined
+            : "Start blank, or pick a template to create the project and its tasks together."
       }
       size="lg"
       footer={
@@ -469,7 +488,12 @@ export function ProjectFormModal({
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Start date" required error={touched ? errors.startDate : undefined}>
+          <Field
+            label={recurring ? "First date" : "Start date"}
+            required
+            hint={recurring ? "The first project is created on this date." : undefined}
+            error={touched ? errors.startDate : undefined}
+          >
             <DatePicker
               value={form.startDate}
               onChange={(v) => {
@@ -500,9 +524,10 @@ export function ProjectFormModal({
         {mayRepeat ? (
           <Field
             label="Repeat"
+            required
             hint={
               repeat
-                ? "Each repeat creates a copy of this project and its tasks on that date — tasks start fresh as Not Started, with the same assignees."
+                ? "On each date a project named “<name> – <Month> <Year>” is created with these tasks. Write [Month] and [Year] in the name to place them yourself."
                 : undefined
             }
           >
@@ -518,7 +543,7 @@ export function ProjectFormModal({
           <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
             Repeat #{project.series.index} of{" "}
             <span className="text-ink-muted">{seriesSource?.name ?? "a deleted series"}</span>.
-            The repeat rule is edited on the original project.
+            The repeat rule is edited on the Recurrence page.
           </p>
         ) : null}
 

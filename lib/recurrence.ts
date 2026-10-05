@@ -202,13 +202,38 @@ export function totalOccurrences(rule: RecurrenceRule, anchor: string): number |
 /* ---------------------------------------------------------------- series */
 
 /**
- * Where generation starts for a newly enabled series. A future anchor waits for
- * its own date; an anchor already in the past starts from today, so switching
- * repeat on for an old project never backfills weeks of copies.
+ * Where generation starts for a new series: the day before its first date,
+ * because every occurrence - the first included - is a copy made on its own
+ * date (0009). A first date already in the past starts from today, so nothing
+ * is backfilled. The database sets the same value itself (guard_recurrence);
+ * this is only the optimistic copy.
  */
 export function initialCursor(anchor: string): string {
   const today = todayISO();
-  return anchor >= today ? anchor : addDays(today, -1);
+  return anchor >= today ? addDays(anchor, -1) : addDays(today, -1);
+}
+
+/*
+ * A project or individual task that carries a repeat rule is a *blueprint*:
+ * the plan each occurrence is copied from, kept on the Recurrence page and
+ * nowhere else. Copies never carry a rule, so the rule is the mark (0009).
+ */
+export const isBlueprintProject = (p: { recurrence?: RecurrenceSeries | null }) => !!p.recurrence;
+
+export function splitBlueprints<
+  P extends { id: string; recurrence?: RecurrenceSeries | null },
+  T extends { projectId: string | null; recurrence?: RecurrenceSeries | null },
+>(projects: P[], tasks: T[]) {
+  const blueprintIds = new Set(projects.filter(isBlueprintProject).map((p) => p.id));
+  const isBlueprintTask = (t: T) =>
+    !!t.recurrence || (t.projectId !== null && blueprintIds.has(t.projectId));
+  return {
+    blueprintIds,
+    projects: projects.filter((p) => !blueprintIds.has(p.id)),
+    tasks: tasks.filter((t) => !isBlueprintTask(t)),
+    blueprintProjects: projects.filter((p) => blueprintIds.has(p.id)),
+    blueprintTasks: tasks.filter(isBlueprintTask),
+  };
 }
 
 /** The series to store after a form save; keeps the cursor of an existing one. */
