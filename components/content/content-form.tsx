@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { StagePicker, type StageValue } from "@/components/content/stage-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { IconContent, IconPlus, IconTrash } from "@/components/ui/icons";
 import { FullScreen } from "@/components/ui/modal";
 import { Badge, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
-import { todayISO } from "@/lib/calendar";
+import { formatMonth, monthChoices, monthOf, todayISO } from "@/lib/calendar";
+import { canSetContentStage } from "@/lib/permissions";
 import { useStore, type ContentInput } from "@/lib/store";
 import {
   CONTENT_BILLING_TYPES,
@@ -31,17 +33,25 @@ import {
 
 interface Draft extends ContentInput {
   key: string;
+  /**
+   * The status, held with the draft and saved with it. It is moved through
+   * set_content_stage (which re-checks who may) rather than the row itself.
+   */
+  stage: StageValue;
 }
 
 const blank = (
   projectId: string,
   taskId: string | null,
   billingType: ContentBillingType = "Count",
+  forMonth: string = monthOf(todayISO()),
 ): Draft => ({
   key: crypto.randomUUID(),
   projectId,
   taskId,
   title: "",
+  forMonth,
+  stage: { stage: null, date: null },
   date: todayISO(),
   type: "Static Design",
   onPic: "",
@@ -56,6 +66,16 @@ const fromEntry = (entry: ContentEntry): Draft => ({
   projectId: entry.projectId,
   taskId: entry.taskId,
   title: entry.title,
+  forMonth: entry.forMonth,
+  stage: {
+    stage: entry.stage,
+    date:
+      entry.stage === "Scheduled"
+        ? entry.scheduledOn
+        : entry.stage === "Carry Forwarded"
+          ? entry.carryMonth
+          : null,
+  },
   date: entry.date,
   type: entry.type,
   onPic: entry.onPic,
@@ -82,12 +102,22 @@ export function ContentComposer({
   entry?: ContentEntry;
   onClose: () => void;
 }) {
-  const { db, currentUser, projectById, taskById, createContentEntry, updateContentEntry } =
-    useStore();
+  const {
+    db,
+    currentUser,
+    projectById,
+    taskById,
+    createContentEntry,
+    updateContentEntry,
+    setContentStage,
+  } = useStore();
   const user = currentUser!;
+  const task = taskId ? taskById(taskId) : undefined;
   // A content task's target pieces already exist as slots, so anything added
   // here goes beyond what was asked for - billed extra unless said otherwise.
-  const extraByDefault = !!taskId && taskById(taskId)?.kind === "content";
+  const extraByDefault = task?.kind === "content";
+  // New pieces are for the task's month; library pieces for this month.
+  const defaultMonth = monthOf(task?.startDate ?? todayISO());
 
   // Projects the writer actually works on — the same set they may file against.
   const projectOptions = useMemo(() => {
@@ -102,7 +132,7 @@ export function ContentComposer({
   const [drafts, setDrafts] = useState<Draft[]>(() =>
     entry
       ? [fromEntry(entry)]
-      : [blank(projectId ?? "", taskId, extraByDefault ? "Extra" : "Count")],
+      : [blank(projectId ?? "", taskId, extraByDefault ? "Extra" : "Count", defaultMonth)],
   );
   const [activeKey, setActiveKey] = useState<string>(() => drafts[0]?.key ?? "");
   const [touched, setTouched] = useState(false);
@@ -118,6 +148,7 @@ export function ContentComposer({
     const last = drafts[drafts.length - 1];
     const next: Draft = {
       ...blank(last?.projectId ?? projectId ?? "", last?.taskId ?? taskId),
+      forMonth: last?.forMonth ?? defaultMonth,
       date: last?.date ?? todayISO(),
       billingType: last?.billingType ?? (extraByDefault ? "Extra" : "Count"),
     };
@@ -153,14 +184,25 @@ export function ContentComposer({
         description: d.description,
         referenceLinks: d.referenceLinks.map((l) => l.trim()).filter(Boolean),
         billingType: d.billingType,
+        forMonth: d.forMonth,
       };
+      // Writes are queued in order, so the status lands after the piece exists.
+      const id = entry ? entry.id : createContentEntry(payload).id;
       if (entry) updateContentEntry(entry.id, payload);
-      else createContentEntry(payload);
+      const before = entry ? fromEntry(entry).stage : { stage: null, date: null };
+      if (d.stage.stage !== before.stage || d.stage.date !== before.date) {
+        setContentStage(id, d.stage.stage, d.stage.date);
+      }
     }
     onClose();
   };
 
   const project = projectById(active?.projectId);
+  // The writer may always say where their own piece has got to; checked for
+  // the edited entry against the same rule the database uses.
+  const mayStage = entry
+    ? canSetContentStage(user, entry, task ?? null, project ?? null, db.tasks)
+    : true;
 
   return (
     <FullScreen
@@ -277,6 +319,40 @@ export function ContentComposer({
                     placeholder="e.g. Navratri offer — static 1"
                   />
                 </Field>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Content for month" required>
+                    <Select
+                      value={active.forMonth}
+                      onChange={(e) => {
+                        const forMonth = e.target.value;
+                        // A carry-forward month has to stay after this one.
+                        const stage =
+                          active.stage.stage === "Carry Forwarded" &&
+                          active.stage.date &&
+                          active.stage.date <= forMonth
+                            ? { stage: null, date: null }
+                            : active.stage;
+                        setDraft(active.key, { forMonth, stage });
+                      }}
+                    >
+                      {monthChoices(defaultMonth, active.forMonth).map((m) => (
+                        <option key={m} value={m}>
+                          {formatMonth(m)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  {mayStage ? (
+                    <Field label="Status" hint="Scheduled asks for a date, Carry Forwarded for a month.">
+                      <StagePicker
+                        value={active.stage}
+                        forMonth={active.forMonth}
+                        onChange={(stage) => setDraft(active.key, { stage })}
+                      />
+                    </Field>
+                  ) : null}
+                </div>
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Field label="Date" required>

@@ -29,6 +29,7 @@ import {
   canViewContentEntry,
   canWriteContent,
 } from "@/lib/permissions";
+import { formatMonth } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import {
   CONTENT_BILLING_TYPES,
@@ -71,6 +72,7 @@ export default function ContentBankPage() {
   const [scope, setScope] = useState<Scope>("all");
   const [query, setQuery] = useState("");
   const [type, setType] = useState<ContentType | "all">("all");
+  const [forMonth, setForMonth] = useState("");
   const [projectId, setProjectId] = useState(params.get("project") ?? "");
   const [assigneeId, setAssigneeId] = useState("");
   const [writerId, setWriterId] = useState("");
@@ -111,6 +113,7 @@ export default function ContentBankPage() {
     return scoped.filter(
       (e) =>
         (type === "all" || e.type === type) &&
+        (!forMonth || e.forMonth === forMonth) &&
         (!projectId || e.projectId === projectId) &&
         (!assigneeId ||
           (assigneeId === NONE ? !e.allottedTo : e.allottedTo === assigneeId)) &&
@@ -123,11 +126,18 @@ export default function ContentBankPage() {
           e.onPic.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q)),
     );
-  }, [scoped, query, type, projectId, assigneeId, writerId, stage, billing]);
+  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing]);
+
+  // Only months some visible piece is actually for, newest first.
+  const monthsInUse = useMemo(
+    () => Array.from(new Set(visible.map((e) => e.forMonth))).sort().reverse(),
+    [visible],
+  );
 
   const filtering =
     !!query.trim() ||
     type !== "all" ||
+    !!forMonth ||
     !!projectId ||
     !!assigneeId ||
     !!writerId ||
@@ -137,6 +147,7 @@ export default function ContentBankPage() {
   const clearFilters = () => {
     setQuery("");
     setType("all");
+    setForMonth("");
     setProjectId("");
     setAssigneeId("");
     setWriterId("");
@@ -315,6 +326,19 @@ export default function ContentBankPage() {
           {CONTENT_TYPES.map((t) => (
             <option key={t} value={t}>
               {t}
+            </option>
+          ))}
+        </Select>
+        <Select
+          className="w-auto min-w-44"
+          value={forMonth}
+          onChange={(e) => setForMonth(e.target.value)}
+          aria-label="Content for month"
+        >
+          <option value="">Any month</option>
+          {monthsInUse.map((m) => (
+            <option key={m} value={m}>
+              For {formatMonth(m)}
             </option>
           ))}
         </Select>

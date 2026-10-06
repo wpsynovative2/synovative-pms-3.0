@@ -214,3 +214,34 @@ export function monthGrid(year: number, month: number): string[] {
   }
   return cells;
 }
+
+/* ----------------------------------------------------------------- months */
+
+/** The first day of the month `iso` falls in: "2026-11-17" -> "2026-11-01". */
+export function monthOf(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+/** Month arithmetic on a first-of-month date. */
+export function addMonths(month: string, n: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+/** "November 2026". */
+export function formatMonth(month: string | null | undefined): string {
+  if (!month) return "";
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+/**
+ * The months a picker offers: three back to twelve ahead of `around`, plus
+ * `keep` if a saved value falls outside that window.
+ */
+export function monthChoices(around: string, keep?: string | null): string[] {
+  const out = Array.from({ length: 16 }, (_, i) => addMonths(monthOf(around), i - 3));
+  if (keep && !out.includes(keep)) out.push(keep);
+  return out.sort();
+}

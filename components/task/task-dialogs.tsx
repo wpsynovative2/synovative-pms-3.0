@@ -5,16 +5,25 @@ import { DatePicker } from "@/components/ui/date-picker";
 import {
   IconCheck,
   IconClose,
+  IconContent,
   IconLink,
   IconWarning,
   IconWhatsApp,
 } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input, cx } from "@/components/ui/primitives";
+import { Badge, Button, Field, Input, cx } from "@/components/ui/primitives";
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
+import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
-import type { OutputLocation, ReviewDecision, ReviewSource, Task } from "@/lib/types";
+import {
+  contentLabel,
+  type ContentEntry,
+  type OutputLocation,
+  type ReviewDecision,
+  type ReviewSource,
+  type Task,
+} from "@/lib/types";
 
 /* ------------------------------------------------------- Pause dialog */
 
@@ -192,19 +201,38 @@ export function SubmitDialog({
   onClose: () => void;
   task: Task;
 }) {
-  const { submitTask } = useStore();
-  const [location, setLocation] = useState<OutputLocation>("Google Drive");
+  const { db, submitTask } = useStore();
+  /*
+   * A content task is delivered as its pieces in the Content Bank (0013): the
+   * submission carries a link to each one, and every piece the task asked for
+   * must have a status first - extras need not.
+   */
+  const isBatch = task.kind === "content";
+  const pieces = isBatch
+    ? db.contentEntries
+        .filter((e) => e.taskId === task.id)
+        .sort(
+          (a, b) =>
+            (a.slot ?? Number.MAX_SAFE_INTEGER) - (b.slot ?? Number.MAX_SAFE_INTEGER) ||
+            a.createdAt.localeCompare(b.createdAt),
+        )
+    : [];
+  const unset = pieces.filter((e) => e.slot !== null && !e.stage);
+
+  const [location, setLocation] = useState<OutputLocation>(
+    isBatch ? "Content Bank" : "Google Drive",
+  );
   const [link, setLink] = useState("");
   const [description, setDescription] = useState("");
   const [touched, setTouched] = useState(false);
 
   const linkValid = /^https?:\/\/\S+$/i.test(link.trim());
   const needsLink = location === "Google Drive";
-  const descriptionOk = !isRichTextEmpty(description);
-  const valid = descriptionOk && (!needsLink || linkValid);
+  const descriptionOk = isBatch || !isRichTextEmpty(description);
+  const valid = descriptionOk && (!needsLink || linkValid) && unset.length === 0;
 
   const close = () => {
-    setLocation("Google Drive");
+    setLocation(isBatch ? "Content Bank" : "Google Drive");
     setLink("");
     setDescription("");
     setTouched(false);
@@ -222,6 +250,7 @@ export function SubmitDialog({
           <Button onClick={close}>Cancel</Button>
           <Button
             variant="primary"
+            disabled={unset.length > 0}
             onClick={() => {
               setTouched(true);
               if (!valid) return;
@@ -229,6 +258,9 @@ export function SubmitDialog({
                 outputLocation: location,
                 driveLink: needsLink ? link.trim() : undefined,
                 description,
+                links: isBatch
+                  ? pieces.map((e) => `${window.location.origin}/content-bank?entry=${e.id}`)
+                  : undefined,
               });
               close();
             }}
@@ -239,6 +271,9 @@ export function SubmitDialog({
       }
     >
       <div className="flex flex-col gap-4">
+        {isBatch ? (
+          <ContentBankOutput pieces={pieces} unset={unset} />
+        ) : (
         <Field label="Where is the output?" required>
           <div className="grid grid-cols-2 gap-2">
             {(
@@ -266,6 +301,7 @@ export function SubmitDialog({
             ))}
           </div>
         </Field>
+        )}
 
         {needsLink ? (
           <Field
@@ -284,7 +320,8 @@ export function SubmitDialog({
 
         <Field
           label="Description"
-          required
+          required={!isBatch}
+          hint={isBatch ? "Optional — the links already say what was delivered." : undefined}
           error={
             touched && !descriptionOk ? "Tell the reviewer what you delivered." : undefined
           }
@@ -297,6 +334,56 @@ export function SubmitDialog({
         </Field>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * What a content task hands over: every piece, linked, with its status. The
+ * pieces the task asked for must each have a status before it can go.
+ */
+function ContentBankOutput({
+  pieces,
+  unset,
+}: {
+  pieces: ContentEntry[];
+  unset: ContentEntry[];
+}) {
+  return (
+    <Field label="Output" hint="A link to each piece goes to the reviewer with the submission.">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-brand-bright bg-brand/15 p-3 text-[13px] font-medium text-ink">
+          <IconContent size={15} /> Content Bank
+          <span className="ml-auto text-[11px] font-normal text-ink-faint">
+            {pieces.length} piece{pieces.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        {unset.length ? (
+          <p className="rounded-lg border border-st-rejected/30 bg-st-rejected/10 px-3 py-2 text-[12px] leading-relaxed text-st-rejected">
+            Give every piece a status before submitting. Still not set:{" "}
+            {unset.map((e) => contentLabel(e)).join(", ")}.
+          </p>
+        ) : null}
+        <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+          {pieces.map((e) => (
+            <li
+              key={e.id}
+              className="flex items-center gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[12px]"
+            >
+              <span className="min-w-0 flex-1 truncate text-ink">{contentLabel(e)}</span>
+              {e.stage ? (
+                <Badge className={CONTENT_STAGE_STYLE[e.stage]}>{e.stage}</Badge>
+              ) : e.slot !== null ? (
+                <Badge className="border-st-rejected/30 bg-st-rejected/15 text-st-rejected">
+                  Not set
+                </Badge>
+              ) : (
+                <span className="text-[11px] text-ink-faint">extra</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Field>
   );
 }
 

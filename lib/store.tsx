@@ -453,6 +453,8 @@ export interface SubmissionInput {
   outputLocation: OutputLocation;
   driveLink?: string;
   description: string;
+  /** Content Bank submissions: a link to every piece on the task. */
+  links?: string[];
 }
 
 export interface ReviewInput {
@@ -573,6 +575,8 @@ export type ContentInput = Omit<
   | "createdBy"
   | "createdAt"
   | "stage"
+  | "scheduledOn"
+  | "carryMonth"
   | "allottedTo"
   | "allottedTaskId"
   | "slot"
@@ -715,8 +719,11 @@ interface StoreValue {
 
   /** Hand a piece to someone on one of their tasks, or take it back (null). */
   allotContent: (entryId: string, allotment: ContentAllotment | null) => void;
-  /** Where the piece has got to after writing. */
-  setContentStage: (entryId: string, stage: ContentStage | null) => void;
+  /**
+   * Where the piece has got to after writing. Scheduled takes the day it goes
+   * out, Carry Forwarded the month it moves to (any date in it).
+   */
+  setContentStage: (entryId: string, stage: ContentStage | null, date?: string | null) => void;
 
   addComment: (entityType: CollabEntity, entityId: string, body: string) => void;
   deleteComment: (id: string) => void;
@@ -1061,6 +1068,7 @@ const actions = {
               outputLocation: input.outputLocation,
               driveLink: input.driveLink,
               description: input.description,
+              links: input.links ?? [],
             },
           ],
         })),
@@ -1071,6 +1079,7 @@ const actions = {
             p_output: input.outputLocation,
             p_drive_link: input.driveLink ?? null,
             p_description: input.description,
+            p_links: input.links ?? [],
           }),
         ),
     );
@@ -2039,6 +2048,8 @@ const crmActions = {
       ...input,
       id: newId(),
       stage: null,
+      scheduledOn: null,
+      carryMonth: null,
       allottedTo: null,
       allottedTaskId: null,
       // Only the database lays out slots; anything a writer adds is an extra.
@@ -2127,14 +2138,21 @@ const crmActions = {
     );
   },
 
-  setContentStage(entryId: string, stage: ContentStage | null) {
+  setContentStage(entryId: string, stage: ContentStage | null, date: string | null = null) {
+    const scheduledOn = stage === "Scheduled" ? date : null;
+    const carryMonth = stage === "Carry Forwarded" && date ? `${date.slice(0, 7)}-01` : null;
     void commit(
       ["content"],
       (db) => ({
         ...db,
-        contentEntries: db.contentEntries.map((e) => (e.id === entryId ? { ...e, stage } : e)),
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId ? { ...e, stage, scheduledOn, carryMonth } : e,
+        ),
       }),
-      (c) => run(c.rpc("set_content_stage", { p_content_id: entryId, p_stage: stage })),
+      (c) =>
+        run(
+          c.rpc("set_content_stage", { p_content_id: entryId, p_stage: stage, p_date: date }),
+        ),
     );
   },
 

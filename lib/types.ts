@@ -164,7 +164,8 @@ export interface TimeSession {
   endNote?: string;
 }
 
-export type OutputLocation = "Google Drive" | "WhatsApp";
+/** "Content Bank" is a content task's only output (0013). */
+export type OutputLocation = "Google Drive" | "WhatsApp" | "Content Bank";
 
 export interface Submission {
   id: string;
@@ -173,6 +174,8 @@ export interface Submission {
   outputLocation: OutputLocation;
   driveLink?: string;
   description: string;
+  /** A Content Bank submission: a link to every piece on the task. */
+  links: string[];
 }
 
 export type ReviewDecision =
@@ -636,6 +639,12 @@ export interface ContentEntry {
   allottedTaskId: string | null;
   /** Production stage, moved by `setContentStage`. */
   stage: ContentStage | null;
+  /** With the Scheduled stage: the day it goes out (0013). */
+  scheduledOn: string | null;
+  /** With Carry Forwarded: the month it moves to, first of the month. */
+  carryMonth: string | null;
+  /** The month the piece is for, first of the month. Always set. */
+  forMonth: string;
   createdBy: string;
   createdAt: string;
 }

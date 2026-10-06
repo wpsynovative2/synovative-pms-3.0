@@ -267,6 +267,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     outputLocation: r.output_location as Submission["outputLocation"],
     driveLink: opt(r.drive_link),
     description: str(r.description),
+    links: (r.links as string[] | null) ?? [],
   }));
   const rev = groupBy<Review>(reviews, "task_id", (r) => ({
     id: str(r.id),
@@ -622,6 +623,9 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       referenceLinks: (r.reference_links as string[]) ?? [],
       billingType: r.billing_type as ContentEntry["billingType"],
       stage: nullable(r.stage) as ContentEntry["stage"],
+      scheduledOn: nullable(r.scheduled_on) ? dateOnly(r.scheduled_on) : null,
+      carryMonth: nullable(r.carry_month) ? dateOnly(r.carry_month) : null,
+      forMonth: r.for_month ? dateOnly(r.for_month) : `${dateOnly(r.entry_date).slice(0, 7)}-01`,
       allottedTo: nullable(r.allotted_to),
       allottedTaskId: nullable(r.allotted_task_id),
       createdBy: str(r.created_by),
@@ -895,6 +899,7 @@ export const CONTENT_COLUMNS: Record<string, string> = {
   date: "entry_date",
   type: "type",
   title: "title",
+  forMonth: "for_month",
   onPic: "on_pic",
   caption: "caption",
   description: "description",

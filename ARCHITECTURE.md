@@ -367,7 +367,11 @@ has got to through its stage (shown as "Status" — Ready To Design, Design
 Completed, Scheduled, Cancelled, Carry Forwarded, via `set_content_stage`), and
 the content task is submitted and reviewed as a whole like any other task.
 The per-piece verdict (`content_bank.status`, `content_reviews`) was dropped
-in `0028`.
+in `0028`. Since `0013` every piece has a *Content for month*
+(`for_month`); Scheduled carries `scheduled_on` and Carry Forwarded a later
+`carry_month`, both set through `set_content_stage`. A content task is submitted
+to the **Content Bank** only, with a link to each piece, and not before every
+slot has a stage (extras exempt).
 
 **Content Bank.** Written by Content Writers and Social Media Marketing,
 against a project they hold a task on. The library page groups entries under
@@ -416,6 +420,8 @@ Since the baseline:
 | `0009_recurring_blueprints.sql` | Repeating projects / tasks become blueprints; every occurrence (the first included) is created on its date, named for its month |
 | `0010_rls_performance.sql` | Read policies work out the caller's visible projects / tasks once per query (`my_project_ids`, `my_task_ids`) instead of once per row — same visibility, several times faster |
 | `0011_company_nature.sql` | `companies.nature`: Real Estate Developer, Mandate Company, Channel Partner, or a typed name under Others |
+| `0012_output_content_bank.sql` | `output_location` gains "Content Bank" (own file: a new enum value can't be used in the transaction that adds it) |
+| `0013_content_schedule.sql` | Pieces carry `for_month`, `scheduled_on`, `carry_month`; `set_content_stage(id, stage, date)` requires the date for Scheduled / Carry Forwarded; `submit_task` refuses a content task whose slots lack a stage, and content tasks submit to the Content Bank with `submissions.links` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

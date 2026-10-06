@@ -11,10 +11,16 @@ import {
   IconLink,
   IconTasks,
 } from "@/components/ui/icons";
+import {
+  StageBadge,
+  StagePicker,
+  stageDetail,
+  type StageValue,
+} from "@/components/content/stage-picker";
 import { FullScreen } from "@/components/ui/modal";
-import { Avatar, Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
+import { Avatar, Badge, Button, Card, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
-import { formatDate } from "@/lib/calendar";
+import { formatDate, formatMonth } from "@/lib/calendar";
 import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import {
   canAllotContent,
@@ -22,12 +28,7 @@ import {
   canSetContentStage,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import {
-  CONTENT_STAGES,
-  contentLabel,
-  type ContentEntry,
-  type ContentStage,
-} from "@/lib/types";
+import { contentLabel, type ContentEntry } from "@/lib/types";
 
 /*
  * Reading a Content Bank entry. Everyone on the project sees the same thing —
@@ -121,7 +122,7 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <Card className="grid gap-x-5 gap-y-4 p-4 sm:grid-cols-2 lg:grid-cols-5">
+      <Card className="grid gap-x-5 gap-y-4 p-4 sm:grid-cols-3 lg:grid-cols-6">
         <Fact label="Date">
           <span className="text-[13px] text-ink">{formatDate(entry.date)}</span>
         </Fact>
@@ -144,6 +145,9 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
           ) : (
             allotmentLabel
           )}
+        </Fact>
+        <Fact label="Content for">
+          <span className="text-[13px] text-ink">{formatMonth(entry.forMonth)}</span>
         </Fact>
         <Fact label="Status">
           <ContentStageControl entry={entry} />
@@ -225,31 +229,25 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
   const { db, currentUser, projectById, taskById, setContentStage } = useStore();
   const project = projectById(entry.projectId) ?? null;
   const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
+  const value = stageValueOf(entry);
 
   if (canSetContentStage(currentUser!, entry, task, project, db.tasks)) {
     return (
-      <Select
-        aria-label="Status"
-        value={entry.stage ?? ""}
-        onChange={(e) =>
-          setContentStage(entry.id, (e.target.value || null) as ContentStage | null)
-        }
-      >
-        <option value="">Not set</option>
-        {CONTENT_STAGES.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </Select>
+      <StagePicker
+        value={value}
+        forMonth={entry.forMonth}
+        onChange={(next) => setContentStage(entry.id, next.stage, next.date)}
+      />
     );
   }
-  return entry.stage ? (
-    <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>{entry.stage}</Badge>
-  ) : (
-    <span className="text-[13px] text-ink-faint">Not set</span>
-  );
+  return <StageBadge value={value} />;
 }
+
+/** A piece's stage and the date that goes with it, as the picker reads them. */
+export const stageValueOf = (entry: ContentEntry): StageValue => ({
+  stage: entry.stage,
+  date: entry.stage === "Scheduled" ? entry.scheduledOn : entry.stage === "Carry Forwarded" ? entry.carryMonth : null,
+});
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -394,8 +392,12 @@ export function ContentCard({
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
         {entry.stage ? (
-          <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>{entry.stage}</Badge>
+          <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>
+            {entry.stage}
+            {stageDetail(stageValueOf(entry)) ? ` ${stageDetail(stageValueOf(entry))}` : ""}
+          </Badge>
         ) : null}
+        <Badge>For {formatMonth(entry.forMonth)}</Badge>
         <Badge>{formatDate(entry.date)}</Badge>
         {entry.referenceLinks.length ? (
           <Badge>{entry.referenceLinks.length} refs</Badge>

@@ -74,6 +74,8 @@ Added since the baseline (run on every database):
 | `0009_recurring_blueprints.sql` | A repeating project is a blueprint kept on the Recurrence page; a real project — with its tasks and content tasks, named "<name> – Month Year" — is created on each date it repeats, the first included |
 | `0010_rls_performance.sql` | Faster loading: the permission checks on tasks, time logs, submissions, comments and the rest run once per request instead of once per row. Who can see what is unchanged |
 | `0011_company_nature.sql` | Companies get a *Nature of company*: Real Estate Developer, Mandate Company, Channel Partner, or Others (typed) |
+| `0012_output_content_bank.sql` | "Content Bank" becomes a submission output (run before 0013) |
+| `0013_content_schedule.sql` | Content for month on every piece; Scheduled asks for a date and Carry Forwarded for a month; a content task can only be submitted once each of its pieces has a status, with a link to every piece |
 
 ### 4. The first Super Admin
 

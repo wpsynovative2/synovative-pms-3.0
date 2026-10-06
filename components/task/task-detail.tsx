@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   IconCheck,
   IconClose,
+  IconContent,
   IconEdit,
   IconLink,
   IconTrash,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
-import type { Review, Submission } from "@/lib/types";
+import { contentLabel, type Review, type Submission } from "@/lib/types";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
@@ -399,6 +400,8 @@ function SubmissionEntry({ submission }: { submission: Submission }) {
           <Badge className="border-line bg-surface-3 text-ink-muted">
             {submission.outputLocation === "Google Drive" ? (
               <IconLink size={11} />
+            ) : submission.outputLocation === "Content Bank" ? (
+              <IconContent size={11} />
             ) : (
               <IconWhatsApp size={11} />
             )}
@@ -416,6 +419,8 @@ function SubmissionEntry({ submission }: { submission: Submission }) {
             {submission.driveLink}
           </a>
         ) : null}
+
+        {submission.links.length ? <SubmittedPieces links={submission.links} /> : null}
 
         <RichText html={submission.description} className="mt-2" />
       </div>
@@ -485,3 +490,32 @@ export function TaskNotVisible({ onClose }: { onClose: () => void }) {
   );
 }
 
+
+/**
+ * A Content Bank submission's links, named after the pieces they open where
+ * those still exist.
+ */
+function SubmittedPieces({ links }: { links: string[] }) {
+  const { db } = useStore();
+  return (
+    <ul className="mt-2 flex flex-col gap-1">
+      {links.map((href) => {
+        const id = href.match(/entry=([0-9a-f-]{36})/i)?.[1];
+        const piece = id ? db.contentEntries.find((e) => e.id === id) : undefined;
+        return (
+          <li key={href}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 truncate text-[12px] text-brand-bright hover:underline"
+            >
+              <IconContent size={11} className="shrink-0" />
+              <span className="truncate">{piece ? contentLabel(piece) : href}</span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
