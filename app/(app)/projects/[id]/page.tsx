@@ -270,6 +270,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
               {project.name}
             </h1>
             <p className="mt-0.5 text-[13px] text-ink-muted">{project.clientName}</p>
+            <p className="mt-0.5 text-[12px] text-ink-faint">
+              Created by {userById(project.createdBy)?.fullName ?? "Unknown"} on{" "}
+              {formatDate(project.createdAt)}
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <Badge className={PROJECT_STATUS_STYLE[project.status]}>{project.status}</Badge>
               <Badge className={PRIORITY_STYLE[project.priority]}>{project.priority}</Badge>

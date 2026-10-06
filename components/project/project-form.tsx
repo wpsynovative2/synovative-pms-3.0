@@ -101,6 +101,9 @@ const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => 
   contentCount: d.kind === "content" ? d.contentCount : 0,
 });
 
+/** Stands for a typed client name from before clients were picked from Companies. */
+const LEGACY_CLIENT = "__typed__";
+
 interface FormState {
   name: string;
   color: string;
@@ -115,6 +118,8 @@ interface FormState {
   memberIds: string[];
   /** Optional — work raised by hand need not belong to a property. */
   propertyId: string;
+  /** The client (a company in the Companies module); its name is clientName. */
+  companyId: string;
 }
 
 export function ProjectFormModal({
@@ -155,6 +160,13 @@ export function ProjectFormModal({
     leaderId: project?.leaderId ?? "",
     memberIds: project?.memberIds ?? [],
     propertyId: project?.propertyId ?? "",
+    // Older projects only carry the typed name; match it to a company if one exists.
+    companyId:
+      project?.companyId ??
+      db.companies.find(
+        (c) => c.name.trim().toLowerCase() === project?.clientName.trim().toLowerCase(),
+      )?.id ??
+      "",
   });
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(
     project?.recurrence?.rule ?? null,
@@ -201,33 +213,66 @@ export function ProjectFormModal({
   // the OBC push it down (updateObc), so the two are never allowed to differ.
   const chainFromObc = !!project?.obcId;
 
+  /*
+   * The client is picked from Companies. A project saved before that, whose
+   * typed name matches no company, keeps its name as an option of its own so
+   * editing it never loses what was there.
+   */
+  const clientOptions = useMemo(() => {
+    const options = [...db.companies]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name, hint: c.city || undefined }));
+    if (project && !form.companyId && project.clientName.trim()) {
+      options.unshift({ value: LEGACY_CLIENT, label: project.clientName, hint: "Not in Companies" });
+    }
+    return options;
+  }, [db.companies, project, form.companyId]);
+
+  const pickClient = (id: string) => {
+    if (id === LEGACY_CLIENT) return;
+    const company = db.companies.find((c) => c.id === id);
+    setForm((f) => {
+      const property = db.properties.find((p) => p.id === f.propertyId);
+      return {
+        ...f,
+        companyId: id,
+        clientName: company?.name ?? "",
+        // A property belongs to one company; changing the client drops a mismatch.
+        propertyId: property && property.companyId !== id ? "" : f.propertyId,
+      };
+    });
+  };
+
+  // Properties narrow to the chosen client.
   const propertyOptions = useMemo(
     () =>
-      db.properties.map((p) => ({
-        value: p.id,
-        label: p.name,
-        hint: db.companies.find((c) => c.id === p.companyId)?.name,
-      })),
-    [db.properties, db.companies],
+      db.properties
+        .filter((p) => !form.companyId || p.companyId === form.companyId)
+        .map((p) => ({
+          value: p.id,
+          label: p.name,
+          hint: db.companies.find((c) => c.id === p.companyId)?.name,
+        })),
+    [db.properties, db.companies, form.companyId],
   );
 
-  /** Picking a property fills the client name when nobody has typed one yet. */
+  /** A property implies its company, so picking one sets the client too. */
   const pickProperty = (id: string) => {
     const property = db.properties.find((p) => p.id === id);
     const company = db.companies.find((c) => c.id === property?.companyId);
     setForm((f) => ({
       ...f,
       propertyId: id,
-      clientName: f.clientName.trim() || !company ? f.clientName : company.name,
+      ...(company ? { companyId: company.id, clientName: company.name } : {}),
     }));
   };
 
-  /** The CRM chain a property brings with it; no property, no chain. */
+  /** The CRM chain: the client company, and the property's contact if one is picked. */
   const chainFor = (id: string) => {
     const property = db.properties.find((p) => p.id === id);
     return {
       propertyId: property?.id ?? null,
-      companyId: property?.companyId ?? null,
+      companyId: property?.companyId ?? (form.companyId || null),
       clientId: property?.clientId ?? null,
     };
   };
@@ -312,7 +357,7 @@ export function ProjectFormModal({
 
   const errors = {
     name: !form.name.trim() ? "A project name is required." : undefined,
-    clientName: !form.clientName.trim() ? "A client name is required." : undefined,
+    clientName: !form.clientName.trim() ? "Pick the client." : undefined,
     services: form.services.length === 0 ? "Pick at least one service." : undefined,
     startDate: startBlocked ?? undefined,
     deadline:
@@ -436,11 +481,24 @@ export function ProjectFormModal({
             />
           </Field>
 
-          <Field label="Client name" required error={touched ? errors.clientName : undefined}>
-            <Input
-              value={form.clientName}
-              onChange={(e) => set("clientName", e.target.value)}
-              placeholder="e.g. Lodha Group"
+          <Field
+            label="Client"
+            required
+            hint={
+              chainFromObc
+                ? "Set by the OBC this project was raised from."
+                : db.companies.length === 0
+                  ? "Add the client under Companies first."
+                  : undefined
+            }
+            error={touched ? errors.clientName : undefined}
+          >
+            <SearchSelect
+              disabled={chainFromObc}
+              options={clientOptions}
+              value={form.companyId || (form.clientName.trim() ? LEGACY_CLIENT : "")}
+              onChange={pickClient}
+              placeholder="Select a client"
             />
           </Field>
         </div>
@@ -450,7 +508,7 @@ export function ProjectFormModal({
           hint={
             chainFromObc
               ? "Set by the OBC this project was raised from."
-              : "Optional. Links the project to a property and its company."
+              : "Optional. Only the chosen client's properties are listed."
           }
         >
           <SearchSelect

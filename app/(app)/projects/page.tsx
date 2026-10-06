@@ -34,6 +34,8 @@ import {
 } from "@/lib/master-data";
 import {
   canCreateProjects,
+  isGlobalManager,
+  isProjectLeader,
   isTeamLeader,
   myProjects,
   visibleProjects,
@@ -65,12 +67,14 @@ const EMPTY: Filters = {
   to: "",
 };
 
+type Scope = "all" | "mine" | "created";
+
 export default function ProjectsPage() {
   const { db, currentUser, userById } = useStore();
   const user = currentUser!;
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [createOpen, setCreateOpen] = useState(false);
-  const [scope, setScope] = useState<"all" | "mine">("all");
+  const [scope, setScope] = useState<Scope>("all");
 
   const everything = useMemo(
     () => visibleProjects(user, db.projects, db.tasks),
@@ -90,8 +94,25 @@ export default function ProjectsPage() {
   // A Team Leader always gets the choice, even when their department's
   // projects happen to be exactly the ones they hold a task in today -
   // otherwise the tabs would appear out of nowhere the first time they differ.
+  /*
+   * The people who raise and run projects - global managers and Project
+   * Leaders - also get the projects they created, which is how they find the
+   * ones they set up for someone else to lead.
+   */
+  const mayFilterCreated =
+    isGlobalManager(user) || db.projects.some((p) => isProjectLeader(user, p));
+  const created = useMemo(
+    () => everything.filter((p) => p.createdBy === user.id),
+    [everything, user.id],
+  );
   const splitScope = isTeamLeader(user) || mine.length !== everything.length;
-  const scoped = splitScope && scope === "mine" ? mine : everything;
+  const showTabs = splitScope || mayFilterCreated;
+  const scoped =
+    scope === "created" && mayFilterCreated
+      ? created
+      : splitScope && scope === "mine"
+        ? mine
+        : everything;
 
   const clients = useMemo(
     () => Array.from(new Set(scoped.map((p) => p.clientName))).sort(),
@@ -139,13 +160,16 @@ export default function ProjectsPage() {
         }
       />
 
-      {splitScope ? (
-        <Tabs<"all" | "mine">
+      {showTabs ? (
+        <Tabs<Scope>
           active={scope}
           onChange={setScope}
           tabs={[
             { id: "all", label: "All projects", count: everything.length },
-            { id: "mine", label: "My projects", count: mine.length },
+            ...(splitScope ? [{ id: "mine" as const, label: "My projects", count: mine.length }] : []),
+            ...(mayFilterCreated
+              ? [{ id: "created" as const, label: "Created by me", count: created.length }]
+              : []),
           ]}
         />
       ) : null}
@@ -308,6 +332,9 @@ export default function ProjectsPage() {
                         {p.name}
                       </h3>
                       <p className="truncate text-[11px] text-ink-faint">{p.clientName}</p>
+                      <p className="truncate text-[11px] text-ink-faint">
+                        Created by {userById(p.createdBy)?.fullName ?? "Unknown"}
+                      </p>
                     </div>
                   </div>
 
@@ -358,7 +385,7 @@ export default function ProjectsPage() {
 
                   <div className="mt-3 flex items-center gap-2 border-t border-line-soft pt-3">
                     {leader ? (
-                      <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="flex min-w-0 items-center gap-1.5" title="Project Leader">
                         <Avatar name={leader.fullName} size={22} />
                         <span className="truncate text-[11px] text-ink-muted">
                           {leader.fullName}
