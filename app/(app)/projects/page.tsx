@@ -315,10 +315,20 @@ export default function ProjectsPage() {
           {filtered.map((p) => {
             const stats = projectStats(p, db.tasks, db.expenses);
             const leader = userById(p.leaderId);
-            const members = p.memberIds
-              .map((id) => userById(id))
-              .filter(Boolean)
-              .slice(0, 4);
+            // Never an empty footer: without a leader, the creator stands in.
+            const shown = leader ?? userById(p.createdBy);
+            // The team is whoever is listed on it plus whoever holds a task
+            // there - many projects never fill in the member list.
+            const teamIds = Array.from(
+              new Set([
+                ...p.memberIds,
+                ...db.tasks
+                  .filter((t) => t.projectId === p.id && t.assigneeId)
+                  .map((t) => t.assigneeId!),
+              ]),
+            ).filter((id) => id !== p.leaderId);
+            const team = teamIds.map((id) => userById(id)).filter(Boolean);
+            const members = team.slice(0, 4);
             return (
               <Link key={p.id} href={`/projects/${p.id}`}>
                 <Card className="group h-full p-4 transition-colors hover:border-brand-bright/40">
@@ -384,15 +394,21 @@ export default function ProjectsPage() {
                   </dl>
 
                   <div className="mt-3 flex items-center gap-2 border-t border-line-soft pt-3">
-                    {leader ? (
-                      <span className="flex min-w-0 items-center gap-1.5" title="Project Leader">
-                        <Avatar name={leader.fullName} size={22} />
+                    {shown ? (
+                      <span
+                        className="flex min-w-0 items-center gap-1.5"
+                        title={leader ? "Project Leader" : "Created by (no Project Leader yet)"}
+                      >
+                        <Avatar name={shown.fullName} size={22} />
                         <span className="truncate text-[11px] text-ink-muted">
-                          {leader.fullName}
+                          {shown.fullName}
                         </span>
                       </span>
                     ) : null}
-                    <span className="ml-auto flex -space-x-1.5">
+                    <span
+                      className="ml-auto flex -space-x-1.5"
+                      title={team.map((m) => m!.fullName).join(", ")}
+                    >
                       {members.map((m) => (
                         <Avatar
                           key={m!.id}
@@ -401,9 +417,9 @@ export default function ProjectsPage() {
                           className="ring-2 ring-surface"
                         />
                       ))}
-                      {p.memberIds.length > 4 ? (
+                      {team.length > 4 ? (
                         <span className="inline-flex h-[22px] items-center rounded-full bg-surface-3 px-1.5 text-[10px] text-ink-muted ring-2 ring-surface">
-                          +{p.memberIds.length - 4}
+                          +{team.length - 4}
                         </span>
                       ) : null}
                     </span>
