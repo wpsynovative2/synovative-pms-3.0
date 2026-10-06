@@ -346,9 +346,21 @@ export type PartyStatus = "active" | "inactive";
 
 export const PARTY_STATUSES: PartyStatus[] = ["active", "inactive"];
 
+/** The listed natures; "Others" lets a name be typed instead (0011). */
+export const COMPANY_NATURES = [
+  "Real Estate Developer",
+  "Mandate Company",
+  "Channel Partner",
+] as const;
+
 export interface Company {
   id: string;
   name: string;
+  /**
+   * One of COMPANY_NATURES, or the name typed under "Others". Empty when
+   * nobody has said yet.
+   */
+  nature: string;
   legalName: string;
   gstin: string;
   pan: string;

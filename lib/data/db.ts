@@ -489,6 +489,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
   const companies: Company[] = companyRows.map((r) => ({
     id: str(r.id),
     name: str(r.name),
+    nature: str(r.nature),
     legalName: str(r.legal_name),
     gstin: str(r.gstin),
     pan: str(r.pan),
@@ -840,6 +841,7 @@ export const VENDOR_COLUMNS: Record<string, string> = {
 
 export const COMPANY_COLUMNS: Record<string, string> = {
   name: "name",
+  nature: "nature",
   legalName: "legal_name",
   gstin: "gstin",
   pan: "pan",

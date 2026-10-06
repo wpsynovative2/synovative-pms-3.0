@@ -33,7 +33,7 @@ import { PARTY_STATUS_STYLE } from "@/lib/master-data";
 import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type CompanyInput } from "@/lib/store";
-import type { Company, PartyStatus } from "@/lib/types";
+import { COMPANY_NATURES, type Company, type PartyStatus } from "@/lib/types";
 
 /**
  * Module 1 — the real-estate developer master. Everything else in the CRM
@@ -71,6 +71,7 @@ export default function CompaniesPage() {
         (!q ||
           c.name.toLowerCase().includes(q) ||
           c.legalName.toLowerCase().includes(q) ||
+          c.nature.toLowerCase().includes(q) ||
           c.city.toLowerCase().includes(q) ||
           c.gstin.toLowerCase().includes(q)),
     );
@@ -182,6 +183,7 @@ export default function CompaniesPage() {
               </div>
 
               <dl className="mt-3.5 space-y-1.5 text-[12px]">
+                <Row label="Nature" value={c.nature} />
                 <Row label="Legal name" value={c.legalName} />
                 <Row label="GSTIN" value={c.gstin} mono />
                 <Row label="RERA" value={c.reraPromoterId} mono />
@@ -290,6 +292,7 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
           <div className="flex flex-col gap-5">
             <Card className="p-4">
               <dl className="grid gap-2.5 text-[12px] sm:grid-cols-2">
+                <Fact label="Nature of company" value={company.nature} />
                 <Fact label="Legal name" value={company.legalName} />
                 <Fact label="GSTIN" value={company.gstin} />
                 <Fact label="PAN" value={company.pan} />
@@ -408,6 +411,7 @@ function CompanyFormModal({
   const { db, createCompany, updateCompany } = useStore();
   const [form, setForm] = useState<CompanyInput>({
     name: company?.name ?? "",
+    nature: company?.nature ?? "",
     legalName: company?.legalName ?? "",
     gstin: company?.gstin ?? "",
     pan: company?.pan ?? "",
@@ -422,6 +426,11 @@ function CompanyFormModal({
     status: company?.status ?? "active",
   });
   const [touched, setTouched] = useState(false);
+  // "Others" is a choice in the list but not a stored value: what is stored
+  // is the name typed beside it. A saved value outside the list was typed.
+  const [natureOther, setNatureOther] = useState(
+    !!company?.nature && !(COMPANY_NATURES as readonly string[]).includes(company.nature),
+  );
 
   const set = <K extends keyof CompanyInput>(key: K, value: CompanyInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -431,7 +440,8 @@ function CompanyFormModal({
       c.id !== company?.id &&
       c.name.trim().toLowerCase() === form.name.trim().toLowerCase(),
   );
-  const valid = form.name.trim() && !duplicate;
+  const natureMissing = natureOther && !form.nature.trim();
+  const valid = form.name.trim() && !duplicate && !natureMissing;
 
   return (
     <Modal
@@ -448,7 +458,11 @@ function CompanyFormModal({
             onClick={() => {
               setTouched(true);
               if (!valid) return;
-              const payload: CompanyInput = { ...form, name: form.name.trim() };
+              const payload: CompanyInput = {
+                ...form,
+                name: form.name.trim(),
+                nature: form.nature.trim(),
+              };
               if (company) updateCompany(company.id, payload);
               else createCompany(payload);
               onClose();
@@ -485,6 +499,46 @@ function CompanyFormModal({
               placeholder="Anant Realty Pvt. Ltd."
             />
           </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Nature of company">
+            <Select
+              value={natureOther ? "__other__" : form.nature}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "__other__") {
+                  setNatureOther(true);
+                  set("nature", "");
+                } else {
+                  setNatureOther(false);
+                  set("nature", v);
+                }
+              }}
+            >
+              <option value="">Not set</option>
+              {COMPANY_NATURES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+              <option value="__other__">Others</option>
+            </Select>
+          </Field>
+          {natureOther ? (
+            <Field
+              label="Other — say what it is"
+              required
+              error={touched && natureMissing ? "Type the nature of the company." : undefined}
+            >
+              <Input
+                autoFocus
+                value={form.nature}
+                onChange={(e) => set("nature", e.target.value)}
+                placeholder="e.g. Land owner, Architect, Media agency"
+              />
+            </Field>
+          ) : null}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">

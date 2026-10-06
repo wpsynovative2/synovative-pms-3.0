@@ -415,6 +415,7 @@ Since the baseline:
 | --- | --- |
 | `0009_recurring_blueprints.sql` | Repeating projects / tasks become blueprints; every occurrence (the first included) is created on its date, named for its month |
 | `0010_rls_performance.sql` | Read policies work out the caller's visible projects / tasks once per query (`my_project_ids`, `my_task_ids`) instead of once per row — same visibility, several times faster |
+| `0011_company_nature.sql` | `companies.nature`: Real Estate Developer, Mandate Company, Channel Partner, or a typed name under Others |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

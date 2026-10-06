@@ -73,6 +73,7 @@ Added since the baseline (run on every database):
 | --- | --- |
 | `0009_recurring_blueprints.sql` | A repeating project is a blueprint kept on the Recurrence page; a real project — with its tasks and content tasks, named "<name> – Month Year" — is created on each date it repeats, the first included |
 | `0010_rls_performance.sql` | Faster loading: the permission checks on tasks, time logs, submissions, comments and the rest run once per request instead of once per row. Who can see what is unchanged |
+| `0011_company_nature.sql` | Companies get a *Nature of company*: Real Estate Developer, Mandate Company, Channel Partner, or Others (typed) |
 
 ### 4. The first Super Admin
 
