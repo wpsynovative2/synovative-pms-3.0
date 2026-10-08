@@ -422,6 +422,7 @@ Since the baseline:
 | `0011_company_nature.sql` | `companies.nature`: Real Estate Developer, Mandate Company, Channel Partner, or a typed name under Others |
 | `0012_output_content_bank.sql` | `output_location` gains "Content Bank" (own file: a new enum value can't be used in the transaction that adds it) |
 | `0013_content_schedule.sql` | Pieces carry `for_month`, `scheduled_on`, `carry_month`; `set_content_stage(id, stage, date)` requires the date for Scheduled / Carry Forwarded; `submit_task` refuses a content task whose slots lack a stage, and content tasks submit to the Content Bank with `submissions.links` |
+| `0014_allotment_follows_task.sql` | `tasks_follow_assignee`: reassigning a task moves the content allotted to it (`content_bank.allotted_to`) to the new assignee; `guard_content_allotment` lets that through; repairs pieces already out of step |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

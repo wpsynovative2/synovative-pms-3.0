@@ -961,10 +961,24 @@ const actions = {
     const slotsMove =
       before.kind === "content" &&
       ("contentCount" in patch || "assigneeId" in patch || "title" in patch);
+    // Content allotted to this task goes with it to the new assignee (0014).
+    const assigneeMoved =
+      "assigneeId" in patch && (patch.assigneeId ?? null) !== (before.assigneeId ?? null);
+    const allotmentMoves =
+      assigneeMoved && state.db.contentEntries.some((e) => e.allottedTaskId === id);
 
     void commit(
-      withSlots(["tasks"], slotsMove),
-      (db) => mapTask(db, id, (t) => ({ ...t, ...effective })),
+      withSlots(["tasks"], slotsMove || allotmentMoves),
+      (db) => {
+        const next = mapTask(db, id, (t) => ({ ...t, ...effective }));
+        if (!allotmentMoves) return next;
+        return {
+          ...next,
+          contentEntries: next.contentEntries.map((e) =>
+            e.allottedTaskId === id ? { ...e, allottedTo: patch.assigneeId ?? null } : e,
+          ),
+        };
+      },
       (c) => {
         const columns: Record<string, unknown> = patchColumns(effective, TASK_COLUMNS);
         if ("recurrence" in patch) {
