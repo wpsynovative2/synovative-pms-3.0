@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  DEFAULT_CONTENT_TYPE,
+  PieceTypesPicker,
+  pieceTypes,
+} from "@/components/content/piece-types";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
@@ -21,7 +26,6 @@ import { canReviewTask, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
 import {
-  CONTENT_TYPES,
   type ContentType,
   type Priority,
   type Project,
@@ -31,9 +35,6 @@ import {
   type TaskStatus,
   type TaskTemplate,
 } from "@/lib/types";
-
-/** What a piece is until someone says otherwise - as the database has it. */
-const DEFAULT_CONTENT_TYPE: ContentType = "Static Design";
 
 interface FormState {
   title: string;
@@ -133,12 +134,7 @@ export function TaskFormModal({
   const mayBeContentTask = mode === "project";
   const isContent = mayBeContentTask && kind === "content";
   const pieces = Number(contentCount);
-  // Capped only for what is drawn; the count itself is whatever was typed.
-  const pieceCount =
-    isContent && Number.isFinite(pieces) ? Math.min(Math.max(Math.trunc(pieces), 0), 200) : 0;
-  const typeOf = (i: number) => contentTypes[i] ?? DEFAULT_CONTENT_TYPE;
-  const setTypeOf = (i: number, type: ContentType) =>
-    setContentTypes(Array.from({ length: pieceCount }, (_, n) => (n === i ? type : typeOf(n))));
+  const pieceCount = isContent && Number.isFinite(pieces) ? Math.max(Math.trunc(pieces), 0) : 0;
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
   const [touched, setTouched] = useState(false);
 
@@ -245,7 +241,7 @@ export function TaskFormModal({
       tags: form.tags,
       kind: isContent ? ("content" as const) : ("standard" as const),
       contentCount: isContent ? pieces : 0,
-      contentTypes: isContent ? Array.from({ length: pieces }, (_, i) => typeOf(i)) : [],
+      contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
       ...(mayRepeat
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
@@ -366,46 +362,7 @@ export function TaskFormModal({
             required
             hint="Each piece is created as this type. The writer can still change it."
           >
-            <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-3">
-              {pieceCount > 1 ? (
-                <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-[12px] text-ink-faint">Set all to</span>
-                  <Select
-                    aria-label="Set every piece to one type"
-                    value=""
-                    onChange={(e) => {
-                      const type = e.target.value as ContentType;
-                      if (type) setContentTypes(Array.from({ length: pieceCount }, () => type));
-                    }}
-                  >
-                    <option value="">Choose…</option>
-                    {CONTENT_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              ) : null}
-              <div className="grid max-h-64 gap-x-3 gap-y-2 overflow-y-auto sm:grid-cols-2">
-                {Array.from({ length: pieceCount }, (_, i) => (
-                  <label key={i} className="flex items-center gap-2">
-                    <span className="w-16 shrink-0 text-[12px] text-ink-faint">Count {i + 1}</span>
-                    <Select
-                      aria-label={`CB type of Count ${i + 1}`}
-                      value={typeOf(i)}
-                      onChange={(e) => setTypeOf(i, e.target.value as ContentType)}
-                    >
-                      {CONTENT_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                ))}
-              </div>
-            </div>
+            <PieceTypesPicker count={pieceCount} types={contentTypes} onChange={setContentTypes} />
           </Field>
         ) : null}
 

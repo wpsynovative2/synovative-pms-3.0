@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { PieceTypesPicker, pieceTypes } from "@/components/content/piece-types";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconEdit, IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
@@ -22,6 +23,7 @@ import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore, type NewProjectTaskInput } from "@/lib/store";
 import type {
   CalendarConfig,
+  ContentType,
   Priority,
   Project,
   ProjectStatus,
@@ -53,6 +55,8 @@ interface TaskDraft {
   kind: TaskKind;
   /** Content tasks only: how many pieces were asked for. */
   contentCount: number;
+  /** Content tasks only: the CB type of each piece, by slot (0015). */
+  contentTypes: ContentType[];
 }
 
 /**
@@ -99,6 +103,7 @@ const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => 
   tags,
   kind: d.kind,
   contentCount: d.kind === "content" ? d.contentCount : 0,
+  contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
 });
 
 /** Stands for a typed client name from before clients were picked from Companies. */
@@ -204,6 +209,7 @@ export function ProjectFormModal({
         // One piece is the smallest batch that means anything; whoever raises
         // it is expected to set the count actually being written.
         contentCount: kind === "content" ? 1 : 0,
+        contentTypes: [],
       },
     ]);
 
@@ -322,6 +328,7 @@ export function ProjectFormModal({
         // raised by hand, where its count can be said.
         kind: "standard" as const,
         contentCount: 0,
+        contentTypes: [],
         ...templateDates(item, form.startDate, deadline, db.calendar),
         startOffsetDays: item.startOffsetDays,
         durationDays: item.durationDays,
@@ -929,6 +936,19 @@ export function ProjectFormModal({
                         The writer drafts each piece in the Content Bank and sets its
                         status; the task is submitted and reviewed as a whole.
                       </p>
+                    ) : null}
+
+                    {d.kind === "content" && d.contentCount > 0 ? (
+                      <div>
+                        <p className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                          CB type of each piece
+                        </p>
+                        <PieceTypesPicker
+                          count={d.contentCount}
+                          types={d.contentTypes}
+                          onChange={(contentTypes) => setDraft(d.key, { contentTypes })}
+                        />
+                      </div>
                     ) : null}
 
                     <Input

@@ -66,7 +66,8 @@ export function RecurrencePicker({
       }
       return;
     }
-    setCustomOpen(false);
+    // Monthly on a day opens the panel, where the day itself can be chosen.
+    setCustomOpen(key === "monthly-monthday");
     onChange(presets.find((p) => p.key === key)?.rule ?? null);
   };
 
@@ -127,10 +128,16 @@ function CustomRulePanel({
     onChange({
       freq,
       interval: value.interval,
-      ends: value.ends,
+      // Monthly is not asked when to stop, so it never carries an end over.
+      ends: freq === "monthly" ? { type: "never" } : value.ends,
       weekdays: freq === "weekly" ? value.weekdays : undefined,
       monthlyMode: freq === "monthly" ? (value.monthlyMode ?? "monthday") : undefined,
+      monthDay: freq === "monthly" ? value.monthDay : undefined,
     });
+
+  const mode: MonthlyMode = value.monthlyMode ?? "monthday";
+  const monthDay = value.monthDay ?? fromISODate(anchor).getDate();
+  const showEnds = value.freq !== "monthly" || value.ends.type !== "never";
 
   const activeDays = ruleWeekdays(value, anchor);
   const toggleDay = (day: number) => {
@@ -209,21 +216,58 @@ function CustomRulePanel({
       ) : null}
 
       {value.freq === "monthly" ? (
-        <div className="max-w-xs">
-          <Select
-            value={value.monthlyMode ?? "monthday"}
-            onChange={(e) => set({ monthlyMode: e.target.value as MonthlyMode })}
-            aria-label="Monthly on"
-          >
-            {monthlyModes.map((m) => (
-              <option key={m} value={m}>
-                Monthly {monthlyModeLabel(m, anchor)}
-              </option>
-            ))}
-          </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-56">
+            <Select
+              value={mode}
+              onChange={(e) => {
+                const monthlyMode = e.target.value as MonthlyMode;
+                set({
+                  monthlyMode,
+                  monthDay: monthlyMode === "monthday" ? monthDay : undefined,
+                });
+              }}
+              aria-label="Monthly on"
+            >
+              {monthlyModes.map((m) => (
+                <option key={m} value={m}>
+                  {m === "monthday" ? "On a day of the month" : `Monthly ${monthlyModeLabel(m, anchor)}`}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {mode === "monthday" ? (
+            <>
+              <span className="text-[12px] text-ink-muted">Day</span>
+              <div className="w-20">
+                <Select
+                  value={String(monthDay)}
+                  onChange={(e) => set({ monthlyMode: "monthday", monthDay: Number(e.target.value) })}
+                  aria-label="Day of the month"
+                >
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {monthDay > 28 ? (
+                <span className="text-[11px] text-ink-faint">
+                  Shorter months use their last day.
+                </span>
+              ) : null}
+            </>
+          ) : null}
         </div>
       ) : null}
 
+      {/*
+        A monthly repeat simply runs every month until someone pauses or
+        deletes it, so it is not asked when to stop. An end saved on an older
+        rule still shows, so it can be seen and taken off.
+      */}
+      {showEnds ? (
       <fieldset className="flex flex-col gap-2.5">
         <legend className="mb-2 text-[12px] text-ink-muted">Ends</legend>
 
@@ -296,6 +340,12 @@ function CustomRulePanel({
           </div>
         </div>
       </fieldset>
+      ) : (
+        <p className="text-[11px] text-ink-faint">
+          Runs every {value.interval === 1 ? "month" : `${value.interval} months`} until you
+          pause or delete it.
+        </p>
+      )}
     </div>
   );
 }
@@ -313,17 +363,25 @@ function RecurrenceSummary({
 }) {
   // Occurrences that snap onto the same working day become one copy, so the
   // preview de-duplicates them the same way generation does.
-  const seen = new Set([anchor]);
-  const upcoming = upcomingOccurrences(rule, anchor, anchor, PREVIEW_COUNT * 3)
+  // The first is usually the start date itself, but a monthly rule that names
+  // its own day starts on the first such day.
+  const seen = new Set<string>();
+  const [first, ...upcoming] = upcomingOccurrences(
+    rule,
+    anchor,
+    addDays(anchor, -1),
+    (PREVIEW_COUNT + 1) * 3,
+  )
     .map((o) => ({ ...o, actual: snapToWorkingDay(o.date, config) }))
     .filter((o) => {
       if (seen.has(o.actual)) return false;
       seen.add(o.actual);
       return true;
     })
-    .slice(0, PREVIEW_COUNT);
+    .slice(0, PREVIEW_COUNT + 1);
   const total = totalOccurrences(rule, anchor);
   const anyMoved = upcoming.some((o) => o.actual !== o.date);
+  if (!first) return null;
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-brand-bright/25 bg-brand/8 px-3 py-2.5">
@@ -340,7 +398,7 @@ function RecurrenceSummary({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 pl-5.5 text-[11px] text-ink-faint">
-        <span>First: {formatDate(anchor)}</span>
+        <span>First: {first ? formatDate(first.actual) : "none"}</span>
         {upcoming.length ? <span>· Then:</span> : <span>· No further occurrences</span>}
         {upcoming.map((o) => (
           <span

@@ -90,16 +90,32 @@ export function normalizeRule(rule: RecurrenceRule): RecurrenceRule {
   if (rule.freq === "weekly" && rule.weekdays?.length) {
     out.weekdays = WEEKDAY_ORDER.filter((d) => rule.weekdays!.includes(d));
   }
-  if (rule.freq === "monthly") out.monthlyMode = rule.monthlyMode ?? "monthday";
+  if (rule.freq === "monthly") {
+    out.monthlyMode = rule.monthlyMode ?? "monthday";
+    const day = Math.floor(Number(rule.monthDay));
+    if (out.monthlyMode === "monthday" && day >= 1 && day <= 31) out.monthDay = day;
+  }
   return out;
 }
 
 /* --------------------------------------------------------------- matching */
 
-/** Does the rule fire on `iso`? The anchor itself always counts. */
+/** The day a monthly rule was told to fall on, when it names one. */
+function chosenMonthDay(rule: RecurrenceRule): number | null {
+  if (rule.freq !== "monthly" || (rule.monthlyMode ?? "monthday") !== "monthday") return null;
+  const day = Math.floor(Number(rule.monthDay));
+  return day >= 1 && day <= 31 ? day : null;
+}
+
+/**
+ * Does the rule fire on `iso`? The anchor itself always counts - unless the
+ * rule names its own day of the month, in which case the start date is only
+ * where counting begins and the first occurrence is the first such day.
+ */
 export function matchesRule(rule: RecurrenceRule, anchor: string, iso: string): boolean {
   if (iso < anchor) return false;
-  if (iso === anchor) return true;
+  const monthDay = chosenMonthDay(rule);
+  if (iso === anchor && monthDay === null) return true;
 
   const n = Math.max(1, Math.floor(rule.interval) || 1);
   const a = fromISODate(anchor);
@@ -120,6 +136,11 @@ export function matchesRule(rule: RecurrenceRule, anchor: string, iso: string): 
         (d.getFullYear() - a.getFullYear()) * 12 + (d.getMonth() - a.getMonth());
       if (months % n !== 0) return false;
       const mode: MonthlyMode = rule.monthlyMode ?? "monthday";
+      if (monthDay !== null) {
+        // Day 31 in a 30-day month, or 30 in February: the month's last day.
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        return d.getDate() === Math.min(monthDay, daysInMonth);
+      }
       if (mode === "monthday") return d.getDate() === a.getDate();
       if (d.getDay() !== a.getDay()) return false;
       return mode === "nthWeekday"
@@ -147,8 +168,13 @@ export function* iterateOccurrences(
   rule: RecurrenceRule,
   anchor: string,
 ): Generator<Occurrence> {
-  yield { date: anchor, index: 1 };
-  let index = 1;
+  // A rule that names its own day of the month may not fire on the start date.
+  let index = 0;
+  if (matchesRule(rule, anchor, anchor)) {
+    index = 1;
+    if (rule.ends.type === "on" && anchor > rule.ends.date) return;
+    yield { date: anchor, index };
+  }
   let cursor = anchor;
   for (let i = 0; i < MAX_SCAN_DAYS; i++) {
     cursor = addDays(cursor, 1);
@@ -274,9 +300,9 @@ function listNames(days: number[]): string {
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-export function monthlyModeLabel(mode: MonthlyMode, anchor: string): string {
+export function monthlyModeLabel(mode: MonthlyMode, anchor: string, monthDay?: number): string {
   const a = fromISODate(anchor);
-  if (mode === "monthday") return `on day ${a.getDate()}`;
+  if (mode === "monthday") return `on day ${monthDay ?? a.getDate()}`;
   if (mode === "lastWeekday") return `on the last ${WEEKDAY_NAMES[a.getDay()]}`;
   return `on the ${ORDINALS[weekdayOrdinal(a) - 1]} ${WEEKDAY_NAMES[a.getDay()]}`;
 }
@@ -316,7 +342,11 @@ export function describeRule(
     }
     case "monthly": {
       const head = n === 1 ? "Monthly" : `Every ${n} months`;
-      text = `${head} ${monthlyModeLabel(rule.monthlyMode ?? "monthday", anchor)}`;
+      text = `${head} ${monthlyModeLabel(
+        rule.monthlyMode ?? "monthday",
+        anchor,
+        chosenMonthDay(rule) ?? undefined,
+      )}`;
       break;
     }
     case "yearly": {
@@ -398,6 +428,8 @@ export function ruleKey(rule: RecurrenceRule | null, anchor: string): string {
     i: r.interval,
     w: r.freq === "weekly" ? ruleWeekdays(r, anchor) : null,
     m: r.freq === "monthly" ? r.monthlyMode : null,
+    // The start date's own day, spelled out, is the same rule as leaving it off.
+    d: chosenMonthDay(r) === fromISODate(anchor).getDate() ? null : chosenMonthDay(r),
     e: r.ends,
   });
 }

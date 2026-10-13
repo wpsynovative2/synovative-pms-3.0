@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
+import { PieceTypesPicker, pieceTypes } from "@/components/content/piece-types";
 import { TaskFormModal } from "@/components/task/task-form";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
@@ -52,6 +53,7 @@ import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
 import { OBC_STATUSES, isAllotted, obcProgress } from "@/lib/types";
 import type {
+  ContentType,
   Obc,
   ObcItem,
   ObcService,
@@ -754,6 +756,8 @@ interface TaskDraft {
   kind: TaskKind;
   /** Content tasks only: how many pieces were asked for. */
   contentCount: number;
+  /** Content tasks only: the CB type of each piece, by slot (0015). */
+  contentTypes: ContentType[];
 }
 
 /**
@@ -879,6 +883,7 @@ function ConvertModal({
           dueDate: to,
           kind: "standard" as const,
           contentCount: 0,
+          contentTypes: [],
         };
       }),
     );
@@ -921,6 +926,7 @@ function ConvertModal({
         // One piece is the smallest batch that means anything; whoever raises
         // it is expected to set the count that was actually sold.
         contentCount: kind === "content" ? 1 : 0,
+        contentTypes: [],
       },
     ]);
 
@@ -980,6 +986,7 @@ function ConvertModal({
           tags: [],
           kind: d.kind,
           contentCount: d.kind === "content" ? d.contentCount : 0,
+          contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
         };
       }),
     );
@@ -1243,6 +1250,19 @@ function ConvertModal({
                         The writer drafts each piece in the Content Bank and sets its
                         status; the task is submitted and reviewed as a whole.
                       </p>
+                    ) : null}
+
+                    {d.kind === "content" && d.contentCount > 0 ? (
+                      <div>
+                        <p className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                          CB type of each piece
+                        </p>
+                        <PieceTypesPicker
+                          count={d.contentCount}
+                          types={d.contentTypes}
+                          onChange={(contentTypes) => setDraft(d.key, { contentTypes })}
+                        />
+                      </div>
                     ) : null}
 
                     <Input

@@ -57,6 +57,12 @@ export interface RecurrenceRule {
   weekdays?: number[];
   /** Monthly only. Absent → "monthday". */
   monthlyMode?: MonthlyMode;
+  /**
+   * Monthly "monthday" only: the day of the month it falls on, 1–31, chosen
+   * freely rather than taken from the start date (0016). A month too short
+   * for it uses its last day. Absent → the start date's day.
+   */
+  monthDay?: number;
   ends: RecurrenceEnd;
 }
 
