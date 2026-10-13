@@ -1,16 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { AllotDialog } from "@/components/content/allot-dialog";
 import { ContentComposer } from "@/components/content/content-form";
 import {
   ContentDetailScreen,
   ContentLinkRow,
   ContentStageControl,
 } from "@/components/content/content-view";
-import { IconContent, IconEdit, IconPlus, IconTrash } from "@/components/ui/icons";
-import { ConfirmDialog } from "@/components/ui/modal";
-import { Button, ProgressBar, cx } from "@/components/ui/primitives";
 import {
+  IconChevronDown,
+  IconContent,
+  IconEdit,
+  IconPlus,
+  IconTrash,
+} from "@/components/ui/icons";
+import { ConfirmDialog } from "@/components/ui/modal";
+import { Avatar, Button, ProgressBar, cx } from "@/components/ui/primitives";
+import {
+  canAllotContent,
   canDeleteContentEntry,
   canEditContentEntry,
   canWriteContent,
@@ -155,6 +163,7 @@ export function TaskContentSection({
             <PieceRow
               key={e.id}
               entry={e}
+              project={project}
               numbered={batch}
               onRead={() => {
                 // An empty slot has nothing to read; its writer goes straight in.
@@ -226,12 +235,14 @@ export function TaskContentSection({
 
 function PieceRow({
   entry,
+  project,
   numbered,
   onRead,
   onEdit,
   onDelete,
 }: {
   entry: ContentEntry;
+  project: Project | null;
   numbered: boolean;
   onRead: () => void;
   onEdit: () => void;
@@ -242,6 +253,9 @@ function PieceRow({
   const allotted = userById(entry.allottedTo);
   const empty = isContentEmpty(entry);
   const extra = entry.slot === null;
+  // Allotting from the row saves opening each piece to hand it on.
+  const [allotting, setAllotting] = useState(false);
+  const mayAllot = !!project && canAllotContent(user, project);
 
   return (
     <li
@@ -275,6 +289,20 @@ function PieceRow({
             {allotted ? ` · for ${allotted.fullName}` : empty ? "" : " · not allotted yet"}
           </p>
         </div>
+        {mayAllot ? (
+          <button
+            type="button"
+            onClick={() => setAllotting(true)}
+            aria-label={allotted ? `Allotted to ${allotted.fullName}. Change` : "Allot this piece"}
+            className="flex min-h-9.5 w-44 shrink-0 items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 py-1 text-left text-[13px] hover:border-brand-bright/40"
+          >
+            {allotted ? <Avatar name={allotted.fullName} size={18} /> : null}
+            <span className={cx("min-w-0 flex-1 truncate", allotted ? "text-ink" : "text-ink-faint")}>
+              {allotted ? allotted.fullName : "Allot to…"}
+            </span>
+            <IconChevronDown size={14} className="shrink-0 text-ink-faint" />
+          </button>
+        ) : null}
         <div className="w-44 shrink-0">
           <ContentStageControl entry={entry} />
         </div>
@@ -289,6 +317,9 @@ function PieceRow({
           </Button>
         ) : null}
       </div>
+      {allotting && project ? (
+        <AllotDialog entry={entry} project={project} onClose={() => setAllotting(false)} />
+      ) : null}
     </li>
   );
 }

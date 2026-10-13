@@ -301,6 +301,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       priority: r.priority as Task["priority"],
       kind: (r.kind as Task["kind"]) ?? "standard",
       contentCount: num(r.content_count),
+      contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
       startDate: dateOnly(r.start_date),
       dueDate: dateOnly(r.due_date),
       estimatedHours: num(r.estimated_hours),
@@ -763,6 +764,7 @@ export function taskRow(
     | "tags"
     | "kind"
     | "contentCount"
+    | "contentTypes"
   >,
 ) {
   return {
@@ -773,6 +775,7 @@ export function taskRow(
     department: t.department,
     kind: t.kind,
     content_count: t.contentCount,
+    content_types: t.contentTypes,
     assignee_id: t.assigneeId,
     status: t.status,
     priority: t.priority,
@@ -821,6 +824,8 @@ export const TASK_COLUMNS: Record<string, string> = {
   dueDate: "due_date",
   estimatedHours: "estimated_hours",
   tags: "tags",
+  contentCount: "content_count",
+  contentTypes: "content_types",
 };
 
 export const EXPENSE_COLUMNS: Record<string, string> = {

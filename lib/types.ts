@@ -228,6 +228,11 @@ export interface Task {
    * follows whichever is larger. Always 0 on a standard task.
    */
   contentCount: number;
+  /**
+   * Content tasks only: the CB type of each target piece, by slot (index 0 is
+   * Count 1). A missing entry means Static Design (0015).
+   */
+  contentTypes: ContentType[];
   createdBy: string;
   createdAt: string;
   sessions: TimeSession[];

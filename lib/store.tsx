@@ -495,7 +495,7 @@ export type NewProjectTaskInput = Pick<
 > &
   // As with NewTaskInput: a plain task says nothing and gets one, and only a
   // content task fills these in.
-  Partial<Pick<Task, "kind" | "contentCount">>;
+  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes">>;
 
 export interface ProjectWithTasksInput {
   project: NewProjectInput;
@@ -514,10 +514,11 @@ export type NewTaskInput = Omit<
   | "remarks"
   | "kind"
   | "contentCount"
+  | "contentTypes"
 > &
   // A plain task is the overwhelming default, so callers say nothing and get
   // one; only the content-task form fills these in.
-  Partial<Pick<Task, "kind" | "contentCount">>;
+  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes">>;
 
 export interface NewUserInput {
   fullName: string;
@@ -749,6 +750,7 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
       // outright would otherwise beat a default written above it.
       kind: input.kind ?? "standard",
       contentCount: input.kind === "content" ? (input.contentCount ?? 0) : 0,
+      contentTypes: input.kind === "content" ? (input.contentTypes ?? []) : [],
       id: newId(),
       projectId: project.id,
       status: "Not Started" as const,
@@ -918,6 +920,7 @@ const actions = {
     const task: Task = {
       kind: "standard",
       contentCount: 0,
+      contentTypes: [],
       ...input,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
@@ -960,7 +963,10 @@ const actions = {
     // Slots follow a content task's target, assignee and title (0026).
     const slotsMove =
       before.kind === "content" &&
-      ("contentCount" in patch || "assigneeId" in patch || "title" in patch);
+      ("contentCount" in patch ||
+        "contentTypes" in patch ||
+        "assigneeId" in patch ||
+        "title" in patch);
     // Content allotted to this task goes with it to the new assignee (0014).
     const assigneeMoved =
       "assigneeId" in patch && (patch.assigneeId ?? null) !== (before.assigneeId ?? null);
@@ -2114,6 +2120,7 @@ const crmActions = {
         ? {
             kind: "standard",
             contentCount: 0,
+            contentTypes: [],
             ...allotment.newTask,
             recurrence: null,
             id: newId(),

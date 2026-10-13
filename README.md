@@ -77,6 +77,7 @@ Added since the baseline (run on every database):
 | `0012_output_content_bank.sql` | "Content Bank" becomes a submission output (run before 0013) |
 | `0013_content_schedule.sql` | Content for month on every piece; Scheduled asks for a date and Carry Forwarded for a month; a content task can only be submitted once each of its pieces has a status, with a link to every piece |
 | `0014_allotment_follows_task.sql` | Content allotted to a task follows the task when it is reassigned |
+| `0015_content_piece_types.sql` | A content task names the CB type of each of its pieces |
 
 ### 4. The first Super Admin
 

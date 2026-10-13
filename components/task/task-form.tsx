@@ -20,15 +20,20 @@ import {
 import { canReviewTask, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
-import type {
-  Priority,
-  Project,
-  RecurrenceRule,
-  Task,
-  TaskKind,
-  TaskStatus,
-  TaskTemplate,
+import {
+  CONTENT_TYPES,
+  type ContentType,
+  type Priority,
+  type Project,
+  type RecurrenceRule,
+  type Task,
+  type TaskKind,
+  type TaskStatus,
+  type TaskTemplate,
 } from "@/lib/types";
+
+/** What a piece is until someone says otherwise - as the database has it. */
+const DEFAULT_CONTENT_TYPE: ContentType = "Static Design";
 
 interface FormState {
   title: string;
@@ -108,9 +113,32 @@ export function TaskFormModal({
    */
   const [kind, setKind] = useState<TaskKind>(task?.kind ?? "standard");
   const [contentCount, setContentCount] = useState(String(task?.contentCount ?? 1));
+  /*
+   * The CB type of each piece, by slot. Editing starts from what the pieces
+   * are now - the writer may have changed one - so saving the task without
+   * touching these leaves every piece as it is.
+   */
+  const [contentTypes, setContentTypes] = useState<ContentType[]>(() => {
+    if (!task) return [];
+    const bySlot = new Map(
+      db.contentEntries
+        .filter((e) => e.taskId === task.id && e.slot !== null)
+        .map((e) => [e.slot as number, e.type]),
+    );
+    return Array.from(
+      { length: task.contentCount },
+      (_, i) => bySlot.get(i + 1) ?? task.contentTypes[i] ?? DEFAULT_CONTENT_TYPE,
+    );
+  });
   const mayBeContentTask = mode === "project";
   const isContent = mayBeContentTask && kind === "content";
   const pieces = Number(contentCount);
+  // Capped only for what is drawn; the count itself is whatever was typed.
+  const pieceCount =
+    isContent && Number.isFinite(pieces) ? Math.min(Math.max(Math.trunc(pieces), 0), 200) : 0;
+  const typeOf = (i: number) => contentTypes[i] ?? DEFAULT_CONTENT_TYPE;
+  const setTypeOf = (i: number, type: ContentType) =>
+    setContentTypes(Array.from({ length: pieceCount }, (_, n) => (n === i ? type : typeOf(n))));
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
   const [touched, setTouched] = useState(false);
 
@@ -217,6 +245,7 @@ export function TaskFormModal({
       tags: form.tags,
       kind: isContent ? ("content" as const) : ("standard" as const),
       contentCount: isContent ? pieces : 0,
+      contentTypes: isContent ? Array.from({ length: pieces }, (_, i) => typeOf(i)) : [],
       ...(mayRepeat
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
@@ -329,6 +358,55 @@ export function TaskFormModal({
               </Field>
             ) : null}
           </div>
+        ) : null}
+
+        {pieceCount > 0 ? (
+          <Field
+            label="CB type of each piece"
+            required
+            hint="Each piece is created as this type. The writer can still change it."
+          >
+            <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2 p-3">
+              {pieceCount > 1 ? (
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-[12px] text-ink-faint">Set all to</span>
+                  <Select
+                    aria-label="Set every piece to one type"
+                    value=""
+                    onChange={(e) => {
+                      const type = e.target.value as ContentType;
+                      if (type) setContentTypes(Array.from({ length: pieceCount }, () => type));
+                    }}
+                  >
+                    <option value="">Choose…</option>
+                    {CONTENT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              ) : null}
+              <div className="grid max-h-64 gap-x-3 gap-y-2 overflow-y-auto sm:grid-cols-2">
+                {Array.from({ length: pieceCount }, (_, i) => (
+                  <label key={i} className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-[12px] text-ink-faint">Count {i + 1}</span>
+                    <Select
+                      aria-label={`CB type of Count ${i + 1}`}
+                      value={typeOf(i)}
+                      onChange={(e) => setTypeOf(i, e.target.value as ContentType)}
+                    >
+                      {CONTENT_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </Field>
         ) : null}
 
         <Field
