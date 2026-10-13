@@ -298,6 +298,14 @@ export interface TaskTemplateItem {
   /** Offsets in working days from the project start, used to pre-fill dates. */
   startOffsetDays: number;
   durationDays: number;
+  /**
+   * A project template's task may be a content task (0017), carrying its
+   * count and the CB type of each piece. Standalone task templates are
+   * always standard.
+   */
+  kind: TaskKind;
+  contentCount: number;
+  contentTypes: ContentType[];
 }
 
 export interface ProjectTemplate {

@@ -368,6 +368,9 @@ function templateItem(r: Row): TaskTemplateItem {
     tags: (r.tags as string[]) ?? [],
     startOffsetDays: num(r.start_offset_days),
     durationDays: num(r.duration_days),
+    kind: (r.kind as TaskTemplateItem["kind"]) ?? "standard",
+    contentCount: num(r.content_count),
+    contentTypes: (r.content_types as TaskTemplateItem["contentTypes"] | null) ?? [],
   };
 }
 
@@ -966,5 +969,8 @@ export function templateItemRow(item: TaskTemplateItem) {
     tags: item.tags,
     start_offset_days: item.startOffsetDays,
     duration_days: item.durationDays,
+    kind: item.kind,
+    content_count: item.kind === "content" ? item.contentCount : 0,
+    content_types: item.kind === "content" ? item.contentTypes : [],
   };
 }

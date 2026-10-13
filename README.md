@@ -79,6 +79,7 @@ Added since the baseline (run on every database):
 | `0014_allotment_follows_task.sql` | Content allotted to a task follows the task when it is reassigned |
 | `0015_content_piece_types.sql` | A content task names the CB type of each of its pieces |
 | `0016_monthly_on_chosen_day.sql` | A monthly repeat can fall on any chosen day of the month |
+| `0017_template_content_tasks.sql` | Project templates can include content tasks, with the count and CB type of each piece |
 
 ### 4. The first Super Admin
 

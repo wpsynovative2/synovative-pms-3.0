@@ -324,11 +324,11 @@ export function ProjectFormModal({
         assigneeId: "",
         priority: item.priority,
         estimatedHours: item.estimatedHours,
-        // A project template lays out ordinary tasks; a batch of content is
-        // raised by hand, where its count can be said.
-        kind: "standard" as const,
-        contentCount: 0,
-        contentTypes: [],
+        // A template task may be a content batch, with its count and the
+        // type of each piece (0017).
+        kind: item.kind,
+        contentCount: item.kind === "content" ? item.contentCount : 0,
+        contentTypes: item.kind === "content" ? item.contentTypes : [],
         ...templateDates(item, form.startDate, deadline, db.calendar),
         startOffsetDays: item.startOffsetDays,
         durationDays: item.durationDays,
@@ -381,8 +381,10 @@ export function ProjectFormModal({
     )
       ? "Every task needs a title and a department, and a content task at least one piece."
       : undefined,
-    templateTasks: templateDrafts.some((d) => !d.title.trim() || !d.department)
-      ? "Every task needs a title and a department."
+    templateTasks: templateDrafts.some(
+      (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+    )
+      ? "Every task needs a title and a department, and a content task at least one piece."
       : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
@@ -722,6 +724,9 @@ export function ProjectFormModal({
                             {label}
                           </div>
                           <div className="mt-0.5 text-[10px] text-ink-faint">
+                            {d.kind === "content"
+                              ? `Content task · ${d.contentCount} piece${d.contentCount === 1 ? "" : "s"} · `
+                              : ""}
                             {d.department || "No department"} · {d.estimatedHours}h ·{" "}
                             {formatDate(d.startDate)} → {formatDate(d.dueDate)}
                             {d.datesPinned ? " · dates set by hand" : ""}
@@ -778,6 +783,37 @@ export function ProjectFormModal({
                             placeholder="What needs doing?"
                             aria-label="Task title"
                           />
+
+                          {d.kind === "content" ? (
+                            <div className="flex flex-col gap-2">
+                              <label className="flex items-center gap-2 text-[12px] text-ink-muted">
+                                How many pieces?
+                                <span className="w-24">
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={d.contentCount ? String(d.contentCount) : ""}
+                                    onChange={(e) =>
+                                      setTemplateDraft(d.key, {
+                                        contentCount: Math.max(
+                                          0,
+                                          Math.trunc(Number(e.target.value)) || 0,
+                                        ),
+                                      })
+                                    }
+                                    aria-label="Pieces in this task"
+                                  />
+                                </span>
+                              </label>
+                              <PieceTypesPicker
+                                count={d.contentCount}
+                                types={d.contentTypes}
+                                onChange={(contentTypes) =>
+                                  setTemplateDraft(d.key, { contentTypes })
+                                }
+                              />
+                            </div>
+                          ) : null}
 
                           <RichTextEditor
                             value={d.description}

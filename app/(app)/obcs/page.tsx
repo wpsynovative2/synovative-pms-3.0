@@ -881,9 +881,9 @@ function ConvertModal({
           estimatedHours: item.estimatedHours,
           startDate: from,
           dueDate: to,
-          kind: "standard" as const,
-          contentCount: 0,
-          contentTypes: [],
+          kind: item.kind,
+          contentCount: item.kind === "content" ? item.contentCount : 0,
+          contentTypes: item.kind === "content" ? item.contentTypes : [],
         };
       }),
     );

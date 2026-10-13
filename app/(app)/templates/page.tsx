@@ -8,6 +8,7 @@ import {
   IconTemplate,
   IconTrash,
 } from "@/components/ui/icons";
+import { PieceTypesPicker, pieceTypes } from "@/components/content/piece-types";
 import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import {
   Badge,
@@ -24,6 +25,7 @@ import {
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import {
+  CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
   PROJECT_COLORS,
 } from "@/lib/master-data";
@@ -32,6 +34,7 @@ import { useStore } from "@/lib/store";
 import type {
   Priority,
   ProjectTemplate,
+  TaskKind,
   TaskTemplate,
   TaskTemplateItem,
 } from "@/lib/types";
@@ -207,6 +210,11 @@ export default function TemplatesPage() {
                         <span className="min-w-0 flex-1 truncate text-ink-muted">
                           {item.title}
                         </span>
+                        {item.kind === "content" ? (
+                          <span className="shrink-0 text-brand-ink">
+                            {item.contentCount} piece{item.contentCount === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
                         <span className="shrink-0 text-ink-faint">
                           d{item.startOffsetDays}–{item.startOffsetDays + item.durationDays}
                         </span>
@@ -342,7 +350,8 @@ function ProjectTemplateModal({
   const [tasks, setTasks] = useState<TaskTemplateItem[]>(template?.tasks ?? []);
   const [touched, setTouched] = useState(false);
 
-  const valid = name.trim() && services.length > 0 && Number(durationDays) > 0;
+  const tasksValid = tasks.every((t) => t.kind !== "content" || t.contentCount >= 1);
+  const valid = name.trim() && services.length > 0 && Number(durationDays) > 0 && tasksValid;
 
   const addTask = () =>
     setTasks((t) => [
@@ -357,6 +366,9 @@ function ProjectTemplateModal({
         tags: [],
         startOffsetDays: t.length === 0 ? 0 : t[t.length - 1].startOffsetDays + 2,
         durationDays: 3,
+        kind: "standard",
+        contentCount: 0,
+        contentTypes: [],
       },
     ]);
 
@@ -396,7 +408,15 @@ function ProjectTemplateModal({
                 services,
                 priority,
                 durationDays: Number(durationDays),
-                tasks: tasks.filter((t) => t.title.trim()),
+                tasks: tasks
+                  .filter((t) => t.title.trim())
+                  .map((t) => ({
+                    ...t,
+                    contentCount: t.kind === "content" ? t.contentCount : 0,
+                    // One type per piece, no more and no fewer.
+                    contentTypes:
+                      t.kind === "content" ? pieceTypes(t.contentCount, t.contentTypes) : [],
+                  })),
                 createdAt: template?.createdAt ?? new Date().toISOString(),
               });
               onClose();
@@ -523,6 +543,60 @@ function ProjectTemplateModal({
                       <IconTrash size={14} />
                     </button>
                   </div>
+
+                  <div className="mb-2.5 grid gap-2.5 sm:grid-cols-2">
+                    <Select
+                      value={item.kind}
+                      onChange={(e) => {
+                        const kind = e.target.value as TaskKind;
+                        patchTask(item.id, {
+                          kind,
+                          contentCount: kind === "content" ? Math.max(1, item.contentCount) : 0,
+                          // Content is written by the writers' desk; still changeable.
+                          ...(kind === "content" &&
+                          db.departments.includes(CONTENT_WRITER_DEPARTMENT)
+                            ? { department: CONTENT_WRITER_DEPARTMENT }
+                            : {}),
+                        });
+                      }}
+                      aria-label={`Type of task ${i + 1}`}
+                    >
+                      <option value="standard">Standard task</option>
+                      <option value="content">Content task</option>
+                    </Select>
+                    {item.kind === "content" ? (
+                      <Input
+                        type="number"
+                        min="1"
+                        value={item.contentCount ? String(item.contentCount) : ""}
+                        onChange={(e) =>
+                          patchTask(item.id, {
+                            contentCount: Math.max(0, Math.trunc(Number(e.target.value)) || 0),
+                          })
+                        }
+                        placeholder="How many pieces? e.g. 5"
+                        aria-label={`Pieces in task ${i + 1}`}
+                      />
+                    ) : null}
+                  </div>
+
+                  {item.kind === "content" && item.contentCount > 0 ? (
+                    <div className="mb-2.5">
+                      <p className="mb-1.5 text-[10px] tracking-wide text-ink-faint uppercase">
+                        CB type of each piece
+                      </p>
+                      <PieceTypesPicker
+                        count={item.contentCount}
+                        types={item.contentTypes}
+                        onChange={(contentTypes) => patchTask(item.id, { contentTypes })}
+                      />
+                    </div>
+                  ) : null}
+                  {touched && item.kind === "content" && item.contentCount < 1 ? (
+                    <p className="mb-2.5 text-[11px] text-st-rejected">
+                      How many pieces? At least one.
+                    </p>
+                  ) : null}
 
                   <div className="grid gap-2.5 sm:grid-cols-2">
                     <SearchSelect
@@ -651,6 +725,9 @@ function TaskTemplateModal({
                 durationDays: Number(durationDays),
                 startOffsetDays: 0,
                 tags,
+                kind: "standard",
+                contentCount: 0,
+                contentTypes: [],
                 createdAt: template?.createdAt ?? new Date().toISOString(),
               });
               onClose();

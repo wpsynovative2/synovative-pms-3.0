@@ -425,6 +425,7 @@ Since the baseline:
 | `0014_allotment_follows_task.sql` | `tasks_follow_assignee`: reassigning a task moves the content allotted to it (`content_bank.allotted_to`) to the new assignee; `guard_content_allotment` lets that through; repairs pieces already out of step |
 | `0015_content_piece_types.sql` | `tasks.content_types cb_type[]`: the CB type of each target piece by slot; `sync_content_slots` creates slots with it, changing an entry retypes that piece, recurrence copies keep it |
 | `0016_monthly_on_chosen_day.sql` | `recurrence_matches` honours `rule.monthDay` (1–31, short months use their last day); with it the start date only fires if it is that day. Mirrors `matchesRule` |
+| `0017_template_content_tasks.sql` | `project_template_tasks` (and `task_templates`, same row shape) gain `kind`, `content_count`, `content_types`, so a project template can lay out content tasks |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number
