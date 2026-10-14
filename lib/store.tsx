@@ -1,6 +1,7 @@
 "use client";
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import { todayISO } from "./calendar";
 import { splitBlueprints } from "./recurrence";
 import {
   createContext,
@@ -22,6 +23,8 @@ import {
   PROPERTY_COLUMNS,
   TASK_COLUMNS,
   VENDOR_COLUMNS,
+  WEBSITE_COLUMNS,
+  WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
   loadScopes,
   obcItemRow,
@@ -71,6 +74,9 @@ import type {
   TaskTemplate,
   User,
   Vendor,
+  Website,
+  WebsiteCredential,
+  WebsiteRenewal,
 } from "./types";
 
 /*
@@ -662,6 +668,18 @@ interface StoreValue {
   createVendor: (input: Omit<Vendor, "id">) => void;
   updateVendor: (id: string, patch: Partial<Vendor>) => void;
   deleteVendor: (id: string) => void;
+
+  /** Websites (0020). */
+  createWebsite: (input: WebsiteInput) => Website;
+  updateWebsite: (id: string, patch: Partial<WebsiteInput>) => void;
+  deleteWebsite: (id: string) => void;
+  /** A new login, or changes to one; `password` is only sent when given. */
+  saveWebsiteCredential: (input: WebsiteCredentialInput) => void;
+  deleteWebsiteCredential: (id: string) => void;
+  /** Reads one password from the database, which logs that it was read. */
+  revealWebsitePassword: (credentialId: string) => Promise<string>;
+  /** The renewal is done: recorded, and the due date moves on a year. */
+  markWebsiteRenewed: (websiteId: string, amount: number | null, note: string) => void;
 
   saveProjectTemplate: (t: ProjectTemplate) => void;
   deleteProjectTemplate: (id: string) => void;
@@ -1605,6 +1623,152 @@ const masterActions = {
   },
 };
 
+/* ------------------------------------------------------------ websites */
+
+export type WebsiteInput = Omit<Website, "id" | "createdBy" | "createdAt">;
+
+export interface WebsiteCredentialInput {
+  /** Absent for a new login. */
+  id?: string;
+  websiteId: string;
+  label: string;
+  loginUrl: string;
+  username: string;
+  recovery: string;
+  notes: string;
+  position: number;
+  /** Only sent when set: an edit that leaves it out keeps the old one. */
+  password?: string;
+}
+
+/** A year on from an ISO date, the way Postgres adds an interval of 1 year. */
+function nextYear(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  // 29 Feb rolls back to 28 Feb in a common year, as Postgres does.
+  const last = new Date(y + 1, m, 0).getDate();
+  return `${y + 1}-${String(m).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+const websiteActions = {
+  createWebsite(input: WebsiteInput): Website {
+    const site: Website = { ...input, id: newId(), createdBy: me(), createdAt: now() };
+    void commit(
+      ["websites"],
+      (db) => ({ ...db, websites: [...db.websites, site] }),
+      (c) =>
+        run(c.from("websites").insert({ id: site.id, ...patchColumns(input, WEBSITE_COLUMNS) })),
+    );
+    return site;
+  },
+
+  updateWebsite(id: string, patch: Partial<WebsiteInput>) {
+    void commit(
+      ["websites"],
+      (db) => ({
+        ...db,
+        websites: db.websites.map((w) => (w.id === id ? { ...w, ...patch } : w)),
+      }),
+      (c) => run(c.from("websites").update(patchColumns(patch, WEBSITE_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteWebsite(id: string) {
+    void commit(
+      ["websites"],
+      (db) => ({
+        ...db,
+        websites: db.websites.filter((w) => w.id !== id),
+        websiteCredentials: db.websiteCredentials.filter((x) => x.websiteId !== id),
+        websiteRenewals: db.websiteRenewals.filter((x) => x.websiteId !== id),
+      }),
+      (c) => run(c.from("websites").delete().eq("id", id)),
+    );
+  },
+
+  saveWebsiteCredential(input: WebsiteCredentialInput) {
+    const { id: givenId, password, ...fields } = input;
+    const id = givenId ?? newId();
+    const row: WebsiteCredential = {
+      ...fields,
+      id,
+      createdAt: state.db.websiteCredentials.find((x) => x.id === id)?.createdAt ?? now(),
+    };
+    const columns = {
+      ...patchColumns(fields, WEBSITE_CREDENTIAL_COLUMNS),
+      ...(password !== undefined ? { password } : {}),
+    };
+    void commit(
+      ["websites"],
+      (db) => ({
+        ...db,
+        websiteCredentials: givenId
+          ? db.websiteCredentials.map((x) => (x.id === id ? row : x))
+          : [...db.websiteCredentials, row],
+      }),
+      (c) =>
+        run(
+          givenId
+            ? c.from("website_credentials").update(columns).eq("id", id)
+            : c.from("website_credentials").insert({ id, ...columns }),
+        ),
+    );
+  },
+
+  deleteWebsiteCredential(id: string) {
+    void commit(
+      ["websites"],
+      (db) => ({
+        ...db,
+        websiteCredentials: db.websiteCredentials.filter((x) => x.id !== id),
+      }),
+      (c) => run(c.from("website_credentials").delete().eq("id", id)),
+    );
+  },
+
+  async revealWebsitePassword(credentialId: string): Promise<string> {
+    const { data, error } = await sb().rpc("reveal_website_password", {
+      p_credential_id: credentialId,
+    });
+    if (error) throw new Error(friendlyError(error));
+    return (data as string | null) ?? "";
+  },
+
+  markWebsiteRenewed(websiteId: string, amount: number | null, note: string) {
+    const site = state.db.websites.find((w) => w.id === websiteId);
+    if (!site) return;
+    const from = site.renewalDue ?? (site.startDate ? nextYear(site.startDate) : todayISO());
+    const renewal: WebsiteRenewal = {
+      id: newId(),
+      websiteId,
+      renewedOn: todayISO(),
+      periodFrom: from,
+      periodTo: nextYear(from),
+      amount,
+      note,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["websites"],
+      (db) => ({
+        ...db,
+        websites: db.websites.map((w) =>
+          w.id === websiteId ? { ...w, renewalDue: renewal.periodTo } : w,
+        ),
+        websiteRenewals: [renewal, ...db.websiteRenewals],
+      }),
+      (c) =>
+        run(
+          c.rpc("mark_website_renewed", {
+            p_website_id: websiteId,
+            p_amount: amount,
+            p_note: note,
+          }),
+        ),
+    );
+  },
+};
+
 const crmActions = {
   /* ------------------------------------------------------- companies */
 
@@ -2368,6 +2532,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...linkActions,
       ...masterActions,
       ...crmActions,
+      ...websiteActions,
     }),
     [
       db,

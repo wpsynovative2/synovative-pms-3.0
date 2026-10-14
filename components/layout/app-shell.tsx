@@ -14,6 +14,7 @@ import {
   IconContact,
   IconContent,
   IconDashboard,
+  IconGlobe,
   IconLink,
   IconLogout,
   IconMenu,
@@ -104,6 +105,12 @@ function useNavItems(user: User): NavItem[] {
       label: "Content Bank",
       icon: <IconContent size={18} />,
       show: gate.contentBank,
+    },
+    {
+      href: "/websites",
+      label: "Websites",
+      icon: <IconGlobe size={18} />,
+      show: gate.websites,
     },
     {
       href: "/expenses",

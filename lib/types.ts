@@ -775,7 +775,8 @@ export type NotificationType =
   | "due_soon"
   | "overdue"
   | "timer_autostop"
-  | "content_allotted";
+  | "content_allotted"
+  | "website_renewal";
 
 export interface AppNotification {
   id: string;
@@ -785,6 +786,87 @@ export interface AppNotification {
   body: string;
   href: string;
   read: boolean;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------- Websites */
+
+/** How a site was built: the WordPress logins only mean something for one. */
+export type WebsiteBuild = "WordPress" | "Plain code" | "Other";
+export const WEBSITE_BUILDS: WebsiteBuild[] = ["WordPress", "Plain code", "Other"];
+
+export type WebsiteStatus = "Active" | "Off-boarded";
+export const WEBSITE_STATUSES: WebsiteStatus[] = ["Active", "Off-boarded"];
+
+/**
+ * A client website Synovative built or looks after (0020). Its domain and
+ * hosting renew every year, starting a year after `startDate`.
+ */
+export interface Website {
+  id: string;
+  name: string;
+  url: string;
+  companyId: string | null;
+  /** The client contact the renewal email goes to. */
+  clientId: string | null;
+  projectId: string | null;
+  builtWith: WebsiteBuild;
+  /** "business hosting 1", "client's own hosting", … */
+  hostingPlan: string;
+  /** Whether Synovative holds - and pays for - the domain / the hosting. */
+  synovativeDomain: boolean;
+  synovativeHosting: boolean;
+  status: WebsiteStatus;
+  startDate: string | null;
+  /** The next annual renewal; set by the database from the start date. */
+  renewalDue: string | null;
+  /** What the client is charged for a year, in rupees. 0 when not agreed. */
+  renewalFee: number;
+  /** Renewal email address when no client is linked, or to override theirs. */
+  clientEmail: string;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/**
+ * One login for a website. The password is never loaded with it: it is read
+ * on demand through `revealWebsitePassword`, which the database logs.
+ */
+export interface WebsiteCredential {
+  id: string;
+  websiteId: string;
+  /** "WordPress admin", "Hosting", "Hostinger mail", "Gmail", … */
+  label: string;
+  loginUrl: string;
+  username: string;
+  /** Recovery email / phone, where the account has one. */
+  recovery: string;
+  notes: string;
+  position: number;
+  createdAt: string;
+}
+
+export const CREDENTIAL_LABELS = [
+  "WordPress admin",
+  "WordPress user",
+  "Hosting",
+  "Hostinger mail",
+  "Domain registrar",
+  "Gmail",
+  "cPanel / FTP",
+  "Other",
+];
+
+export interface WebsiteRenewal {
+  id: string;
+  websiteId: string;
+  renewedOn: string;
+  periodFrom: string;
+  periodTo: string;
+  amount: number | null;
+  note: string;
+  createdBy: string;
   createdAt: string;
 }
 
@@ -819,6 +901,9 @@ export interface Database {
   contentEntries: ContentEntry[];
   comments: Comment[];
   minutes: MeetingMinutes[];
+  websites: Website[];
+  websiteCredentials: WebsiteCredential[];
+  websiteRenewals: WebsiteRenewal[];
 }
 
 /**

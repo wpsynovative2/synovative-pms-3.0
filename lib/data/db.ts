@@ -30,6 +30,9 @@ import type {
   Task,
   TaskTemplate,
   TaskTemplateItem,
+  Website,
+  WebsiteCredential,
+  WebsiteRenewal,
   TimeSession,
   User,
   Vendor,
@@ -57,7 +60,8 @@ export type Scope =
   | "links"
   | "crm"
   | "content"
-  | "collab";
+  | "collab"
+  | "websites";
 
 export const ALL_SCOPES: Scope[] = [
   "master",
@@ -73,6 +77,7 @@ export const ALL_SCOPES: Scope[] = [
   "crm",
   "content",
   "collab",
+  "websites",
 ];
 
 export const EMPTY_DB: Database = {
@@ -96,6 +101,9 @@ export const EMPTY_DB: Database = {
   contentEntries: [],
   comments: [],
   minutes: [],
+  websites: [],
+  websiteCredentials: [],
+  websiteRenewals: [],
 };
 
 /** How many of the newest notifications the bell and inbox keep in memory. */
@@ -110,13 +118,23 @@ type Row = Record<string, unknown>;
  * together be unique per row, or rows could repeat or go missing across pages.
  */
 async function fetchAll(sb: SupabaseClient, table: string, ...orders: string[]): Promise<Row[]> {
+  return fetchColumns(sb, table, "*", ...orders);
+}
+
+/** fetchAll for a table whose rows cannot be read whole (a password column). */
+async function fetchColumns(
+  sb: SupabaseClient,
+  table: string,
+  columns: string,
+  ...orders: string[]
+): Promise<Row[]> {
   const out: Row[] = [];
   for (let from = 0; ; from += PAGE) {
-    let query = sb.from(table).select("*");
+    let query = sb.from(table).select(columns);
     for (const column of orders) query = query.order(column, { ascending: true });
     const { data, error } = await query.range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
-    out.push(...(data as Row[]));
+    out.push(...(data as unknown as Row[]));
     if (!data || data.length < PAGE) return out;
   }
 }
@@ -673,6 +691,72 @@ async function loadCollab(sb: SupabaseClient): Promise<Partial<Database>> {
   return { comments, minutes };
 }
 
+/*
+ * Websites (0020). Each table is read only as far as RLS allows: people who
+ * may not see logins get none back, and nobody gets the password column - it
+ * is not granted, so it is never asked for.
+ */
+async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
+  const [sites, creds, renewals] = await Promise.all([
+    fetchAll(sb, "websites", "name", "id"),
+    fetchColumns(
+      sb,
+      "website_credentials",
+      "id, website_id, label, login_url, username, recovery, notes, position, created_at",
+      "website_id",
+      "position",
+      "id",
+    ),
+    fetchAll(sb, "website_renewals", "renewed_on", "id"),
+  ]);
+  const websites: Website[] = sites.map((r) => ({
+    id: str(r.id),
+    name: str(r.name),
+    url: str(r.url),
+    companyId: nullable(r.company_id),
+    clientId: nullable(r.client_id),
+    projectId: nullable(r.project_id),
+    builtWith: (r.built_with as Website["builtWith"]) ?? "WordPress",
+    hostingPlan: str(r.hosting_plan),
+    synovativeDomain: !!r.synovative_domain,
+    synovativeHosting: !!r.synovative_hosting,
+    status: (r.status as Website["status"]) ?? "Active",
+    startDate: nullable(r.start_date) ? dateOnly(r.start_date) : null,
+    renewalDue: nullable(r.renewal_due) ? dateOnly(r.renewal_due) : null,
+    renewalFee: num(r.renewal_fee),
+    clientEmail: str(r.client_email),
+    notes: str(r.notes),
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+  const websiteCredentials: WebsiteCredential[] = creds.map((r) => ({
+    id: str(r.id),
+    websiteId: str(r.website_id),
+    label: str(r.label),
+    loginUrl: str(r.login_url),
+    username: str(r.username),
+    recovery: str(r.recovery),
+    notes: str(r.notes),
+    position: num(r.position),
+    createdAt: str(r.created_at),
+  }));
+  const websiteRenewals: WebsiteRenewal[] = renewals
+    .map((r) => ({
+      id: str(r.id),
+      websiteId: str(r.website_id),
+      renewedOn: dateOnly(r.renewed_on),
+      periodFrom: dateOnly(r.period_from),
+      periodTo: dateOnly(r.period_to),
+      amount: r.amount === null || r.amount === undefined ? null : num(r.amount),
+      note: str(r.note),
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    }))
+    // Most recent first.
+    .reverse();
+  return { websites, websiteCredentials, websiteRenewals };
+}
+
 const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>> = {
   master: loadMaster,
   users: loadUsers,
@@ -687,6 +771,7 @@ const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>>
   crm: loadCrm,
   content: loadContent,
   collab: loadCollab,
+  websites: loadWebsites,
 };
 
 export interface ScopeFailure {
@@ -843,6 +928,34 @@ export const EXPENSE_COLUMNS: Record<string, string> = {
   expenseDate: "expense_date",
   attachmentName: "attachment_name",
   attachmentUrl: "attachment_url",
+};
+
+export const WEBSITE_COLUMNS: Record<string, string> = {
+  name: "name",
+  url: "url",
+  companyId: "company_id",
+  clientId: "client_id",
+  projectId: "project_id",
+  builtWith: "built_with",
+  hostingPlan: "hosting_plan",
+  synovativeDomain: "synovative_domain",
+  synovativeHosting: "synovative_hosting",
+  status: "status",
+  startDate: "start_date",
+  renewalDue: "renewal_due",
+  renewalFee: "renewal_fee",
+  clientEmail: "client_email",
+  notes: "notes",
+};
+
+export const WEBSITE_CREDENTIAL_COLUMNS: Record<string, string> = {
+  websiteId: "website_id",
+  label: "label",
+  loginUrl: "login_url",
+  username: "username",
+  recovery: "recovery",
+  notes: "notes",
+  position: "position",
 };
 
 export const VENDOR_COLUMNS: Record<string, string> = {

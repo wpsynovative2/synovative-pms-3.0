@@ -37,6 +37,8 @@ export const BUSINESS_DEV_DEPARTMENT = "Business Development Executives";
 export const CONTENT_WRITER_DEPARTMENT =
   "Content Writers / Copywriters / Brand Strategists";
 export const SMM_DEPARTMENT = "Social Media Marketing";
+/** Builds and looks after client websites, and holds their logins (0020). */
+export const WEBSITE_DEV_DEPARTMENT = "Website Developers";
 
 /** Departments allowed to write in the Content Bank. */
 export const CONTENT_AUTHOR_DEPARTMENTS = [

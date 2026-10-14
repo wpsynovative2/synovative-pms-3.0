@@ -427,6 +427,8 @@ Since the baseline:
 | `0016_monthly_on_chosen_day.sql` | `recurrence_matches` honours `rule.monthDay` (1–31, short months use their last day); with it the start date only fires if it is that day. Mirrors `matchesRule` |
 | `0017_template_content_tasks.sql` | `project_template_tasks` (and `task_templates`, same row shape) gain `kind`, `content_count`, `content_types`, so a project template can lay out content tasks |
 | `0018_content_journey.sql` | `content_bank.started_at / ready_at / allotted_at / completed_at`, stamped by `stamp_content_journey` (mirrored by `stampJourney` in `lib/types.ts`) for the Content Bank's journey view |
+| `0019_website_notification.sql` | `notification_type` gains `website_renewal` (own file: run before 0020) |
+| `0020_websites.sql` | Websites module: `websites`, `website_credentials` (password column not granted for select; read via logged `reveal_website_password`), `website_renewals` (`mark_website_renewed`), daily `notify_website_renewals` at 09:15 IST to Super Admin, Admin, Website Developers, Accounts & Finance and BDEs. Mirrors `canViewWebsites` / `canManageWebsites` / `canSeeWebsitePasswords` / `canRenewWebsites` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

@@ -302,6 +302,14 @@ export const IconEyeOff = (p: IconProps) => (
   </Svg>
 );
 
+export const IconGlobe = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18" />
+    <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18Z" />
+  </Svg>
+);
+
 /* -------------------------------------------------------------- CRM --- */
 
 export const IconBuilding = (p: IconProps) => (

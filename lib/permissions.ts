@@ -1,4 +1,5 @@
 import {
+  WEBSITE_DEV_DEPARTMENT,
   BUSINESS_DEV_DEPARTMENT,
   CONTENT_AUTHOR_DEPARTMENTS,
   CONTENT_WRITER_DEPARTMENT,
@@ -29,6 +30,22 @@ export const isContentWriter = (u: User) =>
   u.departments.includes(CONTENT_WRITER_DEPARTMENT);
 export const isSocialMediaMarketer = (u: User) =>
   u.departments.includes(SMM_DEPARTMENT);
+
+export const isWebsiteDev = (u: User) => u.departments.includes(WEBSITE_DEV_DEPARTMENT);
+
+/* -------------------------------------------------------------- websites */
+
+/*
+ * Websites (0020). Mirrors can_view_websites, can_manage_websites,
+ * can_see_website_passwords and can_renew_websites.
+ */
+export const canViewWebsites = (u: User) =>
+  isGlobalManager(u) || isWebsiteDev(u) || isFinance(u) || isBusinessExec(u);
+export const canManageWebsites = (u: User) => isGlobalManager(u) || isWebsiteDev(u);
+/** Managers below Admin are left out on purpose: these are client passwords. */
+export const canSeeWebsitePasswords = (u: User) =>
+  u.role === "super_admin" || u.role === "admin" || isWebsiteDev(u);
+export const canRenewWebsites = (u: User) => canManageWebsites(u) || isFinance(u);
 
 /* ------------------------------------------------------- user management */
 
@@ -434,6 +451,7 @@ export interface NavGate {
   properties: boolean;
   obcs: boolean;
   contentBank: boolean;
+  websites: boolean;
   masterData: boolean;
 }
 
@@ -462,6 +480,7 @@ export function navGate(u: User): NavGate {
     // Writers need it to write; everyone else reaches their project's content
     // through the task that carries it, but the library itself stays open.
     contentBank: true,
+    websites: canViewWebsites(u),
     // The name lists everything else points at — Super Admin only.
     masterData: isSuperAdmin(u),
   };

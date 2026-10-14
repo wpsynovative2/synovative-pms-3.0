@@ -81,6 +81,8 @@ Added since the baseline (run on every database):
 | `0016_monthly_on_chosen_day.sql` | A monthly repeat can fall on any chosen day of the month |
 | `0017_template_content_tasks.sql` | Project templates can include content tasks, with the count and CB type of each piece |
 | `0018_content_journey.sql` | Each piece records when it was started, made Ready To Design, allotted and completed |
+| `0019_website_notification.sql` | Website renewal notification type (run before 0020) |
+| `0020_websites.sql` | Websites module: sites, logins, annual renewals and reminders |
 
 ### 4. The first Super Admin
 
