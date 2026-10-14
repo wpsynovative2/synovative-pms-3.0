@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { AllotDialog } from "@/components/content/allot-dialog";
+import { ContentJourney } from "@/components/content/content-journey";
 import {
   IconChevronDown,
   IconContent,
@@ -152,6 +153,10 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         <Fact label="Status">
           <ContentStageControl entry={entry} />
         </Fact>
+      </Card>
+
+      <Card className="p-4">
+        <ContentJourney entry={entry} />
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -330,7 +335,10 @@ export function ContentLinkRow({
   );
 }
 
-/** A compact card for the Content Bank's own list. */
+/**
+ * One piece as a row of the Content Bank's list: what it is on the left, and
+ * its journey from created to completed across the rest of the row.
+ */
 export function ContentCard({
   entry,
   onOpen,
@@ -350,66 +358,73 @@ export function ContentCard({
   const allottedTask = entry.allottedTaskId ? taskById(entry.allottedTaskId) : undefined;
 
   return (
-    <Card className="flex flex-col p-4">
-      <div className="flex items-start gap-2.5">
-        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand/15 text-brand-ink">
-          <IconContent size={17} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <button
-            onClick={onOpen}
-            className="block max-w-full truncate text-left text-[14px] font-semibold text-ink hover:text-brand-bright"
-          >
-            {contentLabel(entry)}
-          </button>
-          <p className="truncate text-[11px] text-ink-faint">
-            {showProject
-              ? (project?.name ?? "Unknown project")
-              : allotted
-                ? `Allotted to ${allotted.fullName}`
-                : "Not allotted yet"}
-          </p>
-        </div>
-        <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1.5">
-          <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
-          {/* Who has it, at a glance - the card's other question after "what is it". */}
-          {allotted ? (
-            <span
-              className="flex max-w-full items-center gap-1.5 text-[11px] text-ink-muted"
-              title={
-                allottedTask
-                  ? `Allotted to ${allotted.fullName} on ${allottedTask.title}`
-                  : `Allotted to ${allotted.fullName}`
-              }
+    <Card className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
+      <div className="flex min-w-0 flex-col lg:w-[40%] lg:shrink-0">
+        <div className="flex items-start gap-2.5">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-brand/15 text-brand-ink">
+            <IconContent size={17} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <button
+              onClick={onOpen}
+              className="block max-w-full truncate text-left text-[14px] font-semibold text-ink hover:text-brand-bright"
             >
-              <Avatar name={allotted.fullName} size={18} />
-              <span className="truncate">{allotted.fullName}</span>
-            </span>
+              {contentLabel(entry)}
+            </button>
+            <p className="truncate text-[11px] text-ink-faint">
+              {showProject
+                ? (project?.name ?? "Unknown project")
+                : allotted
+                  ? `Allotted to ${allotted.fullName}`
+                  : "Not allotted yet"}
+            </p>
+          </div>
+          <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1.5">
+            <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
+            {/* Who has it, at a glance - the card's other question after "what is it". */}
+            {allotted ? (
+              <span
+                className="flex max-w-full items-center gap-1.5 text-[11px] text-ink-muted"
+                title={
+                  allottedTask
+                    ? `Allotted to ${allotted.fullName} on ${allottedTask.title}`
+                    : `Allotted to ${allotted.fullName}`
+                }
+              >
+                <Avatar name={allotted.fullName} size={18} />
+                <span className="truncate">{allotted.fullName}</span>
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
+          {entry.stage ? (
+            <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>
+              {entry.stage}
+              {stageDetail(stageValueOf(entry)) ? ` ${stageDetail(stageValueOf(entry))}` : ""}
+            </Badge>
+          ) : null}
+          <Badge>For {formatMonth(entry.forMonth)}</Badge>
+          <Badge>{formatDate(entry.date)}</Badge>
+          {entry.referenceLinks.length ? (
+            <Badge>{entry.referenceLinks.length} refs</Badge>
           ) : null}
         </div>
+
+        <div className="mt-3 flex items-center gap-2 border-t border-line-soft pt-3">
+          <span className="min-w-0 truncate text-[11px] text-ink-faint">
+            {writer?.fullName ?? "Unknown"}
+          </span>
+          {actions ? <div className="ml-auto flex gap-1">{actions}</div> : null}
+        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <Badge className="border-brand-bright/30 bg-brand/15 text-brand-ink">{entry.type}</Badge>
-        {entry.stage ? (
-          <Badge className={CONTENT_STAGE_STYLE[entry.stage]}>
-            {entry.stage}
-            {stageDetail(stageValueOf(entry)) ? ` ${stageDetail(stageValueOf(entry))}` : ""}
-          </Badge>
-        ) : null}
-        <Badge>For {formatMonth(entry.forMonth)}</Badge>
-        <Badge>{formatDate(entry.date)}</Badge>
-        {entry.referenceLinks.length ? (
-          <Badge>{entry.referenceLinks.length} refs</Badge>
-        ) : null}
-      </div>
-
-      <div className="mt-auto flex items-center gap-2 border-t border-line-soft pt-3">
-        <span className="min-w-0 truncate text-[11px] text-ink-faint">
-          {writer?.fullName ?? "Unknown"}
-        </span>
-        {actions ? <div className="ml-auto flex gap-1">{actions}</div> : null}
-      </div>
+      <ContentJourney
+        entry={entry}
+        className="flex-1 border-t border-line-soft pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6"
+      />
     </Card>
   );
 }

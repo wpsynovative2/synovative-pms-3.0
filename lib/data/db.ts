@@ -632,6 +632,10 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       forMonth: r.for_month ? dateOnly(r.for_month) : `${dateOnly(r.entry_date).slice(0, 7)}-01`,
       allottedTo: nullable(r.allotted_to),
       allottedTaskId: nullable(r.allotted_task_id),
+      startedAt: nullable(r.started_at),
+      readyAt: nullable(r.ready_at),
+      allottedAt: nullable(r.allotted_at),
+      completedAt: nullable(r.completed_at),
       createdBy: str(r.created_by),
       createdAt: str(r.created_at),
     }))

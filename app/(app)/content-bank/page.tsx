@@ -461,7 +461,7 @@ export default function ContentBankPage() {
                 </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="flex flex-col gap-3">
                 {g.entries.map((e) => (
                   <ContentCard
                     key={e.id}

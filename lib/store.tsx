@@ -37,7 +37,7 @@ import {
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
-import { isAllotted } from "./types";
+import { isAllotted, stampJourney } from "./types";
 import type {
   CalendarConfig,
   Client,
@@ -578,6 +578,10 @@ export type ContentInput = Omit<
   | "stage"
   | "scheduledOn"
   | "carryMonth"
+  | "startedAt"
+  | "readyAt"
+  | "allottedAt"
+  | "completedAt"
   | "allottedTo"
   | "allottedTaskId"
   | "slot"
@@ -981,7 +985,9 @@ const actions = {
         return {
           ...next,
           contentEntries: next.contentEntries.map((e) =>
-            e.allottedTaskId === id ? { ...e, allottedTo: patch.assigneeId ?? null } : e,
+            e.allottedTaskId === id
+              ? stampJourney(e, { ...e, allottedTo: patch.assigneeId ?? null })
+              : e,
           ),
         };
       },
@@ -2064,7 +2070,7 @@ const crmActions = {
   /* ---------------------------------------------------- content bank */
 
   createContentEntry(input: ContentInput): ContentEntry {
-    const entry: ContentEntry = {
+    const entry: ContentEntry = stampJourney(null, {
       ...input,
       id: newId(),
       stage: null,
@@ -2072,11 +2078,15 @@ const crmActions = {
       carryMonth: null,
       allottedTo: null,
       allottedTaskId: null,
+      startedAt: null,
+      readyAt: null,
+      allottedAt: null,
+      completedAt: null,
       // Only the database lays out slots; anything a writer adds is an extra.
       slot: null,
       createdBy: me(),
       createdAt: now(),
-    };
+    });
     void commit(
       ["content", "notifications"],
       (db) => ({ ...db, contentEntries: [entry, ...db.contentEntries] }),
@@ -2091,7 +2101,9 @@ const crmActions = {
       ["content", "notifications"],
       (db) => ({
         ...db,
-        contentEntries: db.contentEntries.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        contentEntries: db.contentEntries.map((x) =>
+          x.id === id ? stampJourney(x, { ...x, ...patch }) : x,
+        ),
       }),
       (c) => run(c.from("content_bank").update(patchColumns(patch, CONTENT_COLUMNS)).eq("id", id)),
     );
@@ -2141,7 +2153,9 @@ const crmActions = {
         ...db,
         tasks: task ? [...db.tasks, task] : db.tasks,
         contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId ? { ...e, allottedTo: userId, allottedTaskId: taskId } : e,
+          e.id === entryId
+            ? stampJourney(e, { ...e, allottedTo: userId, allottedTaskId: taskId })
+            : e,
         ),
       }),
       async (c) => {
@@ -2167,7 +2181,7 @@ const crmActions = {
       (db) => ({
         ...db,
         contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId ? { ...e, stage, scheduledOn, carryMonth } : e,
+          e.id === entryId ? stampJourney(e, { ...e, stage, scheduledOn, carryMonth }) : e,
         ),
       }),
       (c) =>

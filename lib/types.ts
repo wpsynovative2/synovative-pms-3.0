@@ -642,6 +642,18 @@ export interface ContentEntry {
   slot: number | null;
   date: string;
   type: ContentType;
+  /*
+   * The journey (0018), stamped by the database as the piece reaches each
+   * step. Null when not reached - or reached before 0018, with no date kept.
+   */
+  /** First written in. */
+  startedAt: string | null;
+  /** First marked Ready To Design. */
+  readyAt: string | null;
+  /** Put in its current holder's name. */
+  allottedAt: string | null;
+  /** Design Completed or Scheduled. */
+  completedAt: string | null;
   /** Rich text — what appears on the creative itself. */
   onPic: string;
   caption: string;
@@ -807,4 +819,26 @@ export interface Database {
   contentEntries: ContentEntry[];
   comments: Comment[];
   minutes: MeetingMinutes[];
+}
+
+/**
+ * The journey stamps a change would get from the database (0018), applied to
+ * the optimistic copy so the steps move the moment something is done. Mirrors
+ * stamp_content_journey().
+ */
+export function stampJourney(prev: ContentEntry | null, next: ContentEntry): ContentEntry {
+  const now = new Date().toISOString();
+  const out = { ...next };
+  if (!out.startedAt && !isContentEmpty(out)) out.startedAt = now;
+  if (!prev || prev.stage !== out.stage) {
+    if (out.stage === "Ready To Design" && !out.readyAt) out.readyAt = now;
+    if (out.stage === "Design Completed" || out.stage === "Scheduled") {
+      if (!out.completedAt) out.completedAt = now;
+    } else if (out.stage === null || out.stage === "Ready To Design") {
+      out.completedAt = null;
+    }
+  }
+  if (!out.allottedTo) out.allottedAt = null;
+  else if (!prev || prev.allottedTo !== out.allottedTo) out.allottedAt = now;
+  return out;
 }
