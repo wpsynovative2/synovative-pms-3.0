@@ -83,6 +83,8 @@ Added since the baseline (run on every database):
 | `0018_content_journey.sql` | Each piece records when it was started, made Ready To Design, allotted and completed |
 | `0019_website_notification.sql` | Website renewal notification type (run before 0020) |
 | `0020_websites.sql` | Websites module: sites, logins, annual renewals and reminders |
+| `0021_cb_type_stm.sql` | New CB types Static to Motion and Festival STM (run before 0022) |
+| `0022_stm_reel_allotment.sql` | STM pieces are allotted twice: static design, then reel editing after it |
 
 ### 4. The first Super Admin
 

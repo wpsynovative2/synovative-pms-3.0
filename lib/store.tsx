@@ -590,6 +590,8 @@ export type ContentInput = Omit<
   | "completedAt"
   | "allottedTo"
   | "allottedTaskId"
+  | "motionAllottedTo"
+  | "motionAllottedTaskId"
   | "slot"
 >;
 
@@ -741,7 +743,15 @@ interface StoreValue {
   deleteContentEntry: (id: string) => void;
 
   /** Hand a piece to someone on one of their tasks, or take it back (null). */
-  allotContent: (entryId: string, allotment: ContentAllotment | null) => void;
+  /**
+   * Hands a piece on; null takes it back. A Static to Motion piece also takes
+   * `reel`, the reel editing part, allotted in the same go (0022).
+   */
+  allotContent: (
+    entryId: string,
+    allotment: ContentAllotment | null,
+    reel?: ContentAllotment | null,
+  ) => void;
   /**
    * Where the piece has got to after writing. Scheduled takes the day it goes
    * out, Carry Forwarded the month it moves to (any date in it).
@@ -993,7 +1003,8 @@ const actions = {
     const assigneeMoved =
       "assigneeId" in patch && (patch.assigneeId ?? null) !== (before.assigneeId ?? null);
     const allotmentMoves =
-      assigneeMoved && state.db.contentEntries.some((e) => e.allottedTaskId === id);
+      assigneeMoved &&
+      state.db.contentEntries.some((e) => e.allottedTaskId === id || e.motionAllottedTaskId === id);
 
     void commit(
       withSlots(["tasks"], slotsMove || allotmentMoves),
@@ -1003,8 +1014,14 @@ const actions = {
         return {
           ...next,
           contentEntries: next.contentEntries.map((e) =>
-            e.allottedTaskId === id
-              ? stampJourney(e, { ...e, allottedTo: patch.assigneeId ?? null })
+            e.allottedTaskId === id || e.motionAllottedTaskId === id
+              ? stampJourney(e, {
+                  ...e,
+                  ...(e.allottedTaskId === id ? { allottedTo: patch.assigneeId ?? null } : {}),
+                  ...(e.motionAllottedTaskId === id
+                    ? { motionAllottedTo: patch.assigneeId ?? null }
+                    : {}),
+                })
               : e,
           ),
         };
@@ -2242,6 +2259,8 @@ const crmActions = {
       carryMonth: null,
       allottedTo: null,
       allottedTaskId: null,
+      motionAllottedTo: null,
+      motionAllottedTaskId: null,
       startedAt: null,
       readyAt: null,
       allottedAt: null,
@@ -2288,16 +2307,20 @@ const crmActions = {
    * than the writer, so they go through their own functions rather than the
    * writer-only update policy (0022).
    */
-  allotContent(entryId: string, allotment: ContentAllotment | null) {
-    // A new task is created first, in the same ordered write, so the
-    // function can check the piece lands on a task the allottee holds.
-    const task: Task | null =
-      allotment && "newTask" in allotment
+  allotContent(
+    entryId: string,
+    allotment: ContentAllotment | null,
+    reel: ContentAllotment | null = null,
+  ) {
+    // New tasks are created first, in the same ordered write, so the function
+    // can check each part lands on a task its holder has.
+    const taskFor = (a: ContentAllotment | null): Task | null =>
+      a && "newTask" in a
         ? {
             kind: "standard",
             contentCount: 0,
             contentTypes: [],
-            ...allotment.newTask,
+            ...a.newTask,
             recurrence: null,
             id: newId(),
             createdBy: me(),
@@ -2308,29 +2331,44 @@ const crmActions = {
             remarks: [],
           }
         : null;
+    const task = taskFor(allotment);
+    const reelTask = allotment ? taskFor(reel) : null;
     const userId = allotment?.userId ?? null;
     const taskId = task?.id ?? (allotment && "taskId" in allotment ? allotment.taskId : null);
+    const reelUserId = allotment ? (reel?.userId ?? null) : null;
+    const reelTaskId = allotment
+      ? (reelTask?.id ?? (reel && "taskId" in reel ? reel.taskId : null))
+      : null;
+    const created = [task, reelTask].filter((t): t is Task => !!t);
 
     void commit(
-      task ? ["content", "tasks", "notifications"] : ["content", "notifications"],
+      created.length ? ["content", "tasks", "notifications"] : ["content", "notifications"],
       (db) => ({
         ...db,
-        tasks: task ? [...db.tasks, task] : db.tasks,
+        tasks: [...db.tasks, ...created],
         contentEntries: db.contentEntries.map((e) =>
           e.id === entryId
-            ? stampJourney(e, { ...e, allottedTo: userId, allottedTaskId: taskId })
+            ? stampJourney(e, {
+                ...e,
+                allottedTo: userId,
+                allottedTaskId: taskId,
+                motionAllottedTo: reelUserId,
+                motionAllottedTaskId: reelTaskId,
+              })
             : e,
         ),
       }),
       async (c) => {
-        if (task) {
-          await run(c.from("tasks").insert({ ...taskRow(task), created_by: me() }));
+        for (const t of created) {
+          await run(c.from("tasks").insert({ ...taskRow(t), created_by: me() }));
         }
         await run(
           c.rpc("allot_content", {
             p_content_id: entryId,
             p_profile_id: userId,
             p_task_id: taskId,
+            p_motion_profile_id: reelUserId,
+            p_motion_task_id: reelTaskId,
           }),
         );
       },

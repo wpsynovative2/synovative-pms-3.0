@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import { CrmChain } from "@/components/crm/crm-chain";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskFormModal } from "@/components/task/task-form";
 import { ConfirmDialog, Drawer } from "@/components/ui/modal";
@@ -246,6 +247,9 @@ export default function RecurrencePage() {
                         ? `Project · ${r.taskCount} task${r.taskCount === 1 ? "" : "s"} each time`
                         : "Individual task"}
                     </div>
+                    {r.kind === "project" ? (
+                      <BlueprintCrm projectId={r.id} />
+                    ) : null}
                   </td>
                   <td className="max-w-64 px-4 py-3 text-ink-muted">
                     {describeRule(r.series.rule, r.series.anchor)}
@@ -574,5 +578,22 @@ function BlueprintDrawer({
         confirmLabel="Remove task"
       />
     </Drawer>
+  );
+}
+
+/** A repeating project's company, client and property, under its name. */
+function BlueprintCrm({ projectId }: { projectId: string }) {
+  const { blueprints } = useStore();
+  const p = blueprints.projects.find((x) => x.id === projectId);
+  if (!p) return null;
+  return (
+    <CrmChain
+      inline
+      className="mt-1"
+      companyId={p.companyId}
+      clientId={p.clientId}
+      propertyId={p.propertyId}
+      fallbackCompany={p.clientName}
+    />
   );
 }

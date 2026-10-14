@@ -586,7 +586,9 @@ export type ContentType =
   | "OOH"
   | "Site Branding"
   | "Website Content"
-  | "Brochure Content";
+  | "Brochure Content"
+  | "Static to Motion"
+  | "Festival STM";
 
 export const CONTENT_TYPES: ContentType[] = [
   "Static Design",
@@ -597,7 +599,17 @@ export const CONTENT_TYPES: ContentType[] = [
   "Site Branding",
   "Website Content",
   "Brochure Content",
+  "Static to Motion",
+  "Festival STM",
 ];
+
+/**
+ * Static to Motion and Festival STM (0021): a static design that is then
+ * edited into a reel. Such a piece is allotted twice - the static design, and
+ * the reel editing that waits for it (0022). Otherwise one piece like any.
+ */
+export const isStmType = (type: ContentType) =>
+  type === "Static to Motion" || type === "Festival STM";
 
 /**
  * Where a piece has got to — shown as its "Status". The writer sets it, and
@@ -668,6 +680,13 @@ export interface ContentEntry {
    * together with `allottedTo`; null on pieces allotted before 0025.
    */
   allottedTaskId: string | null;
+  /**
+   * Static to Motion pieces only (0022): the reel editor and their task, which
+   * starts no earlier than the static task above is due. `allottedTo` is then
+   * the static designer.
+   */
+  motionAllottedTo: string | null;
+  motionAllottedTaskId: string | null;
   /** Production stage, moved by `setContentStage`. */
   stage: ContentStage | null;
   /** With the Scheduled stage: the day it goes out (0013). */
@@ -927,3 +946,16 @@ export function stampJourney(prev: ContentEntry | null, next: ContentEntry): Con
   else if (!prev || prev.allottedTo !== out.allottedTo) out.allottedAt = now;
   return out;
 }
+
+/**
+ * Whether a piece is fully allotted: one holder for most, both the static
+ * designer and the reel editor for a Static to Motion piece.
+ */
+export const isFullyAllotted = (e: ContentEntry) =>
+  !!e.allottedTo && (!isStmType(e.type) || !!e.motionAllottedTo);
+
+/** Everyone a piece is allotted to, static designer first. */
+export const contentHolders = (e: ContentEntry): string[] =>
+  [e.allottedTo, isStmType(e.type) ? e.motionAllottedTo : null].filter(
+    (x): x is string => !!x,
+  );

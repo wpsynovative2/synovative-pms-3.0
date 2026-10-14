@@ -7,6 +7,7 @@ import {
   ContentDetailScreen,
   ContentLinkRow,
   ContentStageControl,
+  allotmentText,
 } from "@/components/content/content-view";
 import {
   IconChevronDown,
@@ -25,8 +26,10 @@ import {
   isAssignee,
   isContentTask,
 } from "@/lib/permissions";
+import { formatDate } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import {
+  isStmType,
   contentLabel,
   contentProgress,
   isContentEmpty,
@@ -54,7 +57,7 @@ export function TaskContentSection({
   task: Task;
   project: Project | null;
 }) {
-  const { db, currentUser, deleteContentEntry } = useStore();
+  const { db, currentUser, deleteContentEntry, taskById } = useStore();
   const user = currentUser!;
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
@@ -85,6 +88,7 @@ export function TaskContentSection({
     (e) =>
       e.taskId !== task.id &&
       (e.allottedTaskId === task.id ||
+        e.motionAllottedTaskId === task.id ||
         (!e.allottedTaskId &&
           isAssignee(user, task) &&
           e.projectId === task.projectId &&
@@ -192,7 +196,11 @@ export function TaskContentSection({
           <ul className="flex flex-col gap-2">
             {allotted.map((e) => (
               <li key={e.id}>
-                <ContentLinkRow entry={e} onOpen={() => setReadingId(e.id)} />
+                <ContentLinkRow
+                  entry={e}
+                  onOpen={() => setReadingId(e.id)}
+                  {...stmPart(e, task, taskById)}
+                />
               </li>
             ))}
           </ul>
@@ -251,6 +259,7 @@ function PieceRow({
   const { currentUser, userById } = useStore();
   const user = currentUser!;
   const allotted = userById(entry.allottedTo);
+  const held = allotmentText(entry, (id) => userById(id)?.fullName);
   const empty = isContentEmpty(entry);
   const extra = entry.slot === null;
   // Allotting from the row saves opening each piece to hand it on.
@@ -286,14 +295,15 @@ function PieceRow({
           <p className="truncate text-[11px] text-ink-faint">
             {empty ? "Not written yet" : entry.type}
             {extra && numbered ? " · extra" : ""}
-            {allotted ? ` · for ${allotted.fullName}` : empty ? "" : " · not allotted yet"}
+            {held ? ` · for ${held}` : empty ? "" : " · not allotted yet"}
           </p>
         </div>
         {mayAllot ? (
           <button
             type="button"
             onClick={() => setAllotting(true)}
-            aria-label={allotted ? `Allotted to ${allotted.fullName}. Change` : "Allot this piece"}
+            aria-label={held ? `Allotted to ${held}. Change` : "Allot this piece"}
+            title={held ?? undefined}
             className="flex min-h-9.5 w-44 shrink-0 items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 py-1 text-left text-[13px] hover:border-brand-bright/40"
           >
             {allotted ? <Avatar name={allotted.fullName} size={18} /> : null}
@@ -322,4 +332,29 @@ function PieceRow({
       ) : null}
     </li>
   );
+}
+
+/**
+ * On a Static to Motion piece, which part this task does - and, for the reel,
+ * whether the static it waits for is done yet.
+ */
+function stmPart(
+  entry: ContentEntry,
+  task: Task,
+  taskById: (id: string) => Task | undefined,
+): { part?: string; note?: React.ReactNode } {
+  if (!isStmType(entry.type)) return {};
+  if (entry.motionAllottedTaskId !== task.id) return { part: "Static design" };
+  const staticTask = entry.allottedTaskId ? taskById(entry.allottedTaskId) : undefined;
+  const ready = !staticTask || staticTask.status === "Approved" || staticTask.status === "Submitted";
+  return {
+    part: "Reel editing",
+    note: ready ? (
+      <span className="text-st-approved">Static design is done - ready for the reel.</span>
+    ) : (
+      <span className="text-st-submitted">
+        Waiting for the static design ({staticTask.status}, due {formatDate(staticTask.dueDate)}).
+      </span>
+    ),
+  };
 }

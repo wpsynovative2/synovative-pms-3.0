@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CrmChain } from "@/components/crm/crm-chain";
 import { useMemo, useState } from "react";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -341,7 +342,13 @@ export default function ProjectsPage() {
                       <h3 className="truncate text-[14px] font-semibold text-ink group-hover:text-ink-strong">
                         {p.name}
                       </h3>
-                      <p className="truncate text-[11px] text-ink-faint">{p.clientName}</p>
+                      <CrmChain
+                        className="mt-1"
+                        companyId={p.companyId}
+                        clientId={p.clientId}
+                        propertyId={p.propertyId}
+                        fallbackCompany={p.clientName}
+                      />
                       <p className="truncate text-[11px] text-ink-faint">
                         Created by {userById(p.createdBy)?.fullName ?? "Unknown"}
                       </p>
@@ -437,3 +444,4 @@ export default function ProjectsPage() {
     </div>
   );
 }
+

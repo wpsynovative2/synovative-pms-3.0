@@ -429,6 +429,8 @@ Since the baseline:
 | `0018_content_journey.sql` | `content_bank.started_at / ready_at / allotted_at / completed_at`, stamped by `stamp_content_journey` (mirrored by `stampJourney` in `lib/types.ts`) for the Content Bank's journey view |
 | `0019_website_notification.sql` | `notification_type` gains `website_renewal` (own file: run before 0020) |
 | `0020_websites.sql` | Websites module: `websites`, `website_credentials` (password column not granted for select; read via logged `reveal_website_password`), `website_renewals` (`mark_website_renewed`), daily `notify_website_renewals` at 09:15 IST to Super Admin, Admin, Website Developers, Accounts & Finance and BDEs. Mirrors `canViewWebsites` / `canManageWebsites` / `canSeeWebsitePasswords` / `canRenewWebsites` |
+| `0021_cb_type_stm.sql` | `cb_type` gains `Static to Motion` and `Festival STM` (own file: run before 0022) |
+| `0022_stm_reel_allotment.sql` | STM pieces take a second allotment, `motion_allotted_to` / `motion_allotted_task_id` (the reel editing), set with the static part by `allot_content(…, p_motion_profile_id, p_motion_task_id)`; the reel task must start on or after the static task's due date. Guard, notifications, follow-the-assignee, `set_content_stage` and the read policy cover both parts. Mirrors `isStmType` / `contentHolders` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

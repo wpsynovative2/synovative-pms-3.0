@@ -35,6 +35,7 @@ import {
   CONTENT_BILLING_TYPES,
   CONTENT_STAGES,
   CONTENT_TYPES,
+  contentHolders,
   isContentEmpty,
   type ContentBillingType,
   type ContentEntry,
@@ -104,7 +105,7 @@ export default function ContentBankPage() {
 
   const scoped = useMemo(() => {
     if (scope === "mine") return visible.filter((e) => e.createdBy === user.id);
-    if (scope === "allotted") return visible.filter((e) => e.allottedTo === user.id);
+    if (scope === "allotted") return visible.filter((e) => holds(e, user.id));
     return visible;
   }, [visible, scope, user.id]);
 
@@ -116,7 +117,7 @@ export default function ContentBankPage() {
         (!forMonth || e.forMonth === forMonth) &&
         (!projectId || e.projectId === projectId) &&
         (!assigneeId ||
-          (assigneeId === NONE ? !e.allottedTo : e.allottedTo === assigneeId)) &&
+          (assigneeId === NONE ? !e.allottedTo : holds(e, assigneeId))) &&
         (!writerId || e.createdBy === writerId) &&
         (!stage || (stage === NONE ? !e.stage : e.stage === stage)) &&
         (!billing || e.billingType === billing) &&
@@ -165,7 +166,7 @@ export default function ContentBankPage() {
     return {
       assignees: [
         { value: NONE, label: "Not allotted" },
-        ...options(new Set(visible.map((e) => e.allottedTo))),
+        ...options(new Set(visible.flatMap((e) => contentHolders(e)))),
       ],
       writers: options(new Set(visible.map((e) => e.createdBy))),
     };
@@ -275,7 +276,7 @@ export default function ContentBankPage() {
         />
         <StatTile
           label="Allotted to you"
-          value={visible.filter((e) => e.allottedTo === user.id).length}
+          value={visible.filter((e) => holds(e, user.id)).length}
           tone="green"
         />
         <StatTile
@@ -303,7 +304,7 @@ export default function ContentBankPage() {
             {
               id: "allotted",
               label: "Allotted to me",
-              count: visible.filter((e) => e.allottedTo === user.id).length,
+              count: visible.filter((e) => holds(e, user.id)).length,
             },
           ]}
         />
@@ -529,4 +530,9 @@ export default function ContentBankPage() {
       />
     </div>
   );
+}
+
+/** Whether a person holds a piece - either part of a Static to Motion one. */
+function holds(e: ContentEntry, userId: string) {
+  return contentHolders(e).includes(userId);
 }

@@ -5,7 +5,12 @@ import { Badge, cx } from "@/components/ui/primitives";
 import { formatDateTime, formatMonth } from "@/lib/calendar";
 import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
-import { isContentEmpty, type ContentEntry } from "@/lib/types";
+import {
+  contentHolders,
+  isContentEmpty,
+  isFullyAllotted,
+  type ContentEntry,
+} from "@/lib/types";
 
 /*
  * Where a piece has been, as five steps left to right:
@@ -37,12 +42,13 @@ export function journeySteps(
 ): Step[] {
   const completed =
     entry.stage === "Design Completed" || entry.stage === "Scheduled";
-  const allotted = !!entry.allottedTo;
+  // A Static to Motion piece is allotted once both its parts are.
+  const allotted = isFullyAllotted(entry);
   const ready =
     !!entry.readyAt ||
     entry.stage === "Ready To Design" ||
     completed ||
-    allotted;
+    !!entry.allottedTo;
   const started = !isContentEmpty(entry) || !!entry.startedAt || ready;
 
   return [
@@ -57,7 +63,10 @@ export function journeySteps(
     {
       label: "Allotted",
       done: allotted,
-      who: name(entry.allottedTo),
+      who: contentHolders(entry)
+        .map((id) => name(id))
+        .filter(Boolean)
+        .join(" → "),
       at: entry.allottedAt,
     },
     {

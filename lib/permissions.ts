@@ -365,7 +365,7 @@ export const canViewContentEntry = (
   projects: Project[],
   tasks: Task[],
 ) => {
-  if (entry.allottedTo === u.id) return true;
+  if (entry.allottedTo === u.id || entry.motionAllottedTo === u.id) return true;
   const project = projects.find((p) => p.id === entry.projectId);
   return !!project && canViewProject(u, project, tasks);
 };
@@ -406,7 +406,8 @@ export function canSetContentStage(
   if (entry.createdBy === u.id || isGlobalManager(u)) return true;
   if (project && isProjectLeader(u, project)) return true;
   if (entry.taskId && task && canReviewTask(u, task, project)) return true;
-  if (entry.allottedTo === u.id) return true;
+  // The reel editor too: a Static to Motion piece is done when the reel is.
+  if (entry.allottedTo === u.id || entry.motionAllottedTo === u.id) return true;
   return canWriteContent(u) && !!project && canViewProject(u, project, tasks);
 }
 

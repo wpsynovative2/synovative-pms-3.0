@@ -29,7 +29,7 @@ import {
   canSetContentStage,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import { contentLabel, type ContentEntry } from "@/lib/types";
+import { contentHolders, contentLabel, isStmType, type ContentEntry } from "@/lib/types";
 
 /*
  * Reading a Content Bank entry. Everyone on the project sees the same thing —
@@ -41,6 +41,19 @@ const billingTone = (billing: ContentEntry["billingType"]) =>
   billing === "Extra"
     ? "border-st-submitted/30 bg-st-submitted/15 text-st-submitted"
     : "border-line bg-surface-2 text-ink-muted";
+
+/**
+ * Who has a piece, in words: "Annu Sharma", or for a Static to Motion piece
+ * "Static: Annu Sharma · Reel: Vipul Chalke". Null when nobody has it.
+ */
+export function allotmentText(
+  entry: ContentEntry,
+  name: (id: string | null) => string | undefined,
+): string | null {
+  if (!isStmType(entry.type)) return name(entry.allottedTo) ?? null;
+  if (!entry.allottedTo && !entry.motionAllottedTo) return null;
+  return `Static: ${name(entry.allottedTo) ?? "—"} · Reel: ${name(entry.motionAllottedTo) ?? "—"}`;
+}
 
 /**
  * A piece read in full, taking the whole window. The facts sit in one strip
@@ -108,7 +121,24 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
   const [allotting, setAllotting] = useState(false);
 
   const mayAllot = canAllotContent(user, project);
-  const allotmentLabel = (
+  const reel = userById(entry.motionAllottedTo);
+  const reelTask = entry.motionAllottedTaskId ? taskById(entry.motionAllottedTaskId) : undefined;
+  const allotmentLabel = isStmType(entry.type) ? (
+    // Static to Motion: both parts, static first.
+    <span className="block min-w-0">
+      <span className={cx("block truncate text-[13px]", allotted ? "text-ink" : "text-ink-faint")}>
+        Static: {allotted?.fullName ?? "nobody yet"}
+      </span>
+      <span className={cx("block truncate text-[13px]", reel ? "text-ink" : "text-ink-faint")}>
+        Reel: {reel?.fullName ?? "nobody yet"}
+      </span>
+      {reelTask ? (
+        <span className="block truncate text-[11px] text-ink-faint">
+          reel from {formatDate(reelTask.startDate)}
+        </span>
+      ) : null}
+    </span>
+  ) : (
     <span className="block min-w-0">
       <span className={cx("block truncate text-[13px]", allotted ? "text-ink" : "text-ink-faint")}>
         {allotted?.fullName ?? "Nobody yet"}
@@ -290,14 +320,20 @@ export function ContentLinkRow({
   entry,
   onOpen,
   className,
+  part,
+  note,
 }: {
   entry: ContentEntry;
   /** Opens it in place; without this the row links to the Content Bank. */
   onOpen?: (id: string) => void;
   className?: string;
+  /** On a Static to Motion piece: which part this task does. */
+  part?: string;
+  /** A line under it, e.g. that the reel is waiting for the static. */
+  note?: React.ReactNode;
 }) {
   const { userById } = useStore();
-  const allotted = userById(entry.allottedTo);
+  const held = allotmentText(entry, (id) => userById(id)?.fullName);
   const label = contentLabel(entry);
 
   const inner = (
@@ -308,9 +344,11 @@ export function ContentLinkRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-ink">{label}</span>
         <span className="block truncate text-[11px] text-ink-faint">
+          {part ? `${part} · ` : ""}
           {entry.type} · {formatDate(entry.date)}
-          {allotted ? ` · for ${allotted.fullName}` : ""}
+          {held ? ` · for ${held}` : ""}
         </span>
+        {note ? <span className="mt-0.5 block text-[11px]">{note}</span> : null}
       </span>
       <IconExternal size={13} className="shrink-0 text-ink-faint" />
     </>
@@ -354,8 +392,11 @@ export function ContentCard({
   const { userById, projectById, taskById } = useStore();
   const writer = userById(entry.createdBy);
   const project = projectById(entry.projectId);
-  const allotted = userById(entry.allottedTo);
   const allottedTask = entry.allottedTaskId ? taskById(entry.allottedTaskId) : undefined;
+  const held = allotmentText(entry, (id) => userById(id)?.fullName);
+  const holders = contentHolders(entry)
+    .map((id) => userById(id))
+    .filter((u): u is NonNullable<typeof u> => !!u);
 
   return (
     <Card className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
@@ -374,27 +415,33 @@ export function ContentCard({
             <p className="truncate text-[11px] text-ink-faint">
               {showProject
                 ? (project?.name ?? "Unknown project")
-                : allotted
-                  ? `Allotted to ${allotted.fullName}`
+                : held
+                  ? `Allotted to ${held}`
                   : "Not allotted yet"}
             </p>
           </div>
           <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1.5">
             <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
             {/* Who has it, at a glance - the card's other question after "what is it". */}
-            {allotted ? (
+            {holders.map((h, i) => (
               <span
+                key={h.id}
                 className="flex max-w-full items-center gap-1.5 text-[11px] text-ink-muted"
                 title={
-                  allottedTask
-                    ? `Allotted to ${allotted.fullName} on ${allottedTask.title}`
-                    : `Allotted to ${allotted.fullName}`
+                  holders.length > 1
+                    ? `${i === 0 ? "Static design" : "Reel editing"}: ${h.fullName}`
+                    : allottedTask
+                      ? `Allotted to ${h.fullName} on ${allottedTask.title}`
+                      : `Allotted to ${h.fullName}`
                 }
               >
-                <Avatar name={allotted.fullName} size={18} />
-                <span className="truncate">{allotted.fullName}</span>
+                <Avatar name={h.fullName} size={18} />
+                <span className="truncate">
+                  {holders.length > 1 ? `${i === 0 ? "Static" : "Reel"}: ` : ""}
+                  {h.fullName}
+                </span>
               </span>
-            ) : null}
+            ))}
           </div>
         </div>
 
