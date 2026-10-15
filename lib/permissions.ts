@@ -259,17 +259,24 @@ export function canViewTask(
 
 export function visibleTasks(u: User, tasks: Task[], projects: Project[]) {
   const byId = new Map(projects.map((p) => [p.id, p]));
-  // Projects the user has at least one task in → they see all tasks there.
-  const openProjectIds = new Set(
-    tasks.filter((t) => t.assigneeId === u.id && t.projectId).map((t) => t.projectId!),
-  );
-  for (const p of projects) {
-    if (isProjectLeader(u, p)) openProjectIds.add(p.id);
-  }
+  // Whoever may open a project sees every task in it - the same projects the
+  // database lets them read (my_project_ids): their own, ones they lead, their
+  // department's for a Team Leader, and every project with a content task for
+  // the Content Writers' Team Leader (0025).
+  const open = new Map<string, boolean>();
+  const canOpen = (projectId: string) => {
+    let ok = open.get(projectId);
+    if (ok === undefined) {
+      const project = byId.get(projectId);
+      ok = !!project && canViewProject(u, project, tasks);
+      open.set(projectId, ok);
+    }
+    return ok;
+  };
   return tasks.filter((t) => {
-    const project = t.projectId ? byId.get(t.projectId) ?? null : null;
+    const project = t.projectId ? (byId.get(t.projectId) ?? null) : null;
     if (canViewTask(u, t, project)) return true;
-    return !!t.projectId && openProjectIds.has(t.projectId);
+    return !!t.projectId && canOpen(t.projectId);
   });
 }
 
