@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { AllotDialog } from "@/components/content/allot-dialog";
 import { ContentComposer } from "@/components/content/content-form";
-import {
-  AssignContentTaskBox,
-  SplitContentTaskDialog,
-} from "@/components/content/content-task-sharing";
+import { SplitContentTaskDialog } from "@/components/content/content-task-sharing";
 import {
   ContentDetailScreen,
   ContentLinkRow,
@@ -24,7 +21,6 @@ import { ConfirmDialog } from "@/components/ui/modal";
 import { Avatar, Button, ProgressBar, cx } from "@/components/ui/primitives";
 import {
   canAllotContent,
-  canAssignContentTask,
   canSplitContentTask,
   canDeleteContentEntry,
   canEditContentEntry,
@@ -137,8 +133,6 @@ export function TaskContentSection({
           </Button>
         ) : null}
       </div>
-
-      {canAssignContentTask(user, task) ? <AssignContentTaskBox task={task} /> : null}
 
       {/* The batch at a glance: what was asked for, and how much stands. */}
       {batch ? (

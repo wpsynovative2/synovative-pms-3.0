@@ -24,6 +24,7 @@ import { formatDate, formatDateTime, relativeTime } from "@/lib/calendar";
 import {
   canAddRemark,
   canDeleteTask,
+  canAssignContentTask,
   canEditTaskFully,
   canReviewTask,
   isAssignee,
@@ -32,6 +33,7 @@ import {
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import { contentLabel, type Review, type Submission } from "@/lib/types";
+import { AssignContentTaskBox } from "@/components/content/content-task-sharing";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
@@ -156,7 +158,7 @@ export function TaskDetailDrawer({
                   <span className="truncate">{assignee.fullName}</span>
                 </span>
               ) : (
-                "—"
+                <span className="text-ink-faint italic">Unassigned</span>
               )}
             </Fact>
             <Fact label="Start date">{formatDate(task.startDate)}</Fact>
@@ -165,6 +167,15 @@ export function TaskDetailDrawer({
             <Fact label="Time spent">{formatDuration(taskElapsedMs(task))}</Fact>
             <Fact label="Created by">{creator?.fullName ?? "—"}</Fact>
           </Card>
+
+          {/*
+            An unassigned content task, for the Content Writers' Team Leader
+            to hand out (0024). Here rather than in the content section, which
+            shows nothing to someone who is not the task's writer.
+          */}
+          {currentUser && canAssignContentTask(currentUser, task) ? (
+            <AssignContentTaskBox task={task} />
+          ) : null}
 
           {task.tags.length ? (
             <div className="flex flex-wrap gap-1.5">
