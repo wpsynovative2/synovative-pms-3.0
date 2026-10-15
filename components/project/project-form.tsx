@@ -121,10 +121,11 @@ interface FormState {
   priority: Priority;
   leaderId: string;
   memberIds: string[];
-  /** Optional — work raised by hand need not belong to a property. */
   propertyId: string;
-  /** The client (a company in the Companies module); its name is clientName. */
+  /** The company the work is for; its name is clientName. */
   companyId: string;
+  /** The company's contacts this project is for, first one leading. */
+  clientIds: string[];
 }
 
 export function ProjectFormModal({
@@ -165,6 +166,7 @@ export function ProjectFormModal({
     leaderId: project?.leaderId ?? "",
     memberIds: project?.memberIds ?? [],
     propertyId: project?.propertyId ?? "",
+    clientIds: project?.clientIds ?? [],
     // Older projects only carry the typed name; match it to a company if one exists.
     companyId:
       project?.companyId ??
@@ -243,13 +245,16 @@ export function ProjectFormModal({
         ...f,
         companyId: id,
         clientName: company?.name ?? "",
-        // A property belongs to one company; changing the client drops a mismatch.
+        // A property and its contacts belong to one company; changing it drops a mismatch.
         propertyId: property && property.companyId !== id ? "" : f.propertyId,
+        clientIds: f.clientIds.filter(
+          (cid) => db.clients.find((x) => x.id === cid)?.companyId === id,
+        ),
       };
     });
   };
 
-  // Properties narrow to the chosen client.
+  // Properties narrow to the chosen company.
   const propertyOptions = useMemo(
     () =>
       db.properties
@@ -262,7 +267,10 @@ export function ProjectFormModal({
     [db.properties, db.companies, form.companyId],
   );
 
-  /** A property implies its company, so picking one sets the client too. */
+  /**
+   * A property implies its company, so picking one sets the company too, and
+   * its contacts are offered as the project's clients when none are picked yet.
+   */
   const pickProperty = (id: string) => {
     const property = db.properties.find((p) => p.id === id);
     const company = db.companies.find((c) => c.id === property?.companyId);
@@ -270,16 +278,38 @@ export function ProjectFormModal({
       ...f,
       propertyId: id,
       ...(company ? { companyId: company.id, clientName: company.name } : {}),
+      clientIds: (() => {
+        const kept = f.clientIds.filter(
+          (cid) => !company || db.clients.find((x) => x.id === cid)?.companyId === company.id,
+        );
+        return kept.length ? kept : (property?.clientIds ?? []);
+      })(),
     }));
   };
 
-  /** The CRM chain: the client company, and the property's contact if one is picked. */
+  // Clients are the chosen company's contacts.
+  const clientContactOptions = useMemo(
+    () =>
+      db.clients
+        .filter((c) => c.companyId === form.companyId)
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        .map((c) => ({
+          value: c.id,
+          label: c.fullName,
+          hint: c.designation || undefined,
+          avatarName: c.fullName,
+        })),
+    [db.clients, form.companyId],
+  );
+
+  /** The CRM chain: the company, its property and the contacts picked. */
   const chainFor = (id: string) => {
     const property = db.properties.find((p) => p.id === id);
     return {
       propertyId: property?.id ?? null,
       companyId: property?.companyId ?? (form.companyId || null),
-      clientId: property?.clientId ?? null,
+      clientId: form.clientIds[0] ?? null,
+      clientIds: form.clientIds,
     };
   };
 
@@ -364,7 +394,9 @@ export function ProjectFormModal({
 
   const errors = {
     name: !form.name.trim() ? "A project name is required." : undefined,
-    clientName: !form.clientName.trim() ? "Pick the client." : undefined,
+    clientName: !form.clientName.trim() ? "Pick the company." : undefined,
+    // A project raised from an OBC takes whatever the OBC says.
+    propertyId: !chainFromObc && !form.propertyId ? "Pick the property." : undefined,
     services: form.services.length === 0 ? "Pick at least one service." : undefined,
     startDate: startBlocked ?? undefined,
     deadline:
@@ -481,23 +513,23 @@ export function ProjectFormModal({
           </Field>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Project name" required error={touched ? errors.name : undefined}>
-            <Input
-              value={form.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="e.g. Lodha Amara — Launch Campaign"
-            />
-          </Field>
+        <Field label="Project name" required error={touched ? errors.name : undefined}>
+          <Input
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+            placeholder="e.g. Lodha Amara — Launch Campaign"
+          />
+        </Field>
 
+        <div className="grid items-start gap-4 sm:grid-cols-3">
           <Field
-            label="Client"
+            label="Company"
             required
             hint={
               chainFromObc
                 ? "Set by the OBC this project was raised from."
                 : db.companies.length === 0
-                  ? "Add the client under Companies first."
+                  ? "Add the company under Companies first."
                   : undefined
             }
             error={touched ? errors.clientName : undefined}
@@ -507,28 +539,54 @@ export function ProjectFormModal({
               options={clientOptions}
               value={form.companyId || (form.clientName.trim() ? LEGACY_CLIENT : "")}
               onChange={pickClient}
-              placeholder="Select a client"
+              placeholder="Select a company"
+            />
+          </Field>
+
+          <Field
+            label="Property"
+            required={!chainFromObc}
+            hint={
+              chainFromObc
+                ? "Set by the OBC this project was raised from."
+                : form.companyId && propertyOptions.length === 0
+                  ? "This company has no properties yet."
+                  : "Only the chosen company's properties are listed."
+            }
+            error={touched ? errors.propertyId : undefined}
+          >
+            <SearchSelect
+              disabled={chainFromObc}
+              options={propertyOptions}
+              value={form.propertyId}
+              onChange={pickProperty}
+              placeholder="Select a property"
+            />
+          </Field>
+
+          <Field
+            label="Clients"
+            hint={
+              chainFromObc
+                ? "Set by the OBC this project was raised from."
+                : !form.companyId
+                  ? "Pick the company first."
+                  : clientContactOptions.length === 0
+                    ? "This company has no clients yet."
+                    : `${form.clientIds.length} selected`
+            }
+          >
+            <MultiSelect
+              disabled={chainFromObc || !form.companyId}
+              options={clientContactOptions}
+              value={form.clientIds}
+              onChange={(v) => set("clientIds", v)}
+              placeholder="Search clients…"
+              emptyLabel="No clients selected"
+              maxVisibleChips={3}
             />
           </Field>
         </div>
-
-        <Field
-          label="Property"
-          hint={
-            chainFromObc
-              ? "Set by the OBC this project was raised from."
-              : "Optional. Only the chosen client's properties are listed."
-          }
-        >
-          <SearchSelect
-            allowClear
-            disabled={chainFromObc}
-            options={propertyOptions}
-            value={form.propertyId}
-            onChange={pickProperty}
-            placeholder="No property"
-          />
-        </Field>
 
         <Field label="Project colour" required>
           <ColorPicker

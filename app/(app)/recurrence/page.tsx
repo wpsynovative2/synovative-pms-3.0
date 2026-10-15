@@ -592,6 +592,7 @@ function BlueprintCrm({ projectId }: { projectId: string }) {
       className="mt-1"
       companyId={p.companyId}
       clientId={p.clientId}
+      clientIds={p.clientIds}
       propertyId={p.propertyId}
       fallbackCompany={p.clientName}
     />

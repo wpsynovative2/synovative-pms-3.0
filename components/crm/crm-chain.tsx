@@ -12,6 +12,7 @@ import { useStore } from "@/lib/store";
 export function CrmChain({
   companyId,
   clientId,
+  clientIds,
   propertyId,
   fallbackCompany,
   inline = false,
@@ -19,6 +20,8 @@ export function CrmChain({
 }: {
   companyId: string | null;
   clientId: string | null;
+  /** Several contacts, shown together; clientId is used when not given. */
+  clientIds?: string[];
   propertyId: string | null;
   /** The typed client name of a project raised before Companies existed. */
   fallbackCompany?: string;
@@ -44,7 +47,11 @@ export function CrmChain({
       key: "client",
       label: "Client",
       icon: <IconContact size={12} />,
-      value: clientById(clientId)?.fullName,
+      value:
+        (clientIds ?? (clientId ? [clientId] : []))
+          .map((id) => clientById(id)?.fullName)
+          .filter(Boolean)
+          .join(", ") || undefined,
     },
   ].filter((i) => !!i.value);
   if (items.length === 0) return null;

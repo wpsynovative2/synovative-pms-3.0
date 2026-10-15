@@ -253,6 +253,11 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       series: readLink(r),
       companyId: nullable(r.company_id),
       clientId: nullable(r.client_id),
+      clientIds: Array.isArray(r.client_ids)
+        ? (r.client_ids as string[])
+        : r.client_id
+          ? [str(r.client_id)]
+          : [],
       propertyId: nullable(r.property_id),
       obcId: nullable(r.obc_id),
     }))
@@ -837,6 +842,7 @@ export function projectRow(p: Omit<Project, "services" | "memberIds" | "recurren
     leader_id: p.leaderId,
     company_id: p.companyId,
     client_id: p.clientId,
+    client_ids: p.clientIds,
     property_id: p.propertyId,
     obc_id: p.obcId,
   };
@@ -903,6 +909,7 @@ export const PROJECT_COLUMNS: Record<string, string> = {
   leaderId: "leader_id",
   companyId: "company_id",
   clientId: "client_id",
+  clientIds: "client_ids",
   propertyId: "property_id",
   obcId: "obc_id",
 };

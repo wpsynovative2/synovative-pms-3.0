@@ -192,7 +192,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   }
 
   const company = companyById(project.companyId);
-  const client = clientById(project.clientId);
+  const clients = project.clientIds.map((cid) => clientById(cid)).filter((c) => !!c);
   const property = propertyById(project.propertyId);
   const obc = obcById(project.obcId);
 
@@ -207,20 +207,20 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       icon: <IconBuilding size={14} />,
     });
   }
-  if (client) {
-    crmChain.push({
-      kind: "Client",
-      label: client.fullName,
-      href: `/clients?client=${client.id}`,
-      icon: <IconContact size={14} />,
-    });
-  }
   if (property) {
     crmChain.push({
       kind: "Property",
       label: property.name,
       href: `/properties?property=${property.id}`,
       icon: <IconProperty size={14} />,
+    });
+  }
+  for (const client of clients) {
+    crmChain.push({
+      kind: "Client",
+      label: client.fullName,
+      href: `/clients?client=${client.id}`,
+      icon: <IconContact size={14} />,
     });
   }
   if (obc) {

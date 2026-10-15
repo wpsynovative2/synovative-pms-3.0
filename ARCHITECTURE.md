@@ -434,6 +434,7 @@ Since the baseline:
 | `0023_content_placement.sql` | `content_bank.placement` (`SMM` / `WhatsApp Share`): required once a piece has anything written (`guard_content_placement`), and `submit_task` refuses a content task with any piece lacking one |
 | `0024_content_task_sharing.sql` | `assign_content_task()` lets a Content Writers Team Leader give an unassigned content task to their team; `split_content_task()` moves picked pieces onto a new content task (managers, Project Leader, CW Team Leaders), renumbering both. Mirrors `canAssignContentTask` / `canSplitContentTask` |
 | `0025_content_lead_sees_content_tasks.sql` | `my_project_ids` / `can_see_project`: a Content Writers Team Leader also sees every project with a content task, whatever department it is filed under. Mirrors `canViewProject` |
+| `0026_project_clients.sql` | `projects.client_ids`: a project can name several of its company's contacts. `client_id` stays the first of them, kept in step by `sync_project_clients`; recurring copies take the blueprint's; a deleted contact leaves every project |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

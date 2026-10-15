@@ -478,9 +478,16 @@ export interface ReviewInput {
  */
 export type NewProjectInput = Omit<
   Project,
-  "id" | "createdAt" | "createdBy" | "companyId" | "clientId" | "propertyId" | "obcId"
+  | "id"
+  | "createdAt"
+  | "createdBy"
+  | "companyId"
+  | "clientId"
+  | "clientIds"
+  | "propertyId"
+  | "obcId"
 > &
-  Partial<Pick<Project, "companyId" | "clientId" | "propertyId" | "obcId">>;
+  Partial<Pick<Project, "companyId" | "clientId" | "clientIds" | "propertyId" | "obcId">>;
 
 /**
  * A task created in the same breath as its project, with its dates already
@@ -1542,10 +1549,13 @@ function withSlots(scopes: Scope[], content: boolean): Scope[] {
 
 /** A project raised by hand has no company, client, property or OBC behind it. */
 function withoutCrmChain(input: NewProjectInput) {
+  // clientId is always the first of clientIds; either may be the one given.
+  const clientIds = input.clientIds ?? (input.clientId ? [input.clientId] : []);
   return {
     ...input,
     companyId: input.companyId ?? null,
-    clientId: input.clientId ?? null,
+    clientId: clientIds[0] ?? null,
+    clientIds,
     propertyId: input.propertyId ?? null,
     obcId: input.obcId ?? null,
   };
@@ -2050,7 +2060,9 @@ const crmActions = {
 
     const chain = {
       ...("companyId" in patch ? { companyId: patch.companyId ?? null } : {}),
-      ...("clientId" in patch ? { clientId: patch.clientId ?? null } : {}),
+      ...("clientId" in patch
+        ? { clientId: patch.clientId ?? null, clientIds: patch.clientId ? [patch.clientId] : [] }
+        : {}),
       ...("propertyId" in patch ? { propertyId: patch.propertyId ?? null } : {}),
     };
     const clientName = "clientId" in patch

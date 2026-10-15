@@ -129,7 +129,10 @@ export interface Project {
    * filled in when a New OBC is converted (§CRM).
    */
   companyId: string | null;
+  /** The first of `clientIds`, kept for everything that reads one contact. */
   clientId: string | null;
+  /** Every contact the project is for, in order (0026). */
+  clientIds: string[];
   propertyId: string | null;
   obcId: string | null;
 }
