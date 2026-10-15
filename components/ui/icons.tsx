@@ -312,15 +312,6 @@ export const IconGlobe = (p: IconProps) => (
 
 /* -------------------------------------------------------------- CRM --- */
 
-export const IconBuilding = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16" />
-    <path d="M15 9h3a2 2 0 0 1 2 2v10" />
-    <path d="M2 21h20" />
-    <path d="M8 7h3M8 11h3M8 15h3" />
-  </Svg>
-);
-
 /** A tower crane - a developer, as opposed to a building it puts up. */
 export const IconCrane = (p: IconProps) => (
   <Svg {...p}>
@@ -342,11 +333,13 @@ export const IconContact = (p: IconProps) => (
   </Svg>
 );
 
+/** A building - a property; the company that builds it is IconCrane. */
 export const IconProperty = (p: IconProps) => (
   <Svg {...p}>
-    <path d="M3 10.5 12 3l9 7.5" />
-    <path d="M5 9.5V20h14V9.5" />
-    <path d="M10 20v-5h4v5" />
+    <path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16" />
+    <path d="M15 9h3a2 2 0 0 1 2 2v10" />
+    <path d="M2 21h20" />
+    <path d="M8 7h3M8 11h3M8 15h3" />
   </Svg>
 );
 

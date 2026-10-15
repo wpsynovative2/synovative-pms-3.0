@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconBell,
-  IconBuilding,
+  IconCrane,
   IconCalendar,
   IconChart,
   IconChevronLeft,
@@ -79,7 +79,7 @@ function useNavItems(user: User): NavItem[] {
     {
       href: "/companies",
       label: "Companies",
-      icon: <IconBuilding size={18} />,
+      icon: <IconCrane size={18} />,
       show: gate.companies,
     },
     {

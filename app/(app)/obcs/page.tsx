@@ -9,7 +9,7 @@ import { TaskFormModal } from "@/components/task/task-form";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import {
-  IconBuilding,
+  IconCrane,
   IconContact,
   IconEdit,
   IconPlus,
@@ -183,7 +183,7 @@ export default function ObcsPage() {
       {noCompanies ? (
         <Card>
           <EmptyState
-            icon={<IconBuilding size={30} />}
+            icon={<IconCrane size={30} />}
             title="No companies yet"
             body="An OBC starts from a company, its client and their property."
             action={
@@ -521,7 +521,7 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                 <Fact
                   label="Company"
                   value={companyById(obc.companyId)?.name ?? "—"}
-                  icon={<IconBuilding size={13} />}
+                  icon={<IconCrane size={13} />}
                 />
                 <Fact
                   label="Client"
@@ -1363,7 +1363,7 @@ function ConvertModal({
           <div className="rounded-card border border-line-soft bg-surface-2 px-3 py-2.5">
             <h4 className="text-[12px] font-semibold text-ink">{obcLabel(obc)}</h4>
             <dl className="mt-2 flex flex-col gap-1 text-[12px]">
-              <Provenance icon={<IconBuilding size={12} />} value={company?.name} />
+              <Provenance icon={<IconCrane size={12} />} value={company?.name} />
               <Provenance icon={<IconContact size={12} />} value={client?.fullName} />
               <Provenance icon={<IconProperty size={12} />} value={property?.name} />
               {obc.zohoQuoteNumber ? (

@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
-  IconBuilding,
+  IconCrane,
   IconChevronDown,
   IconChevronRight,
   IconComment,
@@ -157,7 +157,7 @@ export default function PropertiesPage() {
       {noCompanies ? (
         <Card>
           <EmptyState
-            icon={<IconBuilding size={30} />}
+            icon={<IconCrane size={30} />}
             title="No companies yet"
             body="A property belongs to a company and a client, so start with the company."
             action={

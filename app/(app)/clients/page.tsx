@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
-  IconBuilding,
+  IconCrane,
   IconContact,
   IconEdit,
   IconPlus,
@@ -112,7 +112,7 @@ export default function ClientsPage() {
           label="Companies covered"
           value={new Set(db.clients.map((c) => c.companyId)).size}
           tone="neutral"
-          icon={<IconBuilding size={17} />}
+          icon={<IconCrane size={17} />}
         />
       </div>
 
@@ -137,7 +137,7 @@ export default function ClientsPage() {
       {noCompanies ? (
         <Card>
           <EmptyState
-            icon={<IconBuilding size={30} />}
+            icon={<IconCrane size={30} />}
             title="No companies yet"
             body="A client is always attached to a company, so start there."
             action={
@@ -184,7 +184,7 @@ export default function ClientsPage() {
                   href={`/companies?company=${c.companyId}`}
                   className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-brand-bright hover:underline"
                 >
-                  <IconBuilding size={13} /> {company?.name ?? "Unknown company"}
+                  <IconCrane size={13} /> {company?.name ?? "Unknown company"}
                 </Link>
 
                 <dl className="mt-2.5 space-y-1.5 text-[12px]">

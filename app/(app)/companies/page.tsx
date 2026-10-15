@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
-  IconBuilding,
+  IconCrane,
   IconContact,
   IconEdit,
   IconExternal,
@@ -83,7 +83,7 @@ export default function CompaniesPage() {
     <div className="flex flex-col gap-5">
       <PageHeader
         title="Companies"
-        icon={<IconBuilding size={20} />}
+        icon={<IconCrane size={20} />}
         subtitle="The developer master every client, property and project traces back to"
         actions={
           mayManage ? (
@@ -105,7 +105,7 @@ export default function CompaniesPage() {
           label="Companies"
           value={db.companies.length}
           tone="brand"
-          icon={<IconBuilding size={17} />}
+          icon={<IconCrane size={17} />}
         />
         <StatTile
           label="Active"
@@ -148,7 +148,7 @@ export default function CompaniesPage() {
       {filtered.length === 0 ? (
         <Card>
           <EmptyState
-            icon={<IconBuilding size={30} />}
+            icon={<IconCrane size={30} />}
             title="No companies match"
             body="Add the developers you work with — their clients and properties follow."
           />
@@ -165,7 +165,7 @@ export default function CompaniesPage() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={c.logoUrl} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <IconBuilding size={17} />
+                    <IconCrane size={17} />
                   )}
                 </span>
                 <div className="min-w-0 flex-1">

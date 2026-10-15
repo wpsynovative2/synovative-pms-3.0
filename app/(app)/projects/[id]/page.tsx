@@ -26,7 +26,7 @@ import {
   IconCheck,
   IconChart,
   IconClock,
-  IconBuilding,
+  IconCrane,
   IconComment,
   IconContact,
   IconContent,
@@ -204,7 +204,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       kind: "Company",
       label: company.name,
       href: `/companies?company=${company.id}`,
-      icon: <IconBuilding size={14} />,
+      icon: <IconCrane size={14} />,
     });
   }
   if (property) {
