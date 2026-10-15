@@ -437,6 +437,7 @@ Since the baseline:
 | `0026_project_clients.sql` | `projects.client_ids`: a project can name several of its company's contacts. `client_id` stays the first of them, kept in step by `sync_project_clients`; recurring copies take the blueprint's; a deleted contact leaves every project |
 | `0027_start_writing.sql` | `content_bank.started_by`; `start_content_piece()` - Start Writing, only by the writer the piece's task is assigned to; `stamp_content_journey` refuses a status on a piece nobody has started. Mirrors `isContentStarted` / `canStartContent` |
 | `0028_smm_content_desk.sql` | `on_content_desk` (Content Writers or Social Media Marketing): content tasks can be assigned or split to either team; `sees_every_content_task` - both desks' Team Leaders see every project with a content task; every Team Leader reads the whole Content Bank, and the name row of any project with content (`projects_read`), but not its tasks. Mirrors `onContentDesk` / `seesEveryContentTask` / `canViewContentEntry` |
+| `0029_series_title_month.sql` | `projects.title_month` ('current' / 'upcoming'): a blueprint's copies are named for the month they are made in or the next (`title_day`; December -> January of the next year), and their content slots are filed for that month (`content_month`). `generate_recurring_occurrences` and `sync_content_slots` as 0015 otherwise. Mirrors `Project.titleMonth` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

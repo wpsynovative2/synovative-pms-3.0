@@ -46,6 +46,12 @@ export const CONTENT_AUTHOR_DEPARTMENTS = [
   SMM_DEPARTMENT,
 ] as const;
 
+/**
+ * A repeating project with this service can name its copies for the month
+ * after the one they are made in (0029).
+ */
+export const SMM_SERVICE = "Social Media Management Services";
+
 /** PRD §5.2 — de-duplicated list. */
 export const SERVICES = [
   "Social Media Management Services",

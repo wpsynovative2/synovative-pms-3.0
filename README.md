@@ -91,6 +91,7 @@ Added since the baseline (run on every database):
 | `0026_project_clients.sql` | A project can have several clients (`projects.client_ids`) |
 | `0027_start_writing.sql` | Start Writing on content pieces; status locked until started |
 | `0028_smm_content_desk.sql` | SMM team takes content tasks; Team Leaders read the whole Content Bank |
+| `0029_series_title_month.sql` | Repeating SMM projects can be named for the upcoming month |
 
 ### 4. The first Super Admin
 

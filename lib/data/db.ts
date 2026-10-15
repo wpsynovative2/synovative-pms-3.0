@@ -251,6 +251,7 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       createdAt: str(r.created_at),
       recurrence: readSeries(r),
       series: readLink(r),
+      titleMonth: (r.title_month === "upcoming" ? "upcoming" : "current") as Project["titleMonth"],
       companyId: nullable(r.company_id),
       clientId: nullable(r.client_id),
       clientIds: Array.isArray(r.client_ids)
@@ -841,6 +842,7 @@ export function projectRow(p: Omit<Project, "services" | "memberIds" | "recurren
     status: p.status,
     priority: p.priority,
     leader_id: p.leaderId,
+    title_month: p.titleMonth ?? "current",
     company_id: p.companyId,
     client_id: p.clientId,
     client_ids: p.clientIds,
@@ -908,6 +910,7 @@ export const PROJECT_COLUMNS: Record<string, string> = {
   status: "status",
   priority: "priority",
   leaderId: "leader_id",
+  titleMonth: "title_month",
   companyId: "company_id",
   clientId: "client_id",
   clientIds: "client_ids",

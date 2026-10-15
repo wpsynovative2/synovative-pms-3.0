@@ -16,6 +16,7 @@ import {
   PRIORITIES,
   PROJECT_COLORS,
   PROJECT_STATUSES,
+  SMM_SERVICE,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
 import { canSetRecurrence } from "@/lib/permissions";
@@ -29,6 +30,7 @@ import type {
   ProjectStatus,
   RecurrenceRule,
   TaskKind,
+  TitleMonth,
 } from "@/lib/types";
 
 /**
@@ -106,6 +108,21 @@ const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => 
   contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
 });
 
+/**
+ * What a repeat made on `day` would be called: "<name> – October 2026", or a
+ * month on. Mirrors occurrence_name() / title_day() (0029), [Month] included.
+ */
+function titleExample(name: string, day: string, monthsOn: 0 | 1) {
+  const [y, m] = day.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1 + monthsOn, 1));
+  const month = at.toLocaleString("en-IN", { month: "long", timeZone: "UTC" });
+  const year = String(at.getUTCFullYear());
+  const base = name.trim() || "Project name";
+  return /\[(month|year)\]/i.test(base)
+    ? base.replace(/\[month\]/gi, month).replace(/\[year\]/gi, year)
+    : `${base} – ${month} ${year}`;
+}
+
 /** Stands for a typed client name from before clients were picked from Companies. */
 const LEGACY_CLIENT = "__typed__";
 
@@ -126,6 +143,8 @@ interface FormState {
   companyId: string;
   /** The company's contacts this project is for, first one leading. */
   clientIds: string[];
+  /** A blueprint's copies are named for this month or the next (0029). */
+  titleMonth: TitleMonth;
 }
 
 export function ProjectFormModal({
@@ -167,6 +186,7 @@ export function ProjectFormModal({
     memberIds: project?.memberIds ?? [],
     propertyId: project?.propertyId ?? "",
     clientIds: project?.clientIds ?? [],
+    titleMonth: project?.titleMonth ?? "current",
     // Older projects only carry the typed name; match it to a company if one exists.
     companyId:
       project?.companyId ??
@@ -185,6 +205,8 @@ export function ProjectFormModal({
   const mayRepeat =
     recurring && !!currentUser && canSetRecurrence(currentUser) && !project?.series;
   const seriesSource = project?.series ? projectById(project.series.sourceId) : undefined;
+  // A Social Media retainer chooses which month its repeats are named for.
+  const askTitleMonth = mayRepeat && form.services.includes(SMM_SERVICE);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -439,7 +461,11 @@ export function ProjectFormModal({
       memberIds: form.memberIds,
       ...(chainFromObc ? {} : chainFor(form.propertyId)),
       ...(mayRepeat
-        ? { recurrence: seriesFor(project?.recurrence, repeat, form.startDate) }
+        ? {
+            recurrence: seriesFor(project?.recurrence, repeat, form.startDate),
+            // Only a Social Media retainer is named ahead; anything else as made.
+            titleMonth: askTitleMonth ? form.titleMonth : ("current" as const),
+          }
         : {}),
     };
 
@@ -664,7 +690,29 @@ export function ProjectFormModal({
               error={touched ? errors.repeat : undefined}
             />
           </Field>
-        ) : project?.series ? (
+        ) : null}
+
+        {askTitleMonth ? (
+          <Field
+            label="Title type"
+            required
+            hint="Which month each repeat is named for. A repeat made in December and named for the upcoming month is January of the next year."
+          >
+            <Select
+              value={form.titleMonth}
+              onChange={(e) => set("titleMonth", e.target.value as TitleMonth)}
+            >
+              <option value="current">
+                {titleExample(form.name, form.startDate, 0)} (current month and year)
+              </option>
+              <option value="upcoming">
+                {titleExample(form.name, form.startDate, 1)} (upcoming month)
+              </option>
+            </Select>
+          </Field>
+        ) : null}
+
+        {!mayRepeat && project?.series ? (
           <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
             Repeat #{project.series.index} of{" "}
             <span className="text-ink-muted">{seriesSource?.name ?? "a deleted series"}</span>.

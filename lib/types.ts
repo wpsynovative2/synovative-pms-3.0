@@ -104,6 +104,9 @@ export type ProjectStatus =
 
 export type Priority = "Low" | "Medium" | "High" | "Critical";
 
+/** How a repeating project's copies are named (0029). */
+export type TitleMonth = "current" | "upcoming";
+
 export interface Project {
   id: string;
   name: string;
@@ -124,6 +127,11 @@ export interface Project {
   recurrence?: RecurrenceSeries | null;
   /** Set on a project generated from a repeating source. */
   series?: SeriesLink | null;
+  /**
+   * On a blueprint: which month its copies are named for - the one they are
+   * created in, or the one after (0029). "current" when not given.
+   */
+  titleMonth?: TitleMonth;
   /**
    * The CRM chain this project came from. All null for work raised by hand;
    * filled in when a New OBC is converted (§CRM).
