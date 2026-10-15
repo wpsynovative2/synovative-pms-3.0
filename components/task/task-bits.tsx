@@ -19,18 +19,26 @@ import { Badge, cx } from "@/components/ui/primitives";
 export function StatusBadge({
   status,
   task,
+  stacked = false,
 }: {
   status: TaskStatus;
   /** When given, In Progress also shows Running / Paused (§5.3). */
   task?: Task;
+  /** Running / Paused under the badge rather than beside it, for table columns. */
+  stacked?: boolean;
 }) {
   const style = TASK_STATUS_STYLE[status];
   const running = task ? isTimerRunning(task) : false;
   const paused = task ? isTimerPaused(task) : false;
 
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <Badge className={style.chip} dot={style.dot}>
+    <span
+      className={cx(
+        "inline-flex",
+        stacked ? "flex-col items-start gap-0.5" : "items-center gap-1.5",
+      )}
+    >
+      <Badge className={cx(style.chip, "whitespace-nowrap")} dot={style.dot}>
         {status}
       </Badge>
       {status === "In Progress" && (running || paused) ? (

@@ -85,6 +85,8 @@ Added since the baseline (run on every database):
 | `0020_websites.sql` | Websites module: sites, logins, annual renewals and reminders |
 | `0021_cb_type_stm.sql` | New CB types Static to Motion and Festival STM (run before 0022) |
 | `0022_stm_reel_allotment.sql` | STM pieces are allotted twice: static design, then reel editing after it |
+| `0023_content_placement.sql` | Content placement (SMM / WhatsApp Share) on every piece |
+| `0024_content_task_sharing.sql` | Team Leaders assign unassigned content tasks; pieces can be moved onto a new content task |
 
 ### 4. The first Super Admin
 

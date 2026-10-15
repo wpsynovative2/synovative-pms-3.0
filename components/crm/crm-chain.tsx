@@ -5,7 +5,7 @@ import { cx } from "@/components/ui/primitives";
 import { useStore } from "@/lib/store";
 
 /**
- * Whose a project is: its company, client contact and property, each with
+ * Whose a project is: its company, property and client contact, each with
  * the icon its own page uses. A link that is not set is left out, and the
  * line disappears altogether when none is.
  */
@@ -35,16 +35,16 @@ export function CrmChain({
       value: companyById(companyId)?.name ?? fallbackCompany,
     },
     {
-      key: "client",
-      label: "Client",
-      icon: <IconContact size={12} />,
-      value: clientById(clientId)?.fullName,
-    },
-    {
       key: "property",
       label: "Property",
       icon: <IconProperty size={12} />,
       value: propertyById(propertyId)?.name,
+    },
+    {
+      key: "client",
+      label: "Client",
+      icon: <IconContact size={12} />,
+      value: clientById(clientId)?.fullName,
     },
   ].filter((i) => !!i.value);
   if (items.length === 0) return null;

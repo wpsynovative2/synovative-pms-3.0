@@ -12,7 +12,12 @@ import {
   Select,
   cx,
 } from "@/components/ui/primitives";
-import { PRIORITIES, TASK_STATUS_STYLE, TASK_STATUSES } from "@/lib/master-data";
+import {
+  PRIORITIES,
+  TASK_STATUS_STYLE,
+  TASK_STATUSES,
+} from "@/lib/master-data";
+import { daysBetween, formatShortDate, todayISO } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
@@ -31,13 +36,7 @@ import {
 
 /** How the list is ordered. "due" is the default the work queues up in. */
 export type TaskSort =
-  | "due"
-  | "dueDesc"
-  | "priority"
-  | "status"
-  | "title"
-  | "created"
-  | "logged";
+  "due" | "dueDesc" | "priority" | "status" | "title" | "created" | "logged";
 
 export const TASK_SORT_LABEL: Record<TaskSort, string> = {
   due: "Due date — soonest",
@@ -111,7 +110,11 @@ export function applyTaskFilters(
   const done = (t: Task) => (t.status === "Approved" ? 1 : 0);
   const servicesOf = new Map((projects ?? []).map((p) => [p.id, p.services]));
   const matched = tasks.filter((t) => {
-    if (q && !t.title.toLowerCase().includes(q) && !t.tags.some((x) => x.toLowerCase().includes(q)))
+    if (
+      q &&
+      !t.title.toLowerCase().includes(q) &&
+      !t.tags.some((x) => x.toLowerCase().includes(q))
+    )
       return false;
     if (f.status === "open") {
       if (t.status === "Approved") return false;
@@ -122,7 +125,8 @@ export function applyTaskFilters(
     if (f.department !== "all" && t.department !== f.department) return false;
     if (f.assigneeId === "none") {
       if (t.assigneeId !== null) return false;
-    } else if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId) return false;
+    } else if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId)
+      return false;
     if (f.createdById !== "all" && t.createdBy !== f.createdById) return false;
     if (f.projectId !== "all" && t.projectId !== f.projectId) return false;
     if (f.service !== "all") {
@@ -140,10 +144,13 @@ export function applyTaskFilters(
 
   const order: Record<TaskSort, (a: Task, b: Task) => number> = {
     due: tiebreak,
-    dueDesc: (a, b) => b.dueDate.localeCompare(a.dueDate) || a.title.localeCompare(b.title),
-    priority: (a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || tiebreak(a, b),
+    dueDesc: (a, b) =>
+      b.dueDate.localeCompare(a.dueDate) || a.title.localeCompare(b.title),
+    priority: (a, b) =>
+      PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || tiebreak(a, b),
     status: (a, b) =>
-      (STATUS_RANK.get(a.status) ?? 0) - (STATUS_RANK.get(b.status) ?? 0) || tiebreak(a, b),
+      (STATUS_RANK.get(a.status) ?? 0) - (STATUS_RANK.get(b.status) ?? 0) ||
+      tiebreak(a, b),
     title: (a, b) => a.title.localeCompare(b.title),
     created: (a, b) => b.createdAt.localeCompare(a.createdAt),
     logged: (a, b) => taskElapsedMs(b) - taskElapsedMs(a) || tiebreak(a, b),
@@ -197,7 +204,9 @@ export function TaskFilters({
       <Select
         className="w-auto min-w-36"
         value={value.status}
-        onChange={(e) => set("status", e.target.value as TaskFilterState["status"])}
+        onChange={(e) =>
+          set("status", e.target.value as TaskFilterState["status"])
+        }
         aria-label="Status"
       >
         <option value="all">All statuses</option>
@@ -213,7 +222,9 @@ export function TaskFilters({
       <Select
         className="w-auto min-w-32"
         value={value.priority}
-        onChange={(e) => set("priority", e.target.value as TaskFilterState["priority"])}
+        onChange={(e) =>
+          set("priority", e.target.value as TaskFilterState["priority"])
+        }
         aria-label="Priority"
       >
         <option value="all">All priorities</option>
@@ -360,6 +371,42 @@ export function TaskFilters({
 
 /* ------------------------------------------------------------- task rows */
 
+/*
+ * The task list is a table: one grid template shared by the header and every
+ * row, so each column starts at the same place on every line. Columns drop
+ * away as the list narrows - time and priority first, then due date - and a
+ * hidden cell takes no space, so the template steps down with them. They
+ * follow the width the list is given (container queries), not the screen: the
+ * same rows sit in a half-width dashboard card.
+ */
+const TASK_GRID = cx(
+  "grid items-center gap-x-4",
+  "grid-cols-[minmax(0,1fr)_auto_auto]",
+  "@3xl:grid-cols-[minmax(0,1fr)_6.5rem_12.5rem_11rem]",
+  "@5xl:grid-cols-[minmax(0,1fr)_6.5rem_7rem_5.5rem_12.5rem_11rem]",
+);
+
+/** Column headings for a task table; pairs with TaskRow. */
+export function TaskTableHeader() {
+  return (
+    <div className="@container">
+      <div
+        className={cx(
+          TASK_GRID,
+          "hidden border-b border-line bg-surface-2 px-4 py-2 text-[10px] font-medium tracking-wide text-ink-faint uppercase @3xl:grid",
+        )}
+      >
+        <span className="pl-5">Task</span>
+        <span>Due</span>
+        <span className="hidden text-right @5xl:block">Time / est.</span>
+        <span className="hidden @5xl:block">Priority</span>
+        <span>Status</span>
+        <span>Assigned to</span>
+      </div>
+    </div>
+  );
+}
+
 export function TaskRow({
   task,
   onOpen,
@@ -375,68 +422,140 @@ export function TaskRow({
   const elapsed = taskElapsedMs(task);
   const running = isTimerRunning(task);
   // A content task also shows how many of its pieces are written.
-  const batch = task.kind === "content" ? contentProgress(task, db.contentEntries) : null;
+  const batch =
+    task.kind === "content" ? contentProgress(task, db.contentEntries) : null;
 
   return (
-    <button
-      onClick={() => onOpen(task.id)}
-      className={cx(
-        "group flex w-full items-center gap-3 border-b border-line-soft px-4 py-3 text-left transition-colors last:border-0 hover:bg-surface-2",
-        running && "bg-brand/6",
-      )}
-    >
+    <div className="@container border-b border-line-soft last:border-0">
+      <button
+        onClick={() => onOpen(task.id)}
+        className={cx(
+          TASK_GRID,
+          "group w-full px-4 py-3 text-left transition-colors hover:bg-surface-2",
+          running && "bg-brand/6",
+        )}
+      >
+        {/* Task: status dot, title, then where it belongs. */}
+        <span className="flex min-w-0 items-start gap-2.5">
+          <span
+            className={cx(
+              "mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full",
+              TASK_STATUS_STYLE[task.status].dot,
+            )}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[13px] font-medium text-ink group-hover:text-ink-strong">
+                {task.title}
+              </span>
+              <RecurrenceBadge item={task} />
+              {batch ? (
+                <span
+                  title="Pieces written, of those asked for, plus extras"
+                  className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink"
+                >
+                  {batch.label}
+                </span>
+              ) : null}
+            </span>
+            <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-ink-faint">
+              {showProject ? <ProjectChip project={project} /> : null}
+              {showProject ? <span aria-hidden>·</span> : null}
+              <span className="truncate">{task.department}</span>
+              {/* The due date has its own column from md up. */}
+              <span className="@3xl:hidden">
+                · <DueDate task={task} />
+              </span>
+            </span>
+            {batch ? (
+              <span className="mt-1.5 block max-w-56">
+                <ProgressBar
+                  value={batch.percent}
+                  barClassName="bg-st-approved"
+                />
+              </span>
+            ) : null}
+          </span>
+        </span>
+
+        <span className="hidden @3xl:block">
+          <DueCell task={task} />
+        </span>
+
+        <span className="hidden text-right text-[12px] @5xl:block">
+          <span className="font-mono text-ink">{formatDuration(elapsed)}</span>
+          <span className="text-ink-faint"> / {task.estimatedHours}h</span>
+        </span>
+
+        <span className="hidden @5xl:block">
+          <PriorityBadge priority={task.priority} />
+        </span>
+
+        <span className="min-w-0">
+          <StatusBadge status={task.status} task={task} stacked />
+        </span>
+
+        <span
+          className="flex min-w-0 items-center gap-2"
+          title={
+            assignee
+              ? `Assigned to ${assignee.fullName}`
+              : "Nobody assigned yet"
+          }
+        >
+          {assignee ? (
+            <>
+              <Avatar name={assignee.fullName} size={24} className="shrink-0" />
+              <span className="hidden min-w-0 truncate text-[12px] text-ink @3xl:block">
+                {assignee.fullName}
+              </span>
+            </>
+          ) : (
+            <span className="hidden text-[12px] text-ink-faint italic @3xl:block">
+              Unassigned
+            </span>
+          )}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/** The due date, and underneath it how late it is - instead of a pill by the title. */
+function DueCell({ task }: { task: Task }) {
+  const today = todayISO();
+  const done = task.status === "Approved";
+  const late =
+    !done && task.dueDate < today ? daysBetween(task.dueDate, today) : 0;
+  return (
+    <span className="flex flex-col leading-tight">
       <span
         className={cx(
-          "h-2.5 w-2.5 shrink-0 rounded-full",
-          TASK_STATUS_STYLE[task.status].dot,
+          "text-[12px]",
+          late ? "font-medium text-st-rejected" : "text-ink",
         )}
-      />
-
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-ink group-hover:text-ink-strong">
-            {task.title}
-          </span>
-          <RecurrenceBadge item={task} />
-          <OverdueBadge task={task} />
-          {batch ? (
-            <span
-              title="Pieces written, of those asked for, plus extras"
-              className="shrink-0 rounded-full border border-brand-bright/30 bg-brand/10 px-1.5 py-0.5 font-mono text-[10px] text-brand-ink"
-            >
-              {batch.label}
-            </span>
-          ) : null}
-        </span>
-        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-          {showProject ? <ProjectChip project={project} /> : null}
-          <span className="text-[11px] text-ink-faint">{task.department}</span>
-          <DueDate task={task} />
-        </span>
-        {batch ? (
-          <span className="mt-1.5 block max-w-64">
-            <ProgressBar value={batch.percent} barClassName="bg-st-approved" />
-          </span>
-        ) : null}
+      >
+        {formatShortDate(task.dueDate)}
       </span>
-
-      <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-ink-muted sm:flex">
-        <span className="font-mono">{formatDuration(elapsed)}</span>
-        <span className="text-ink-faint">/ {task.estimatedHours}h</span>
+      <span
+        className={cx(
+          "text-[10px]",
+          late
+            ? "text-st-rejected"
+            : task.dueDate === today && !done
+              ? "text-st-submitted"
+              : "text-ink-faint",
+        )}
+      >
+        {late
+          ? `${late} day${late === 1 ? "" : "s"} late`
+          : done
+            ? "Done"
+            : task.dueDate === today
+              ? "Due today"
+              : `in ${daysBetween(today, task.dueDate)} day${daysBetween(today, task.dueDate) === 1 ? "" : "s"}`}
       </span>
-
-      <span className="hidden shrink-0 sm:block">
-        <PriorityBadge priority={task.priority} />
-      </span>
-
-      <span className="shrink-0">
-        <StatusBadge status={task.status} task={task} />
-      </span>
-
-      {assignee ? (
-        <Avatar name={assignee.fullName} size={26} className="shrink-0" />
-      ) : null}
-    </button>
+    </span>
   );
 }
 
@@ -456,17 +575,27 @@ export function TaskListCard({
   if (tasks.length === 0) {
     return (
       <Card>
-        <EmptyState icon={<IconTasks size={28} />} title={emptyTitle} body={emptyBody} />
+        <EmptyState
+          icon={<IconTasks size={28} />}
+          title={emptyTitle}
+          body={emptyBody}
+        />
       </Card>
     );
   }
   return (
     <Card className="overflow-hidden">
+      <TaskTableHeader />
       {/* Re-keying on the visible set restarts the entrance animation whenever
           a filter changes which rows are shown. */}
       <div key={signatureOf(tasks)} className="rows-in">
         {tasks.map((t) => (
-          <TaskRow key={t.id} task={t} onOpen={onOpen} showProject={showProject} />
+          <TaskRow
+            key={t.id}
+            task={t}
+            onOpen={onOpen}
+            showProject={showProject}
+          />
         ))}
       </div>
     </Card>
@@ -477,7 +606,8 @@ export function TaskListCard({
 function signatureOf(tasks: Task[]): string {
   let h = 0;
   for (const t of tasks) {
-    for (let i = 0; i < t.id.length; i++) h = (Math.imul(h, 31) + t.id.charCodeAt(i)) | 0;
+    for (let i = 0; i < t.id.length; i++)
+      h = (Math.imul(h, 31) + t.id.charCodeAt(i)) | 0;
   }
   return `${tasks.length}:${h}`;
 }

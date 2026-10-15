@@ -431,6 +431,8 @@ Since the baseline:
 | `0020_websites.sql` | Websites module: `websites`, `website_credentials` (password column not granted for select; read via logged `reveal_website_password`), `website_renewals` (`mark_website_renewed`), daily `notify_website_renewals` at 09:15 IST to Super Admin, Admin, Website Developers, Accounts & Finance and BDEs. Mirrors `canViewWebsites` / `canManageWebsites` / `canSeeWebsitePasswords` / `canRenewWebsites` |
 | `0021_cb_type_stm.sql` | `cb_type` gains `Static to Motion` and `Festival STM` (own file: run before 0022) |
 | `0022_stm_reel_allotment.sql` | STM pieces take a second allotment, `motion_allotted_to` / `motion_allotted_task_id` (the reel editing), set with the static part by `allot_content(…, p_motion_profile_id, p_motion_task_id)`; the reel task must start on or after the static task's due date. Guard, notifications, follow-the-assignee, `set_content_stage` and the read policy cover both parts. Mirrors `isStmType` / `contentHolders` |
+| `0023_content_placement.sql` | `content_bank.placement` (`SMM` / `WhatsApp Share`): required once a piece has anything written (`guard_content_placement`), and `submit_task` refuses a content task with any piece lacking one |
+| `0024_content_task_sharing.sql` | `assign_content_task()` lets a Content Writers Team Leader give an unassigned content task to their team; `split_content_task()` moves picked pieces onto a new content task (managers, Project Leader, CW Team Leaders), renumbering both. Mirrors `canAssignContentTask` / `canSplitContentTask` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

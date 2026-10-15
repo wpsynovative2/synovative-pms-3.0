@@ -12,6 +12,8 @@ import { formatMonth, monthChoices, monthOf, todayISO } from "@/lib/calendar";
 import { canSetContentStage } from "@/lib/permissions";
 import { useStore, type ContentInput } from "@/lib/store";
 import {
+  CONTENT_PLACEMENTS,
+  type ContentPlacement,
   CONTENT_BILLING_TYPES,
   CONTENT_TYPES,
   contentLabel,
@@ -59,6 +61,7 @@ const blank = (
   description: "",
   referenceLinks: [],
   billingType,
+  placement: null,
 });
 
 const fromEntry = (entry: ContentEntry): Draft => ({
@@ -83,11 +86,13 @@ const fromEntry = (entry: ContentEntry): Draft => ({
   description: entry.description,
   referenceLinks: entry.referenceLinks,
   billingType: entry.billingType,
+  placement: entry.placement,
 });
 
-/** A piece needs somewhere to live and something in it. */
+/** A piece needs somewhere to live, something in it, and where it is going (0023). */
 const incomplete = (d: Draft) =>
   !d.projectId ||
+  !d.placement ||
   (isRichTextEmpty(d.description) && isRichTextEmpty(d.onPic) && !d.caption.trim());
 
 export function ContentComposer({
@@ -151,6 +156,7 @@ export function ContentComposer({
       forMonth: last?.forMonth ?? defaultMonth,
       date: last?.date ?? todayISO(),
       billingType: last?.billingType ?? (extraByDefault ? "Extra" : "Count"),
+      placement: last?.placement ?? null,
     };
     setDrafts((list) => [...list, next]);
     setActiveKey(next.key);
@@ -184,6 +190,7 @@ export function ContentComposer({
         description: d.description,
         referenceLinks: d.referenceLinks.map((l) => l.trim()).filter(Boolean),
         billingType: d.billingType,
+        placement: d.placement,
         forMonth: d.forMonth,
       };
       // Writes are queued in order, so the status lands after the piece exists.
@@ -219,7 +226,7 @@ export function ContentComposer({
           {touched && unfinished.length ? (
             <span className="mr-auto text-[12px] text-st-rejected">
               {unfinished.length} {unfinished.length === 1 ? "piece needs" : "pieces need"} something
-              written in them.
+              written in them and a content placement.
             </span>
           ) : null}
           <Button onClick={onClose}>Cancel</Button>
@@ -354,7 +361,7 @@ export function ContentComposer({
                   ) : null}
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <Field label="Date" required>
                     <DatePicker
                       value={active.date}
@@ -373,6 +380,29 @@ export function ContentComposer({
                       {CONTENT_TYPES.map((t) => (
                         <option key={t} value={t}>
                           {t}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Content placement"
+                    required
+                    error={
+                      touched && !active.placement ? "SMM or WhatsApp Share." : undefined
+                    }
+                  >
+                    <Select
+                      value={active.placement ?? ""}
+                      onChange={(e) =>
+                        setDraft(active.key, {
+                          placement: (e.target.value || null) as ContentPlacement | null,
+                        })
+                      }
+                    >
+                      <option value="">Where will it be used?</option>
+                      {CONTENT_PLACEMENTS.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
                         </option>
                       ))}
                     </Select>

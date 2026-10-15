@@ -40,7 +40,7 @@ import {
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
-import { isAllotted, stampJourney } from "./types";
+import { isAllotted, isContentEmpty, stampJourney } from "./types";
 import type {
   CalendarConfig,
   Client,
@@ -60,6 +60,7 @@ import type {
   ObcService,
   OperationalLink,
   OutputLocation,
+  Priority,
   Project,
   ProjectTemplate,
   Property,
@@ -599,6 +600,16 @@ export type ContentInput = Omit<
  * Who a piece is handed to, and the task of theirs it is for: one they
  * already hold on the project, or a new one raised in the same step (0025).
  */
+export interface SplitContentInput {
+  pieceIds: string[];
+  title: string;
+  assigneeId: string;
+  startDate: string;
+  dueDate: string;
+  estimatedHours: number;
+  priority: Priority;
+}
+
 export type ContentAllotment =
   | { userId: string; taskId: string }
   | { userId: string; newTask: NewTaskInput };
@@ -747,6 +758,10 @@ interface StoreValue {
    * Hands a piece on; null takes it back. A Static to Motion piece also takes
    * `reel`, the reel editing part, allotted in the same go (0022).
    */
+  /** A Content Writers Team Leader gives an unassigned content task to a writer (0024). */
+  assignContentTask: (taskId: string, userId: string) => void;
+  /** Moves picked pieces of a content task onto a new one (0024). */
+  splitContentTask: (taskId: string, input: SplitContentInput) => Promise<boolean>;
   allotContent: (
     entryId: string,
     allotment: ContentAllotment | null,
@@ -2307,6 +2322,44 @@ const crmActions = {
    * than the writer, so they go through their own functions rather than the
    * writer-only update policy (0022).
    */
+  assignContentTask(taskId: string, userId: string) {
+    void commit(
+      ["tasks", "content", "notifications"],
+      (db) => ({
+        ...db,
+        tasks: db.tasks.map((t) => (t.id === taskId ? { ...t, assigneeId: userId } : t)),
+        // Its empty pieces become the writer's, as the database does.
+        contentEntries: db.contentEntries.map((e) =>
+          e.taskId === taskId && e.slot !== null && isContentEmpty(e)
+            ? { ...e, createdBy: userId }
+            : e,
+        ),
+      }),
+      (c) => run(c.rpc("assign_content_task", { p_task_id: taskId, p_profile_id: userId })),
+    );
+  },
+
+  /*
+   * The pieces are renumbered and the counts moved by the database, so this
+   * waits for it and then reloads tasks and content rather than guessing.
+   */
+  splitContentTask(taskId: string, input: SplitContentInput): Promise<boolean> {
+    return commit(["tasks", "content", "notifications"], null, (c) =>
+      run(
+        c.rpc("split_content_task", {
+          p_task_id: taskId,
+          p_piece_ids: input.pieceIds,
+          p_title: input.title,
+          p_assignee_id: input.assigneeId,
+          p_start_date: input.startDate,
+          p_due_date: input.dueDate,
+          p_estimated_hours: input.estimatedHours,
+          p_priority: input.priority,
+        }),
+      ),
+    );
+  },
+
   allotContent(
     entryId: string,
     allotment: ContentAllotment | null,

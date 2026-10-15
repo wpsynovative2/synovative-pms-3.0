@@ -379,6 +379,26 @@ export const canViewContentEntry = (
  */
 export const isContentTask = (t: Task) => t.kind === "content";
 
+/** A Team Leader of the writers' desk (0024). */
+export const isContentTeamLeader = (u: User) => isTeamLeader(u) && isContentWriter(u);
+
+/**
+ * Giving an unassigned content task to a writer: the Content Writers' Team
+ * Leader, to someone in their own department. Mirrors assign_content_task().
+ */
+export const canAssignContentTask = (u: User, task: Task) =>
+  isContentTask(task) && !task.assigneeId && isContentTeamLeader(u);
+
+/**
+ * Moving picked pieces of a content task onto a new one. Mirrors
+ * split_content_task(): managers, the Project Leader, and the Content
+ * Writers' Team Leaders - who may only give the new task to their own team.
+ */
+export const canSplitContentTask = (u: User, task: Task, project: Project | null) =>
+  isContentTask(task) &&
+  !!project &&
+  (isGlobalManager(u) || isProjectLeader(u, project) || isContentTeamLeader(u));
+
 /**
  * Handing a piece on. Writers write; allotting is for the people who plan the
  * work - global managers, the Project Leader and Team Leaders - who are also

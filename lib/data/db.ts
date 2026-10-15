@@ -644,6 +644,7 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       description: str(r.description),
       referenceLinks: (r.reference_links as string[]) ?? [],
       billingType: r.billing_type as ContentEntry["billingType"],
+      placement: nullable(r.placement) as ContentEntry["placement"],
       stage: nullable(r.stage) as ContentEntry["stage"],
       scheduledOn: nullable(r.scheduled_on) ? dateOnly(r.scheduled_on) : null,
       carryMonth: nullable(r.carry_month) ? dateOnly(r.carry_month) : null,
@@ -1032,6 +1033,7 @@ export const CONTENT_COLUMNS: Record<string, string> = {
   description: "description",
   referenceLinks: "reference_links",
   billingType: "billing_type",
+  placement: "placement",
 };
 
 /** Line items are rewritten wholesale whenever their parent is saved. */

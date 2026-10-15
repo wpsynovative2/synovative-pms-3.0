@@ -33,11 +33,13 @@ import { formatMonth } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import {
   CONTENT_BILLING_TYPES,
+  CONTENT_PLACEMENTS,
   CONTENT_STAGES,
   CONTENT_TYPES,
   contentHolders,
   isContentEmpty,
   type ContentBillingType,
+  type ContentPlacement,
   type ContentEntry,
   type ContentStage,
   type ContentType,
@@ -79,6 +81,7 @@ export default function ContentBankPage() {
   const [writerId, setWriterId] = useState("");
   const [stage, setStage] = useState<ContentStage | typeof NONE | "">("");
   const [billing, setBilling] = useState<ContentBillingType | "">("");
+  const [placement, setPlacement] = useState<ContentPlacement | typeof NONE | "">("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   const [composing, setComposing] = useState(false);
@@ -121,13 +124,14 @@ export default function ContentBankPage() {
         (!writerId || e.createdBy === writerId) &&
         (!stage || (stage === NONE ? !e.stage : e.stage === stage)) &&
         (!billing || e.billingType === billing) &&
+        (!placement || (placement === NONE ? !e.placement : e.placement === placement)) &&
         (!q ||
           e.caption.toLowerCase().includes(q) ||
           e.description.toLowerCase().includes(q) ||
           e.onPic.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q)),
     );
-  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing]);
+  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing, placement]);
 
   // Only months some visible piece is actually for, newest first.
   const monthsInUse = useMemo(
@@ -143,7 +147,8 @@ export default function ContentBankPage() {
     !!assigneeId ||
     !!writerId ||
     !!stage ||
-    !!billing;
+    !!billing ||
+    !!placement;
 
   const clearFilters = () => {
     setQuery("");
@@ -154,6 +159,7 @@ export default function ContentBankPage() {
     setWriterId("");
     setStage("");
     setBilling("");
+    setPlacement("");
   };
 
   // Only people who actually appear on a visible piece are offered.
@@ -383,6 +389,20 @@ export default function ContentBankPage() {
               {st}
             </option>
           ))}
+        </Select>
+        <Select
+          className="w-auto min-w-40"
+          value={placement}
+          onChange={(e) => setPlacement(e.target.value as ContentPlacement | typeof NONE | "")}
+          aria-label="Content placement"
+        >
+          <option value="">Any placement</option>
+          {CONTENT_PLACEMENTS.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+          <option value={NONE}>Placement not set</option>
         </Select>
         <Select
           className="w-auto min-w-36"

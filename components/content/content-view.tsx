@@ -153,7 +153,7 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <Card className="grid gap-x-5 gap-y-4 p-4 sm:grid-cols-3 lg:grid-cols-6">
+      <Card className="grid gap-x-5 gap-y-4 p-4 sm:grid-cols-3 lg:grid-cols-7">
         <Fact label="Date">
           <span className="text-[13px] text-ink">{formatDate(entry.date)}</span>
         </Fact>
@@ -176,6 +176,11 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
           ) : (
             allotmentLabel
           )}
+        </Fact>
+        <Fact label="Placement">
+          <span className={cx("text-[13px]", entry.placement ? "text-ink" : "text-ink-faint")}>
+            {entry.placement ?? "Not set"}
+          </span>
         </Fact>
         <Fact label="Content for">
           <span className="text-[13px] text-ink">{formatMonth(entry.forMonth)}</span>
@@ -453,6 +458,7 @@ export function ContentCard({
               {stageDetail(stageValueOf(entry)) ? ` ${stageDetail(stageValueOf(entry))}` : ""}
             </Badge>
           ) : null}
+          {entry.placement ? <Badge>{entry.placement}</Badge> : null}
           <Badge>For {formatMonth(entry.forMonth)}</Badge>
           <Badge>{formatDate(entry.date)}</Badge>
           {entry.referenceLinks.length ? (

@@ -630,6 +630,11 @@ export const CONTENT_STAGES: ContentStage[] = [
   "Carry Forwarded",
 ];
 
+/** Where a piece will be used (0023): one or the other, required once written. */
+export type ContentPlacement = "SMM" | "WhatsApp Share";
+
+export const CONTENT_PLACEMENTS: ContentPlacement[] = ["SMM", "WhatsApp Share"];
+
 export type ContentBillingType = "Count" | "Extra";
 
 export const CONTENT_BILLING_TYPES: ContentBillingType[] = ["Count", "Extra"];
@@ -673,6 +678,8 @@ export interface ContentEntry {
   description: string;
   referenceLinks: string[];
   billingType: ContentBillingType;
+  /** SMM or WhatsApp Share; null only on empty pieces and ones from before 0023. */
+  placement: ContentPlacement | null;
   /** The team member the piece is for. */
   allottedTo: string | null;
   /**

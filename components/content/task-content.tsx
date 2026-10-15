@@ -4,6 +4,10 @@ import { useState } from "react";
 import { AllotDialog } from "@/components/content/allot-dialog";
 import { ContentComposer } from "@/components/content/content-form";
 import {
+  AssignContentTaskBox,
+  SplitContentTaskDialog,
+} from "@/components/content/content-task-sharing";
+import {
   ContentDetailScreen,
   ContentLinkRow,
   ContentStageControl,
@@ -20,6 +24,8 @@ import { ConfirmDialog } from "@/components/ui/modal";
 import { Avatar, Button, ProgressBar, cx } from "@/components/ui/primitives";
 import {
   canAllotContent,
+  canAssignContentTask,
+  canSplitContentTask,
   canDeleteContentEntry,
   canEditContentEntry,
   canWriteContent,
@@ -64,6 +70,8 @@ export function TaskContentSection({
   // Held by id so an allotment or status changed on the open screen shows at once.
   const [readingId, setReadingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ContentEntry | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [splitting, setSplitting] = useState(false);
 
   // The target slots in order, then extras oldest first.
   const entries = db.contentEntries
@@ -98,6 +106,9 @@ export function TaskContentSection({
   // Individual tasks have no project to file content against, so the writer's
   // controls only appear on project work.
   const mayWrite = !!project && canWriteContent(user) && isAssignee(user, task);
+  // Sharing the batch out (0024): picking pieces to move onto a new task.
+  const maySplit = batch && canSplitContentTask(user, task, project);
+  const picked = entries.filter((e) => selected.includes(e.id));
   if (!mayWrite && entries.length === 0 && allotted.length === 0) return null;
 
   return (
@@ -126,6 +137,8 @@ export function TaskContentSection({
           </Button>
         ) : null}
       </div>
+
+      {canAssignContentTask(user, task) ? <AssignContentTaskBox task={task} /> : null}
 
       {/* The batch at a glance: what was asked for, and how much stands. */}
       {batch ? (
@@ -162,6 +175,26 @@ export function TaskContentSection({
           </p>
         ) : null
       ) : (
+        <>
+        {maySplit ? (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px]">
+            {picked.length ? (
+              <>
+                <span className="font-medium text-ink">{picked.length} selected</span>
+                <Button size="sm" variant="primary" onClick={() => setSplitting(true)}>
+                  <IconPlus size={13} /> New content task from selected
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+                  Clear
+                </Button>
+              </>
+            ) : (
+              <span className="text-ink-faint">
+                Tick pieces to move them onto a new content task for someone else.
+              </span>
+            )}
+          </div>
+        ) : null}
         <ul className="flex flex-col gap-2">
           {entries.map((e) => (
             <PieceRow
@@ -169,6 +202,12 @@ export function TaskContentSection({
               entry={e}
               project={project}
               numbered={batch}
+              picked={maySplit ? selected.includes(e.id) : undefined}
+              onPick={() =>
+                setSelected((list) =>
+                  list.includes(e.id) ? list.filter((x) => x !== e.id) : [...list, e.id],
+                )
+              }
               onRead={() => {
                 // An empty slot has nothing to read; its writer goes straight in.
                 if (isContentEmpty(e) && canEditContentEntry(user, e)) {
@@ -186,7 +225,18 @@ export function TaskContentSection({
             />
           ))}
         </ul>
+        </>
       )}
+
+      {splitting && project && picked.length ? (
+        <SplitContentTaskDialog
+          task={task}
+          project={project}
+          pieces={picked}
+          onClose={() => setSplitting(false)}
+          onDone={() => setSelected([])}
+        />
+      ) : null}
 
       {allotted.length ? (
         <div className="mt-3">
@@ -245,6 +295,8 @@ function PieceRow({
   entry,
   project,
   numbered,
+  picked,
+  onPick,
   onRead,
   onEdit,
   onDelete,
@@ -252,6 +304,9 @@ function PieceRow({
   entry: ContentEntry;
   project: Project | null;
   numbered: boolean;
+  /** Set when pieces may be picked to move onto a new task. */
+  picked?: boolean;
+  onPick?: () => void;
   onRead: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -274,6 +329,15 @@ function PieceRow({
       )}
     >
       <div className="flex flex-wrap items-center gap-2.5">
+        {picked !== undefined ? (
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0 accent-brand-bright"
+            checked={picked}
+            onChange={onPick}
+            aria-label={`Select ${contentLabel(entry)}`}
+          />
+        ) : null}
         {numbered ? (
           <span
             title={extra ? "Beyond the count asked for" : undefined}

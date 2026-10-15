@@ -18,6 +18,7 @@ import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import {
   contentLabel,
+  isContentEmpty,
   type ContentEntry,
   type OutputLocation,
   type ReviewDecision,
@@ -218,6 +219,10 @@ export function SubmitDialog({
         )
     : [];
   const unset = pieces.filter((e) => e.slot !== null && !e.stage);
+  // Every piece with something in it, and every target piece, says where it goes (0023).
+  const unplaced = pieces.filter(
+    (e) => !e.placement && (e.slot !== null || !isContentEmpty(e)),
+  );
 
   const [location, setLocation] = useState<OutputLocation>(
     isBatch ? "Content Bank" : "Google Drive",
@@ -229,7 +234,8 @@ export function SubmitDialog({
   const linkValid = /^https?:\/\/\S+$/i.test(link.trim());
   const needsLink = location === "Google Drive";
   const descriptionOk = isBatch || !isRichTextEmpty(description);
-  const valid = descriptionOk && (!needsLink || linkValid) && unset.length === 0;
+  const valid =
+    descriptionOk && (!needsLink || linkValid) && unset.length === 0 && unplaced.length === 0;
 
   const close = () => {
     setLocation(isBatch ? "Content Bank" : "Google Drive");
@@ -250,7 +256,7 @@ export function SubmitDialog({
           <Button onClick={close}>Cancel</Button>
           <Button
             variant="primary"
-            disabled={unset.length > 0}
+            disabled={unset.length > 0 || unplaced.length > 0}
             onClick={() => {
               setTouched(true);
               if (!valid) return;
@@ -272,7 +278,7 @@ export function SubmitDialog({
     >
       <div className="flex flex-col gap-4">
         {isBatch ? (
-          <ContentBankOutput pieces={pieces} unset={unset} />
+          <ContentBankOutput pieces={pieces} unset={unset} unplaced={unplaced} />
         ) : (
         <Field label="Where is the output?" required>
           <div className="grid grid-cols-2 gap-2">
@@ -344,9 +350,11 @@ export function SubmitDialog({
 function ContentBankOutput({
   pieces,
   unset,
+  unplaced,
 }: {
   pieces: ContentEntry[];
   unset: ContentEntry[];
+  unplaced: ContentEntry[];
 }) {
   return (
     <Field label="Output" hint="A link to each piece goes to the reviewer with the submission.">
@@ -361,6 +369,12 @@ function ContentBankOutput({
           <p className="rounded-lg border border-st-rejected/30 bg-st-rejected/10 px-3 py-2 text-[12px] leading-relaxed text-st-rejected">
             Give every piece a status before submitting. Still not set:{" "}
             {unset.map((e) => contentLabel(e)).join(", ")}.
+          </p>
+        ) : null}
+        {unplaced.length ? (
+          <p className="rounded-lg border border-st-rejected/30 bg-st-rejected/10 px-3 py-2 text-[12px] leading-relaxed text-st-rejected">
+            Give every piece a content placement (SMM or WhatsApp Share). Still not set:{" "}
+            {unplaced.map((e) => contentLabel(e)).join(", ")}.
           </p>
         ) : null}
         <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto">
