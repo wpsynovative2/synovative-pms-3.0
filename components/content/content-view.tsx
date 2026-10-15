@@ -29,7 +29,13 @@ import {
   canSetContentStage,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import { contentHolders, contentLabel, isStmType, type ContentEntry } from "@/lib/types";
+import {
+  contentHolders,
+  contentLabel,
+  isContentStarted,
+  isStmType,
+  type ContentEntry,
+} from "@/lib/types";
 
 /*
  * Reading a Content Bank entry. Everyone on the project sees the same thing —
@@ -270,14 +276,19 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
   const project = projectById(entry.projectId) ?? null;
   const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
   const value = stageValueOf(entry);
+  // No status before the writer has started (0027).
+  const started = isContentStarted(entry);
 
   if (canSetContentStage(currentUser!, entry, task, project, db.tasks)) {
     return (
-      <StagePicker
-        value={value}
-        forMonth={entry.forMonth}
-        onChange={(next) => setContentStage(entry.id, next.stage, next.date)}
-      />
+      <span title={started ? undefined : "Locked until the writer presses Start Writing"}>
+        <StagePicker
+          value={value}
+          forMonth={entry.forMonth}
+          disabled={!started}
+          onChange={(next) => setContentStage(entry.id, next.stage, next.date)}
+        />
+      </span>
     );
   }
   return <StageBadge value={value} />;

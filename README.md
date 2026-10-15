@@ -89,6 +89,7 @@ Added since the baseline (run on every database):
 | `0024_content_task_sharing.sql` | Team Leaders assign unassigned content tasks; pieces can be moved onto a new content task |
 | `0025_content_lead_sees_content_tasks.sql` | Content Writers Team Leader sees every project with a content task |
 | `0026_project_clients.sql` | A project can have several clients (`projects.client_ids`) |
+| `0027_start_writing.sql` | Start Writing on content pieces; status locked until started |
 
 ### 4. The first Super Admin
 

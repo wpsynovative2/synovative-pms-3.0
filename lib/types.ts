@@ -666,8 +666,10 @@ export interface ContentEntry {
    * The journey (0018), stamped by the database as the piece reaches each
    * step. Null when not reached - or reached before 0018, with no date kept.
    */
-  /** First written in. */
+  /** Start Writing pressed, or first written in (0027). */
   startedAt: string | null;
+  /** Who started it; null for pieces started before 0027. */
+  startedBy: string | null;
   /** First marked Ready To Design. */
   readyAt: string | null;
   /** Put in its current holder's name. */
@@ -719,6 +721,12 @@ export const isContentEmpty = (e: ContentEntry) =>
   richEmpty(e.description) &&
   !e.caption.trim() &&
   e.referenceLinks.length === 0;
+
+/**
+ * Its writer has pressed Start Writing - or something is written in it, which
+ * counts the same. Until then its status is locked (0027).
+ */
+export const isContentStarted = (e: ContentEntry) => !!e.startedAt || !isContentEmpty(e);
 
 /** What a piece is called wherever it is listed. */
 export const contentLabel = (e: Pick<ContentEntry, "title" | "caption" | "type">) =>
@@ -940,10 +948,17 @@ export interface Database {
  * the optimistic copy so the steps move the moment something is done. Mirrors
  * stamp_content_journey().
  */
-export function stampJourney(prev: ContentEntry | null, next: ContentEntry): ContentEntry {
+export function stampJourney(
+  prev: ContentEntry | null,
+  next: ContentEntry,
+  by: string | null = null,
+): ContentEntry {
   const now = new Date().toISOString();
   const out = { ...next };
-  if (!out.startedAt && !isContentEmpty(out)) out.startedAt = now;
+  if (!out.startedAt && !isContentEmpty(out)) {
+    out.startedAt = now;
+    out.startedBy = out.startedBy ?? by;
+  }
   if (!prev || prev.stage !== out.stage) {
     if (out.stage === "Ready To Design" && !out.readyAt) out.readyAt = now;
     if (out.stage === "Design Completed" || out.stage === "Scheduled") {

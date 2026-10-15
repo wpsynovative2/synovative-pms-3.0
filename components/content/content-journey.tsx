@@ -7,21 +7,22 @@ import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import {
   contentHolders,
-  isContentEmpty,
+  isContentStarted,
   isFullyAllotted,
   type ContentEntry,
+  type Task,
 } from "@/lib/types";
 
 /*
- * Where a piece has been, as five steps left to right:
+ * Where a piece has been, as six steps left to right:
  *
- *   Created -> Started -> Ready To Design -> Allotted -> Completed
+ *   Created -> Assigned to writer -> Started -> Ready To Design
+ *           -> Allotted to designer -> Completed
  *
  * A step is done when the piece's current state says so; its date comes from
  * the stamps the database keeps (0018). Pieces older than those stamps still
- * show their steps done, just without a date. A later step being done implies
- * the earlier ones were, so a piece written and moved straight to Design
- * Completed shows Ready To Design as passed.
+ * show their steps done, just without a date. Started is only ever its own
+ * stamp or something written (0027) - setting a status does not imply it.
  */
 
 interface Step {
@@ -39,29 +40,43 @@ const shortDay = (ts: string) =>
 export function journeySteps(
   entry: ContentEntry,
   name: (id: string | null) => string | undefined,
+  /** The content task the piece is a part of, when it is on one. */
+  task: Pick<Task, "assigneeId" | "status"> | null,
 ): Step[] {
+  // The content task being approved closes every piece on it.
   const completed =
-    entry.stage === "Design Completed" || entry.stage === "Scheduled";
+    entry.stage === "Design Completed" ||
+    entry.stage === "Scheduled" ||
+    task?.status === "Approved";
   // A Static to Motion piece is allotted once both its parts are.
   const allotted = isFullyAllotted(entry);
   const ready =
     !!entry.readyAt ||
     entry.stage === "Ready To Design" ||
-    completed ||
+    entry.stage === "Design Completed" ||
+    entry.stage === "Scheduled" ||
     !!entry.allottedTo;
-  const started = !isContentEmpty(entry) || !!entry.startedAt || ready;
+  const started = isContentStarted(entry);
+  // A piece written outside a task was its author's from the start.
+  const writer = entry.taskId ? (task?.assigneeId ?? null) : entry.createdBy;
 
   return [
     { label: "Created", done: true, at: entry.createdAt },
     {
+      label: "Assigned to writer",
+      done: !!writer,
+      who: name(writer),
+      at: null,
+    },
+    {
       label: "Started",
       done: started,
-      who: name(entry.createdBy),
+      who: name(entry.startedBy ?? (started ? writer : null)),
       at: entry.startedAt,
     },
     { label: "Ready To Design", done: ready, at: entry.readyAt },
     {
-      label: "Allotted",
+      label: "Allotted to designer",
       done: allotted,
       who: contentHolders(entry)
         .map((id) => name(id))
@@ -85,8 +100,9 @@ export function ContentJourney({
   entry: ContentEntry;
   className?: string;
 }) {
-  const { userById } = useStore();
-  const steps = journeySteps(entry, (id) => userById(id)?.fullName);
+  const { userById, taskById } = useStore();
+  const task = (entry.taskId ? taskById(entry.taskId) : undefined) ?? null;
+  const steps = journeySteps(entry, (id) => userById(id)?.fullName, task);
   // The step the piece is waiting on; none once everything is done.
   const current = steps.findIndex((s) => !s.done);
   // Cancelled and carried-forward pieces have stepped off the path.
@@ -95,7 +111,7 @@ export function ContentJourney({
 
   return (
     <div className={cx("flex min-w-0 flex-col gap-2", className)}>
-      <ol className="grid grid-cols-5" aria-label="Content journey">
+      <ol className="grid grid-cols-6" aria-label="Content journey">
         {steps.map((s, i) => {
           const isCurrent = i === current && !offPath;
           const lineDone = i < steps.length - 1 && steps[i + 1].done;

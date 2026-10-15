@@ -435,6 +435,7 @@ Since the baseline:
 | `0024_content_task_sharing.sql` | `assign_content_task()` lets a Content Writers Team Leader give an unassigned content task to their team; `split_content_task()` moves picked pieces onto a new content task (managers, Project Leader, CW Team Leaders), renumbering both. Mirrors `canAssignContentTask` / `canSplitContentTask` |
 | `0025_content_lead_sees_content_tasks.sql` | `my_project_ids` / `can_see_project`: a Content Writers Team Leader also sees every project with a content task, whatever department it is filed under. Mirrors `canViewProject` |
 | `0026_project_clients.sql` | `projects.client_ids`: a project can name several of its company's contacts. `client_id` stays the first of them, kept in step by `sync_project_clients`; recurring copies take the blueprint's; a deleted contact leaves every project |
+| `0027_start_writing.sql` | `content_bank.started_by`; `start_content_piece()` - Start Writing, only by the writer the piece's task is assigned to; `stamp_content_journey` refuses a status on a piece nobody has started. Mirrors `isContentStarted` / `canStartContent` |
 
 `supabase/archive/` is history, not a second schema: it is what the original
 database was built from, one step at a time. Code comments that cite a number

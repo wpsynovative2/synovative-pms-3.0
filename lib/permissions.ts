@@ -6,6 +6,7 @@ import {
   FINANCE_DEPARTMENT,
   SMM_DEPARTMENT,
 } from "./master-data";
+import { isContentStarted } from "./types";
 import type { CollabEntity, ContentEntry, Project, Role, Task, User } from "./types";
 
 /**
@@ -432,6 +433,14 @@ export function canAllotContent(u: User, project: Project | null): boolean {
  * allotted to, and the author desks on the project. Mirrors
  * set_content_stage() in 0022.
  */
+/**
+ * Start Writing: only the writer the piece's task is assigned to, and only
+ * once. Mirrors start_content_piece() in 0027.
+ */
+export function canStartContent(u: User, entry: ContentEntry, task: Task | null) {
+  return !!task && task.id === entry.taskId && task.assigneeId === u.id && !isContentStarted(entry);
+}
+
 export function canSetContentStage(
   u: User,
   entry: ContentEntry,

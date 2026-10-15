@@ -42,7 +42,7 @@ import {
   CONTENT_STAGES,
   CONTENT_TYPES,
   contentHolders,
-  isContentEmpty,
+  isContentStarted,
   type ContentBillingType,
   type ContentPlacement,
   type ContentEntry,
@@ -109,6 +109,7 @@ export default function ContentBankPage() {
   const [stage, setStage] = useState<ContentStage | typeof NONE | "">("");
   const [billing, setBilling] = useState<ContentBillingType | "">("");
   const [placement, setPlacement] = useState<ContentPlacement | typeof NONE | "">("");
+  const [progress, setProgress] = useState<"" | "started" | "not-started">("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [groupBy, setGroupBy] = useState<GroupKey>("project");
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
@@ -128,8 +129,10 @@ export default function ContentBankPage() {
     () =>
       db.contentEntries.filter(
         (e) =>
-          // An untouched slot is a placeholder on its task, not library content.
-          !isContentEmpty(e) && canViewContentEntry(user, e, db.projects, db.tasks),
+          // A content task's pieces show from the start, so the ones nobody
+          // has started yet can be found; anything else once written.
+          (e.slot !== null || isContentStarted(e)) &&
+          canViewContentEntry(user, e, db.projects, db.tasks),
       ),
     [db.contentEntries, db.projects, db.tasks, user],
   );
@@ -153,13 +156,14 @@ export default function ContentBankPage() {
         (!stage || (stage === NONE ? !e.stage : e.stage === stage)) &&
         (!billing || e.billingType === billing) &&
         (!placement || (placement === NONE ? !e.placement : e.placement === placement)) &&
+        (!progress || isContentStarted(e) === (progress === "started")) &&
         (!q ||
           e.caption.toLowerCase().includes(q) ||
           e.description.toLowerCase().includes(q) ||
           e.onPic.toLowerCase().includes(q) ||
           e.type.toLowerCase().includes(q)),
     );
-  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing, placement]);
+  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing, placement, progress]);
 
   // Only months some visible piece is actually for, newest first.
   const monthsInUse = useMemo(
@@ -176,7 +180,8 @@ export default function ContentBankPage() {
     !!writerId ||
     !!stage ||
     !!billing ||
-    !!placement;
+    !!placement ||
+    !!progress;
 
   const clearFilters = () => {
     setQuery("");
@@ -188,6 +193,7 @@ export default function ContentBankPage() {
     setStage("");
     setBilling("");
     setPlacement("");
+    setProgress("");
   };
 
   // Only people who actually appear on a visible piece are offered.
@@ -474,6 +480,16 @@ export default function ContentBankPage() {
             </option>
           ))}
           <option value={NONE}>Placement not set</option>
+        </Select>
+        <Select
+          className="w-auto min-w-36"
+          value={progress}
+          onChange={(e) => setProgress(e.target.value as "" | "started" | "not-started")}
+          aria-label="Started or not"
+        >
+          <option value="">Started or not</option>
+          <option value="started">Started</option>
+          <option value="not-started">Not started</option>
         </Select>
         <Select
           className="w-auto min-w-36"

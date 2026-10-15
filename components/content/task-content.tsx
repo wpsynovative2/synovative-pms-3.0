@@ -22,6 +22,7 @@ import { Avatar, Button, ProgressBar, cx } from "@/components/ui/primitives";
 import {
   canAllotContent,
   canSplitContentTask,
+  canStartContent,
   canDeleteContentEntry,
   canEditContentEntry,
   canWriteContent,
@@ -35,6 +36,7 @@ import {
   contentLabel,
   contentProgress,
   isContentEmpty,
+  isContentStarted,
   type ContentEntry,
   type Project,
   type Task,
@@ -59,7 +61,7 @@ export function TaskContentSection({
   task: Task;
   project: Project | null;
 }) {
-  const { db, currentUser, deleteContentEntry, taskById } = useStore();
+  const { db, currentUser, deleteContentEntry, taskById, startContentPiece } = useStore();
   const user = currentUser!;
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
@@ -194,6 +196,7 @@ export function TaskContentSection({
             <PieceRow
               key={e.id}
               entry={e}
+              task={task}
               project={project}
               numbered={batch}
               picked={maySplit ? selected.includes(e.id) : undefined}
@@ -203,8 +206,9 @@ export function TaskContentSection({
                 )
               }
               onRead={() => {
-                // An empty slot has nothing to read; its writer goes straight in.
-                if (isContentEmpty(e) && canEditContentEntry(user, e)) {
+                // An empty slot has nothing to read; once started, its writer
+                // goes straight in. Before that it is Start Writing that opens it.
+                if (isContentEmpty(e) && isContentStarted(e) && canEditContentEntry(user, e)) {
                   setEditing(e);
                   setComposing(true);
                 } else {
@@ -212,6 +216,11 @@ export function TaskContentSection({
                 }
               }}
               onEdit={() => {
+                setEditing(e);
+                setComposing(true);
+              }}
+              onStart={() => {
+                startContentPiece(e.id);
                 setEditing(e);
                 setComposing(true);
               }}
@@ -287,15 +296,18 @@ export function TaskContentSection({
 
 function PieceRow({
   entry,
+  task,
   project,
   numbered,
   picked,
   onPick,
   onRead,
   onEdit,
+  onStart,
   onDelete,
 }: {
   entry: ContentEntry;
+  task: Task;
   project: Project | null;
   numbered: boolean;
   /** Set when pieces may be picked to move onto a new task. */
@@ -303,6 +315,8 @@ function PieceRow({
   onPick?: () => void;
   onRead: () => void;
   onEdit: () => void;
+  /** Start Writing: records the start, then opens the editor. */
+  onStart: () => void;
   onDelete: () => void;
 }) {
   const { currentUser, userById } = useStore();
@@ -374,7 +388,13 @@ function PieceRow({
         <div className="w-44 shrink-0">
           <ContentStageControl entry={entry} />
         </div>
-        {canEditContentEntry(user, entry) ? (
+        {canStartContent(user, entry, task) ? (
+          // The writer's first visit; after it the row shows the pencil.
+          <Button size="sm" variant="primary" onClick={onStart}>
+            <IconEdit size={13} /> Start Writing
+          </Button>
+        ) : canEditContentEntry(user, entry) &&
+          (isContentStarted(entry) || task.assigneeId !== user.id) ? (
           <Button size="sm" aria-label="Edit content" onClick={onEdit}>
             <IconEdit size={13} />
           </Button>

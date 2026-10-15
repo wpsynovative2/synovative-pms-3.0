@@ -72,7 +72,13 @@ import {
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
-import { isContentEmpty, type Expense, type TaskStatus } from "@/lib/types";
+import {
+  CONTENT_TYPES,
+  isContentEmpty,
+  type ContentType,
+  type Expense,
+  type TaskStatus,
+} from "@/lib/types";
 
 /** One hop of the Company → Client → Property → OBC chain behind a project. */
 interface CrmLink {
@@ -142,6 +148,26 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     () => db.contentEntries.filter((e) => e.projectId === id && !isContentEmpty(e)),
     [db.contentEntries, id],
   );
+
+  /*
+   * Every content task's pieces added up by CB type: written of asked for,
+   * plus extras - the same count each task shows, across all of them.
+   */
+  const piecesByType = useMemo(() => {
+    const contentTasks = new Set(tasks.filter((t) => t.kind === "content").map((t) => t.id));
+    const totals = new Map<ContentType, { target: number; filled: number; extras: number }>();
+    for (const e of db.contentEntries) {
+      if (!e.taskId || !contentTasks.has(e.taskId)) continue;
+      const row = totals.get(e.type) ?? { target: 0, filled: 0, extras: 0 };
+      if (e.slot === null) row.extras += 1;
+      else {
+        row.target += 1;
+        if (e.stage !== null) row.filled += 1;
+      }
+      totals.set(e.type, row);
+    }
+    return CONTENT_TYPES.filter((t) => totals.has(t)).map((t) => ({ type: t, ...totals.get(t)! }));
+  }, [tasks, db.contentEntries]);
 
   const stats = useMemo(
     () => (project ? projectStats(project, db.tasks, db.expenses) : null),
@@ -286,6 +312,20 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
               <Badge>
                 {formatDate(project.startDate)} → {formatDate(project.deadline)}
               </Badge>
+              {piecesByType.map((p) => (
+                <span
+                  key={p.type}
+                  title={`${p.type}: ${p.filled} of ${p.target} pieces written${p.extras ? `, plus ${p.extras} extra` : ""}`}
+                >
+                  <Badge className="border-brand-bright/30 bg-brand/10 text-brand-ink">
+                    {p.type}
+                    <span className="font-mono">
+                      {p.filled}/{p.target}
+                      {p.extras ? ` +${p.extras}` : ""}
+                    </span>
+                  </Badge>
+                </span>
+              ))}
             </div>
             {project.series ? (
               <p className="mt-2.5 text-[12px] text-ink-muted">

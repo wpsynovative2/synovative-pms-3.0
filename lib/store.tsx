@@ -593,6 +593,7 @@ export type ContentInput = Omit<
   | "scheduledOn"
   | "carryMonth"
   | "startedAt"
+  | "startedBy"
   | "readyAt"
   | "allottedAt"
   | "completedAt"
@@ -779,6 +780,8 @@ interface StoreValue {
    * out, Carry Forwarded the month it moves to (any date in it).
    */
   setContentStage: (entryId: string, stage: ContentStage | null, date?: string | null) => void;
+  /** The writer presses Start Writing on a piece of their task (0027). */
+  startContentPiece: (entryId: string) => void;
 
   addComment: (entityType: CollabEntity, entityId: string, body: string) => void;
   deleteComment: (id: string) => void;
@@ -2289,6 +2292,7 @@ const crmActions = {
       motionAllottedTo: null,
       motionAllottedTaskId: null,
       startedAt: null,
+      startedBy: null,
       readyAt: null,
       allottedAt: null,
       completedAt: null,
@@ -2296,7 +2300,7 @@ const crmActions = {
       slot: null,
       createdBy: me(),
       createdAt: now(),
-    });
+    }, me());
     void commit(
       ["content", "notifications"],
       (db) => ({ ...db, contentEntries: [entry, ...db.contentEntries] }),
@@ -2312,7 +2316,7 @@ const crmActions = {
       (db) => ({
         ...db,
         contentEntries: db.contentEntries.map((x) =>
-          x.id === id ? stampJourney(x, { ...x, ...patch }) : x,
+          x.id === id ? stampJourney(x, { ...x, ...patch }, me()) : x,
         ),
       }),
       (c) => run(c.from("content_bank").update(patchColumns(patch, CONTENT_COLUMNS)).eq("id", id)),
@@ -2437,6 +2441,20 @@ const crmActions = {
           }),
         );
       },
+    );
+  },
+
+  startContentPiece(entryId: string) {
+    const startedAt = now();
+    void commit(
+      ["content"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId && !e.startedAt ? { ...e, startedAt, startedBy: me() } : e,
+        ),
+      }),
+      (c) => run(c.rpc("start_content_piece", { p_content_id: entryId })),
     );
   },
 
