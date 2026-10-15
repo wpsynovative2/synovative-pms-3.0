@@ -321,6 +321,19 @@ export const IconBuilding = (p: IconProps) => (
   </Svg>
 );
 
+/** A tower crane - a developer, as opposed to a building it puts up. */
+export const IconCrane = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 21h8" />
+    <path d="M5 21V4M9 21V4" />
+    <path d="M5 8l4 4M5 14l4 4" />
+    <path d="M2 4h20" />
+    <path d="M7 1.5 2 4M7 1.5 20 4" />
+    <path d="M18 4v7" />
+    <path d="M16 11h4v3h-4z" />
+  </Svg>
+);
+
 export const IconContact = (p: IconProps) => (
   <Svg {...p}>
     <rect x="3" y="4" width="18" height="16" rx="2.5" />

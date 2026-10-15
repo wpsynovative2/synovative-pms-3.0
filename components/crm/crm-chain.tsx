@@ -1,6 +1,6 @@
 "use client";
 
-import { IconBuilding, IconContact, IconProperty } from "@/components/ui/icons";
+import { IconContact, IconCrane, IconProperty } from "@/components/ui/icons";
 import { cx } from "@/components/ui/primitives";
 import { useStore } from "@/lib/store";
 
@@ -34,7 +34,7 @@ export function CrmChain({
     {
       key: "company",
       label: "Company",
-      icon: <IconBuilding size={12} />,
+      icon: <IconCrane size={12} />,
       value: companyById(companyId)?.name ?? fallbackCompany,
     },
     {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { CrmChain } from "@/components/crm/crm-chain";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { RecurrenceBadge } from "@/components/task/task-bits";
 import {
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/primitives";
 import { formatINR, projectStats } from "@/lib/analytics";
 import { formatShortDate } from "@/lib/calendar";
+import type { Project } from "@/lib/types";
 import {
   PRIORITIES,
   PRIORITY_STYLE,
@@ -71,7 +72,7 @@ const EMPTY: Filters = {
 type Scope = "all" | "mine" | "created";
 
 export default function ProjectsPage() {
-  const { db, currentUser, userById } = useStore();
+  const { db, currentUser, userById, companyById, propertyById, clientById } = useStore();
   const user = currentUser!;
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const [createOpen, setCreateOpen] = useState(false);
@@ -120,11 +121,26 @@ export default function ProjectsPage() {
     [scoped],
   );
 
+  /** Everything a project can be found by: its name and its whole CRM chain. */
+  const searchText = useCallback(
+    (p: Project) =>
+      [
+        p.name,
+        p.clientName,
+        companyById(p.companyId)?.name,
+        propertyById(p.propertyId)?.name,
+        ...p.clientIds.map((id) => clientById(id)?.fullName),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+    [companyById, propertyById, clientById],
+  );
+
   const filtered = useMemo(() => {
     const q = filters.query.trim().toLowerCase();
     return scoped.filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q) && !p.clientName.toLowerCase().includes(q))
-        return false;
+      if (q && !searchText(p).includes(q)) return false;
       if (filters.status !== "all" && p.status !== filters.status) return false;
       if (filters.priority !== "all" && p.priority !== filters.priority) return false;
       if (filters.client !== "all" && p.clientName !== filters.client) return false;
@@ -136,7 +152,7 @@ export default function ProjectsPage() {
       if (filters.to && p.startDate > filters.to) return false;
       return true;
     });
-  }, [scoped, filters]);
+  }, [scoped, filters, searchText]);
 
   const dirty = JSON.stringify(filters) !== JSON.stringify(EMPTY);
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
@@ -178,7 +194,7 @@ export default function ProjectsPage() {
       <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
         <SearchInput
           className="min-w-52 flex-1"
-          placeholder="Search projects or clients…"
+          placeholder="Search projects, companies, properties or clients…"
           value={filters.query}
           onChange={(e) => set("query", e.target.value)}
         />
@@ -315,9 +331,7 @@ export default function ProjectsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((p) => {
             const stats = projectStats(p, db.tasks, db.expenses);
-            const leader = userById(p.leaderId);
-            // Never an empty footer: without a leader, the creator stands in.
-            const shown = leader ?? userById(p.createdBy);
+            const creator = userById(p.createdBy);
             // The team is whoever is listed on it plus whoever holds a task
             // there - many projects never fill in the member list.
             const teamIds = Array.from(
@@ -327,7 +341,7 @@ export default function ProjectsPage() {
                   .filter((t) => t.projectId === p.id && t.assigneeId)
                   .map((t) => t.assigneeId!),
               ]),
-            ).filter((id) => id !== p.leaderId);
+            ).filter((id) => id !== p.createdBy);
             const team = teamIds.map((id) => userById(id)).filter(Boolean);
             const members = team.slice(0, 4);
             return (
@@ -343,6 +357,7 @@ export default function ProjectsPage() {
                         {p.name}
                       </h3>
                       <CrmChain
+                        inline
                         className="mt-1"
                         companyId={p.companyId}
                         clientId={p.clientId}
@@ -350,9 +365,6 @@ export default function ProjectsPage() {
                         propertyId={p.propertyId}
                         fallbackCompany={p.clientName}
                       />
-                      <p className="truncate text-[11px] text-ink-faint">
-                        Created by {userById(p.createdBy)?.fullName ?? "Unknown"}
-                      </p>
                     </div>
                   </div>
 
@@ -402,14 +414,11 @@ export default function ProjectsPage() {
                   </dl>
 
                   <div className="mt-3 flex items-center gap-2 border-t border-line-soft pt-3">
-                    {shown ? (
-                      <span
-                        className="flex min-w-0 items-center gap-1.5"
-                        title={leader ? "Project Leader" : "Created by (no Project Leader yet)"}
-                      >
-                        <Avatar name={shown.fullName} size={22} />
-                        <span className="truncate text-[11px] text-ink-muted">
-                          {shown.fullName}
+                    {creator ? (
+                      <span className="flex min-w-0 items-center gap-1.5" title="Created by">
+                        <Avatar name={creator.fullName} size={22} />
+                        <span className="truncate text-[11px] text-ink-faint">
+                          Created by <span className="text-ink-muted">{creator.fullName}</span>
                         </span>
                       </span>
                     ) : null}
