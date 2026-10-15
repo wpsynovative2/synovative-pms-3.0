@@ -125,9 +125,18 @@ export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   // A Team Leader follows every project their department is working on, even
   // when none of its tasks is theirs. Seeing it does not make them its
   // reviewer - see canReviewTask.
-  return (
+  if (
     isTeamLeader(u) &&
     tasks.some((t) => t.projectId === p.id && u.departments.includes(t.department))
+  ) {
+    return true;
+  }
+  // The Content Writers' Team Leader also follows every project with a content
+  // task, whatever department it is filed under, so they can share it out
+  // (0025).
+  return (
+    isContentTeamLeader(u) &&
+    tasks.some((t) => t.projectId === p.id && t.kind === "content")
   );
 }
 
