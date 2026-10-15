@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
-import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { canDeleteCrm, canManageCrm, canViewClientsModule } from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type ClientInput } from "@/lib/store";
 import { CLIENT_ROLES, type Client, type ClientRole, type PartyStatus } from "@/lib/types";
@@ -39,6 +39,22 @@ import { CLIENT_ROLES, type Client, type ClientRole, type PartyStatus } from "@/
  * company, which is why the company picker is required and comes first.
  */
 export default function ClientsPage() {
+  const { currentUser } = useStore();
+  if (!canViewClientsModule(currentUser!)) {
+    return (
+      <Card>
+        <EmptyState
+          icon={<IconContact size={30} />}
+          title="You don't have access to Clients"
+          body="The client contact book is open to Super Admins, Admins and Managers."
+        />
+      </Card>
+    );
+  }
+  return <ClientsScreen />;
+}
+
+function ClientsScreen() {
   const { db, currentUser, companyById, deleteClient } = useStore();
   const user = currentUser!;
   const params = useSearchParams();

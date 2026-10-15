@@ -69,6 +69,7 @@ import {
   canReviewExpense,
   canViewProject,
   isMyReviewQueue,
+  canViewClientsModule,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
@@ -84,7 +85,8 @@ import {
 interface CrmLink {
   kind: string;
   label: string;
-  href: string;
+  /** Unset when the viewer cannot open the module it would link to. */
+  href?: string;
   icon: React.ReactNode;
 }
 
@@ -245,7 +247,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     crmChain.push({
       kind: "Client",
       label: client.fullName,
-      href: `/clients?client=${client.id}`,
+      href: canViewClientsModule(user) ? `/clients?client=${client.id}` : undefined,
       icon: <IconContact size={14} />,
     });
   }
@@ -472,18 +474,28 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                   subtitle="The CRM record behind the work"
                 />
                 <ul className="flex flex-col gap-1.5 px-5 py-4">
-                  {crmChain.map((link) => (
-                    <li key={link.href}>
-                      <Link
-                        href={link.href}
-                        className="flex items-center gap-2.5 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px] hover:border-brand-bright/40"
-                      >
+                  {crmChain.map((link) => {
+                    const body = (
+                      <>
                         {link.icon}
                         <span className="min-w-0 flex-1 truncate text-ink">{link.label}</span>
                         <span className="shrink-0 text-ink-faint">{link.kind}</span>
-                      </Link>
-                    </li>
-                  ))}
+                      </>
+                    );
+                    const box =
+                      "flex items-center gap-2.5 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]";
+                    return (
+                      <li key={`${link.kind}:${link.label}`}>
+                        {link.href ? (
+                          <Link href={link.href} className={cx(box, "hover:border-brand-bright/40")}>
+                            {body}
+                          </Link>
+                        ) : (
+                          <div className={box}>{body}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </Card>
             ) : null}

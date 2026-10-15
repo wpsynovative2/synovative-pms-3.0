@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
-import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { canDeleteCrm, canManageCrm, canViewClientsModule } from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type CompanyInput } from "@/lib/store";
 import { COMPANY_NATURES, type Company, type PartyStatus } from "@/lib/types";
@@ -257,7 +257,9 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 type Pane = "details" | "collab";
 
 function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => void }) {
-  const { db, userById } = useStore();
+  const { db, userById, currentUser } = useStore();
+  // Names are fine to show; the contact book itself is for managers.
+  const mayOpenClients = canViewClientsModule(currentUser!);
   const [pane, setPane] = useState<Pane>("details");
 
   const clients = db.clients.filter((c) => c.companyId === company.id);
@@ -327,19 +329,32 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
                 <p className="text-[12px] text-ink-faint">Nobody linked yet.</p>
               ) : (
                 <ul className="flex flex-col gap-1.5">
-                  {clients.map((c) => (
-                    <li key={c.id}>
-                      <Link
-                        href={`/clients?client=${c.id}`}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px] hover:border-brand-bright/40"
-                      >
+                  {clients.map((c) => {
+                    const body = (
+                      <>
                         <span className="truncate text-ink">{c.fullName}</span>
                         <span className="shrink-0 text-ink-faint">
                           {c.designation || c.role || "—"}
                         </span>
-                      </Link>
-                    </li>
-                  ))}
+                      </>
+                    );
+                    const box =
+                      "flex items-center justify-between gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]";
+                    return (
+                      <li key={c.id}>
+                        {mayOpenClients ? (
+                          <Link
+                            href={`/clients?client=${c.id}`}
+                            className={`${box} hover:border-brand-bright/40`}
+                          >
+                            {body}
+                          </Link>
+                        ) : (
+                          <div className={box}>{body}</div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>

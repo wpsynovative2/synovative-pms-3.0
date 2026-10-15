@@ -33,6 +33,7 @@ import {
   canEditContentEntry,
   canViewContentEntry,
   canWriteContent,
+  canViewClientsModule,
 } from "@/lib/permissions";
 import { formatMonth } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
@@ -291,7 +292,10 @@ export default function ContentBankPage() {
               id: clients.map((c) => c.id).join(","),
               title: clients.map((c) => c.fullName).join(", "),
               subtitle: companyById(clients[0].companyId)?.name,
-              href: clients.length === 1 ? `/clients?client=${clients[0].id}` : undefined,
+              href:
+                clients.length === 1 && canViewClientsModule(user)
+                  ? `/clients?client=${clients[0].id}`
+                  : undefined,
               icon: <IconContact size={13} />,
             }
           : { id: NOT_SET, title: "No client", icon: <IconContact size={13} /> };
@@ -316,7 +320,7 @@ export default function ContentBankPage() {
         if (a.id === NOT_SET || b.id === NOT_SET) return a.id === NOT_SET ? 1 : -1;
         return a.title.localeCompare(b.title);
       });
-  }, [filtered, db.projects, compare, groupBy, companyById, propertyById, clientById]);
+  }, [filtered, db.projects, compare, groupBy, companyById, propertyById, clientById, user]);
 
   const open = openId ? visible.find((e) => e.id === openId) : undefined;
 

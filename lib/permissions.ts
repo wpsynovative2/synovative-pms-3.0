@@ -340,6 +340,13 @@ export const canManageLinks = (u: User) => isGlobalManager(u);
 export const canManageCrm = (u: User) => isGlobalManager(u) || isBusinessExec(u);
 
 /**
+ * The Clients module - the contact book, with phone numbers and emails - is
+ * for Super Admin, Admin and Managers. Everyone else still sees a client's
+ * name where a project or piece shows it; they just cannot open the module.
+ */
+export const canViewClientsModule = (u: User) => isGlobalManager(u);
+
+/**
  * Deleting is narrower than editing: these records are referenced by projects
  * that may already be running, so only Super Admin and Admin may remove one.
  */
@@ -516,11 +523,11 @@ export function navGate(u: User): NavGate {
     links: true,
     // Everyone can see what repeats; only managers can change it.
     recurrence: true,
-    // The CRM master records are read by everyone — a designer opening a
+    // The CRM master records (but the contact book) are read by everyone — a designer opening a
     // project wants to know whose property it is — and written by the sales
     // side. The OBC pipeline is narrower: it is a sales screen.
     companies: true,
-    clients: true,
+    clients: canViewClientsModule(u),
     properties: true,
     obcs: canManageCrm(u),
     // Writers need it to write; everyone else reaches their project's content
