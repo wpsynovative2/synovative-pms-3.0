@@ -8,8 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, Select } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { formatDate } from "@/lib/calendar";
-import { CONTENT_WRITER_DEPARTMENT, PRIORITIES } from "@/lib/master-data";
-import { isGlobalManager, isProjectLeader } from "@/lib/permissions";
+import { CONTENT_WRITER_DEPARTMENT, PRIORITIES, SMM_DEPARTMENT } from "@/lib/master-data";
+import { isGlobalManager, isProjectLeader, onContentDesk } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { contentLabel, type ContentEntry, type Priority, type Project, type Task } from "@/lib/types";
 
@@ -25,12 +25,15 @@ function useWriterOptions(everyone = false) {
   return useMemo(
     () =>
       db.users
-        .filter((u) => u.active && (everyone || u.departments.includes(CONTENT_WRITER_DEPARTMENT)))
+        // Content Writers and Social Media Marketing both take content tasks (0028).
+        .filter((u) => u.active && (everyone || onContentDesk(u)))
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
         .map((u) => ({
           value: u.id,
           label: u.fullName,
-          hint: u.departments[0],
+          hint:
+            u.departments.find((d) => d === CONTENT_WRITER_DEPARTMENT || d === SMM_DEPARTMENT) ??
+            u.departments[0],
           avatarName: u.fullName,
         })),
     [db.users, everyone],
@@ -190,7 +193,7 @@ export function SplitContentTaskDialog({
         <Field
           label="Assign to"
           required
-          hint={anyone ? undefined : "Someone on the Content Writers team."}
+          hint={anyone ? undefined : "Someone on the Content Writers or Social Media Marketing team."}
           error={touched ? errors.assignee : undefined}
         >
           <SearchSelect

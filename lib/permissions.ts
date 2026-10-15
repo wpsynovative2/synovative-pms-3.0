@@ -132,11 +132,11 @@ export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   ) {
     return true;
   }
-  // The Content Writers' Team Leader also follows every project with a content
-  // task, whatever department it is filed under, so they can share it out
-  // (0025).
+  // The Content Writers' and Social Media Marketing Team Leaders also follow
+  // every project with a content task, whatever department it is filed under
+  // (0025, 0028).
   return (
-    isContentTeamLeader(u) &&
+    seesEveryContentTask(u) &&
     tasks.some((t) => t.projectId === p.id && t.kind === "content")
   );
 }
@@ -390,6 +390,8 @@ export const canViewContentEntry = (
   tasks: Task[],
 ) => {
   if (entry.allottedTo === u.id || entry.motionAllottedTo === u.id) return true;
+  // Every Team Leader reads the whole Content Bank (0028).
+  if (isTeamLeader(u)) return true;
   const project = projects.find((p) => p.id === entry.projectId);
   return !!project && canViewProject(u, project, tasks);
 };
@@ -406,9 +408,16 @@ export const isContentTask = (t: Task) => t.kind === "content";
 /** A Team Leader of the writers' desk (0024). */
 export const isContentTeamLeader = (u: User) => isTeamLeader(u) && isContentWriter(u);
 
+/** Content Writers or Social Media Marketing: who content tasks go to (0028). */
+export const onContentDesk = (u: User) => isContentWriter(u) || isSocialMediaMarketer(u);
+
+/** Either desk's Team Leader follows every project with a content task (0028). */
+export const seesEveryContentTask = (u: User) => isTeamLeader(u) && onContentDesk(u);
+
 /**
  * Giving an unassigned content task to a writer: the Content Writers' Team
- * Leader, to someone in their own department. Mirrors assign_content_task().
+ * Leader, to someone on the Content Writers or Social Media Marketing team
+ * (0028). Mirrors assign_content_task().
  */
 export const canAssignContentTask = (u: User, task: Task) =>
   isContentTask(task) && !task.assigneeId && isContentTeamLeader(u);

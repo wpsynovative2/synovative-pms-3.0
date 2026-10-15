@@ -90,6 +90,7 @@ Added since the baseline (run on every database):
 | `0025_content_lead_sees_content_tasks.sql` | Content Writers Team Leader sees every project with a content task |
 | `0026_project_clients.sql` | A project can have several clients (`projects.client_ids`) |
 | `0027_start_writing.sql` | Start Writing on content pieces; status locked until started |
+| `0028_smm_content_desk.sql` | SMM team takes content tasks; Team Leaders read the whole Content Bank |
 
 ### 4. The first Super Admin
 
