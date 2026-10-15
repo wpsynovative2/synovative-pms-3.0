@@ -6,15 +6,20 @@ import { useMemo, useState } from "react";
 import { ContentComposer } from "@/components/content/content-form";
 import { ContentCard, ContentDetailScreen } from "@/components/content/content-view";
 import {
+  IconContact,
   IconContent,
+  IconCrane,
   IconEdit,
+  IconFolder,
   IconPlus,
+  IconProperty,
   IconTrash,
 } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/modal";
 import {
   Button,
   Card,
+  cx,
   EmptyState,
   PageHeader,
   SearchInput,
@@ -67,8 +72,30 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "status", label: "Status" },
 ];
 
+type GroupKey = "project" | "company" | "property" | "client";
+
+const GROUPS: { value: GroupKey; label: string }[] = [
+  { value: "project", label: "Project" },
+  { value: "company", label: "Company" },
+  { value: "property", label: "Property" },
+  { value: "client", label: "Client" },
+];
+
+interface PieceGroup {
+  id: string;
+  title: string;
+  /** A muted line beside the title - the company, under a project. */
+  subtitle?: string;
+  href?: string;
+  /** A project's own colour; the other groupings show their icon instead. */
+  color?: string;
+  icon?: React.ReactNode;
+  entries: ContentEntry[];
+}
+
 export default function ContentBankPage() {
-  const { db, currentUser, deleteContentEntry } = useStore();
+  const { db, currentUser, deleteContentEntry, companyById, propertyById, clientById } =
+    useStore();
   const user = currentUser!;
   const params = useSearchParams();
 
@@ -83,6 +110,7 @@ export default function ContentBankPage() {
   const [billing, setBilling] = useState<ContentBillingType | "">("");
   const [placement, setPlacement] = useState<ContentPlacement | typeof NONE | "">("");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [groupBy, setGroupBy] = useState<GroupKey>("project");
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
@@ -216,30 +244,73 @@ export default function ContentBankPage() {
   }, [sort, db.users]);
 
   /*
-   * The library is read one project at a time — "what have we written for
-   * Majestic Tower?" — so the list is filed under the project rather than run
-   * together. Projects are in name order; inside each one the newest piece
-   * comes first, which is the one being worked on.
+   * The library is read one project at a time - "what have we written for
+   * Majestic Tower?" - so the list is filed under the project rather than run
+   * together; or, a level up, under the company, property or client contacts
+   * the project is for. Groups are in name order, with anything the project
+   * does not say last; inside each one the chosen sort applies.
    */
   const groups = useMemo(() => {
-    const byProject = new Map<string, ContentEntry[]>();
+    const projectOf = new Map(db.projects.map((p) => [p.id, p]));
+    const keyed = new Map<string, PieceGroup>();
+    const NOT_SET = "__unset__";
     for (const e of filtered) {
-      const list = byProject.get(e.projectId);
-      if (list) list.push(e);
-      else byProject.set(e.projectId, [e]);
+      const project = projectOf.get(e.projectId) ?? null;
+      let g: Omit<PieceGroup, "entries">;
+      if (groupBy === "company") {
+        const company = companyById(project?.companyId ?? null);
+        g = company
+          ? { id: company.id, title: company.name, href: `/companies?company=${company.id}`, icon: <IconCrane size={13} /> }
+          : project?.clientName
+            ? { id: `typed:${project.clientName}`, title: project.clientName, icon: <IconCrane size={13} /> }
+            : { id: NOT_SET, title: "No company", icon: <IconCrane size={13} /> };
+      } else if (groupBy === "property") {
+        const property = propertyById(project?.propertyId ?? null);
+        g = property
+          ? {
+              id: property.id,
+              title: property.name,
+              subtitle: companyById(property.companyId)?.name,
+              href: `/properties?property=${property.id}`,
+              icon: <IconProperty size={13} />,
+            }
+          : { id: NOT_SET, title: "No property", icon: <IconProperty size={13} /> };
+      } else if (groupBy === "client") {
+        // A project for several contacts files its pieces under all of them together.
+        const clients = (project?.clientIds ?? [])
+          .map((id) => clientById(id))
+          .filter((c) => !!c);
+        g = clients.length
+          ? {
+              id: clients.map((c) => c.id).join(","),
+              title: clients.map((c) => c.fullName).join(", "),
+              subtitle: companyById(clients[0].companyId)?.name,
+              href: clients.length === 1 ? `/clients?client=${clients[0].id}` : undefined,
+              icon: <IconContact size={13} />,
+            }
+          : { id: NOT_SET, title: "No client", icon: <IconContact size={13} /> };
+      } else {
+        g = project
+          ? {
+              id: project.id,
+              title: project.name,
+              subtitle: project.clientName || undefined,
+              href: `/projects/${project.id}`,
+              color: project.color,
+            }
+          : { id: NOT_SET, title: "Unknown project", icon: <IconFolder size={13} /> };
+      }
+      const existing = keyed.get(g.id);
+      if (existing) existing.entries.push(e);
+      else keyed.set(g.id, { ...g, entries: [e] });
     }
-    return [...byProject]
-      .map(([id, entries]) => ({
-        id,
-        project: db.projects.find((p) => p.id === id) ?? null,
-        entries: [...entries].sort(compare),
-      }))
+    return [...keyed.values()]
+      .map((g) => ({ ...g, entries: [...g.entries].sort(compare) }))
       .sort((a, b) => {
-        // A project that has gone missing sorts last rather than first.
-        if (!a.project || !b.project) return a.project ? -1 : b.project ? 1 : 0;
-        return a.project.name.localeCompare(b.project.name);
+        if (a.id === NOT_SET || b.id === NOT_SET) return a.id === NOT_SET ? 1 : -1;
+        return a.title.localeCompare(b.title);
       });
-  }, [filtered, db.projects, compare]);
+  }, [filtered, db.projects, compare, groupBy, companyById, propertyById, clientById]);
 
   const open = openId ? visible.find((e) => e.id === openId) : undefined;
 
@@ -419,6 +490,18 @@ export default function ContentBankPage() {
         </Select>
         <Select
           className="w-auto min-w-40"
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value as GroupKey)}
+          aria-label="Group by"
+        >
+          {GROUPS.map((o) => (
+            <option key={o.value} value={o.value}>
+              Group by: {o.label}
+            </option>
+          ))}
+        </Select>
+        <Select
+          className="w-auto min-w-40"
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
           aria-label="Sort by"
@@ -456,26 +539,33 @@ export default function ContentBankPage() {
           {groups.map((g) => (
             <section key={g.id}>
               <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-line-soft pb-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: g.project?.color ?? "var(--color-ink-faint)" }}
-                />
-                {g.project ? (
+                {g.color ? (
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: g.color }}
+                  />
+                ) : (
+                  <span className="shrink-0 text-ink-muted">{g.icon}</span>
+                )}
+                {g.href ? (
                   <Link
-                    href={`/projects/${g.project.id}`}
+                    href={g.href}
                     className="truncate text-[14px] font-semibold text-ink hover:text-brand-bright"
                   >
-                    {g.project.name}
+                    {g.title}
                   </Link>
                 ) : (
-                  <span className="truncate text-[14px] font-semibold text-ink-faint">
-                    Unknown project
+                  <span
+                    className={cx(
+                      "truncate text-[14px] font-semibold",
+                      g.id === "__unset__" ? "text-ink-faint" : "text-ink",
+                    )}
+                  >
+                    {g.title}
                   </span>
                 )}
-                {g.project?.clientName ? (
-                  <span className="truncate text-[11px] text-ink-faint">
-                    {g.project.clientName}
-                  </span>
+                {g.subtitle ? (
+                  <span className="truncate text-[11px] text-ink-faint">{g.subtitle}</span>
                 ) : null}
                 <span className="ml-auto shrink-0 text-[11px] text-ink-faint">
                   {g.entries.length} {g.entries.length === 1 ? "piece" : "pieces"}
@@ -487,9 +577,10 @@ export default function ContentBankPage() {
                   <ContentCard
                     key={e.id}
                     entry={e}
-                    // The project is the heading above; the card's second line
-                    // is better spent on who the piece is waiting on.
-                    showProject={false}
+                    // Under a project heading the card's second line is better
+                    // spent on who the piece is waiting on; otherwise it names
+                    // the project.
+                    showProject={groupBy !== "project"}
                     onOpen={() => setOpenId(e.id)}
                     actions={
                       <>
