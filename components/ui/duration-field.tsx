@@ -68,39 +68,43 @@ export function DurationField({
     amount.trim() !== "" && Number.isFinite(hours) && hours > 0 && unit !== "hours";
 
   return (
-    <div className="flex items-center gap-2">
-      <Input
-        type="number"
-        min={0}
-        step={UNITS[unit].step}
-        className="w-24"
-        value={amount}
-        onChange={(e) => {
-          setAmount(e.target.value);
-          emit(e.target.value, unit);
-        }}
-        placeholder="0"
-        aria-label="Estimated effort"
-      />
-      <Select
-        className="w-auto min-w-28"
-        value={unit}
-        onChange={(e) => {
-          const next = e.target.value as Unit;
-          setUnit(next);
-          emit(amount, next);
-        }}
-        aria-label="Unit"
-      >
-        {ORDER.map((u) => (
-          <option key={u} value={u}>
-            {UNITS[u].label}
-          </option>
-        ))}
-      </Select>
-      <span className="text-[11px] whitespace-nowrap text-ink-faint">
-        {showEquivalent ? `= ${Math.round(hours * 100) / 100}h` : null}
-      </span>
+    <div className="flex min-w-0 flex-col gap-1">
+      {/* The amount takes whatever the unit leaves, so it stays readable in a
+          narrow column; the browser's spin arrows would crowd it out. */}
+      <div className="flex min-w-0 items-center gap-2">
+        <Input
+          type="number"
+          min={0}
+          step={UNITS[unit].step}
+          className="w-auto min-w-0 flex-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          value={amount}
+          onChange={(e) => {
+            setAmount(e.target.value);
+            emit(e.target.value, unit);
+          }}
+          placeholder="0"
+          aria-label="Estimated effort"
+        />
+        <Select
+          className="w-28 shrink-0"
+          value={unit}
+          onChange={(e) => {
+            const next = e.target.value as Unit;
+            setUnit(next);
+            emit(amount, next);
+          }}
+          aria-label="Unit"
+        >
+          {ORDER.map((u) => (
+            <option key={u} value={u}>
+              {UNITS[u].label}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {showEquivalent ? (
+        <span className="text-[11px] text-ink-faint">= {Math.round(hours * 100) / 100}h</span>
+      ) : null}
     </div>
   );
 }

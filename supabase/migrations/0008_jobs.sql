@@ -29,6 +29,12 @@ select cron.schedule(
   $job$ delete from notifications where read and created_at < now() - interval '90 days'; $job$
 );
 
+select cron.schedule(
+  'website-renewals-0915-ist',
+  '45 3 * * *',
+  $job$ select notify_website_renewals(); $job$
+);
+
 alter publication supabase_realtime add table notifications;
 
 notify pgrst, 'reload schema';

@@ -3,8 +3,8 @@
 --
 -- The consolidated schema for a fresh Supabase project. Run the files in this
 -- folder in order, 0001 to 0008, in the SQL editor. Together they build exactly
--- what the original 0001-0028 chain built (kept in supabase/archive/ for
--- databases created from it). New changes go in the next numbered file here.
+-- what the full chain of earlier migrations built (kept in supabase/archive/
+-- for databases created from it). New changes go in the next numbered file here.
 -- =============================================================================
 
 create extension if not exists "uuid-ossp";
@@ -49,7 +49,11 @@ create type session_end_reason as enum (
   'Auto-stopped'
 );
 
-create type output_location as enum ('Google Drive', 'WhatsApp');
+create type output_location as enum (
+  'Google Drive',
+  'WhatsApp',
+  'Content Bank'
+);
 
 create type review_decision as enum (
   'Approved',
@@ -72,7 +76,8 @@ create type notification_type as enum (
   'due_soon',
   'overdue',
   'timer_autostop',
-  'content_allotted'
+  'content_allotted',
+  'website_renewal'
 );
 
 create type party_status as enum ('active', 'inactive');
@@ -93,7 +98,9 @@ create type cb_type as enum (
   'OOH',
   'Site Branding',
   'Website Content',
-  'Brochure Content'
+  'Brochure Content',
+  'Static to Motion',
+  'Festival STM'
 );
 
 -- Everything a comment or a set of minutes can be filed against.
@@ -113,6 +120,8 @@ create type content_stage as enum (
   'Cancelled',
   'Carry Forwarded'
 );
+
+create type content_placement as enum ('SMM', 'WhatsApp Share');
 
 -- ------------------------------------------------------------- sequences ---
 

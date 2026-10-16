@@ -57,41 +57,19 @@ whole schema in its current form:
 | `0007_rls.sql` | Row Level Security on every table, and every policy |
 | `0008_jobs.sql` | `pg_cron` schedules and the Realtime publication |
 
-**A database built before the baseline existed** (the original project): do
-**not** run the baseline on it. It was built from the step-by-step history in
-[`supabase/archive`](supabase/archive) (`0001_schema.sql` …
-`0028_drop_content_review_legacy.sql`); run any of those it has not had yet, in
-order, and it ends up identical to a fresh baseline install.
+**An existing database** (built before this baseline): do **not** run the
+baseline on it. It was built from one of the step-by-step histories in
+[`supabase/archive`](supabase/archive); run any file of that history it has not
+had yet, in order, and it ends up identical to a fresh baseline install:
+
+| Folder | Built the database from | Run on it |
+| --- | --- | --- |
+| [`archive/1-original`](supabase/archive/1-original) | `0001_schema.sql` … `0028_drop_content_review_legacy.sql` | then everything in `archive/2-first-baseline` from `0009` on |
+| [`archive/2-first-baseline`](supabase/archive/2-first-baseline) | the first baseline `0001`–`0008`, then `0009_recurring_blueprints.sql` … `0029_series_title_month.sql` | any of `0009`–`0029` it has not had yet |
 
 **Changing the schema later:** add the next number in `supabase/migrations`
 (`0009_…`, `0010_…`) and run it on every database — new and old are the same
 from here on.
-
-Added since the baseline (run on every database):
-
-| File | What it does |
-| --- | --- |
-| `0009_recurring_blueprints.sql` | A repeating project is a blueprint kept on the Recurrence page; a real project — with its tasks and content tasks, named "<name> – Month Year" — is created on each date it repeats, the first included |
-| `0010_rls_performance.sql` | Faster loading: the permission checks on tasks, time logs, submissions, comments and the rest run once per request instead of once per row. Who can see what is unchanged |
-| `0011_company_nature.sql` | Companies get a *Nature of company*: Real Estate Developer, Mandate Company, Channel Partner, or Others (typed) |
-| `0012_output_content_bank.sql` | "Content Bank" becomes a submission output (run before 0013) |
-| `0013_content_schedule.sql` | Content for month on every piece; Scheduled asks for a date and Carry Forwarded for a month; a content task can only be submitted once each of its pieces has a status, with a link to every piece |
-| `0014_allotment_follows_task.sql` | Content allotted to a task follows the task when it is reassigned |
-| `0015_content_piece_types.sql` | A content task names the CB type of each of its pieces |
-| `0016_monthly_on_chosen_day.sql` | A monthly repeat can fall on any chosen day of the month |
-| `0017_template_content_tasks.sql` | Project templates can include content tasks, with the count and CB type of each piece |
-| `0018_content_journey.sql` | Each piece records when it was started, made Ready To Design, allotted and completed |
-| `0019_website_notification.sql` | Website renewal notification type (run before 0020) |
-| `0020_websites.sql` | Websites module: sites, logins, annual renewals and reminders |
-| `0021_cb_type_stm.sql` | New CB types Static to Motion and Festival STM (run before 0022) |
-| `0022_stm_reel_allotment.sql` | STM pieces are allotted twice: static design, then reel editing after it |
-| `0023_content_placement.sql` | Content placement (SMM / WhatsApp Share) on every piece |
-| `0024_content_task_sharing.sql` | Team Leaders assign unassigned content tasks; pieces can be moved onto a new content task |
-| `0025_content_lead_sees_content_tasks.sql` | Content Writers Team Leader sees every project with a content task |
-| `0026_project_clients.sql` | A project can have several clients (`projects.client_ids`) |
-| `0027_start_writing.sql` | Start Writing on content pieces; status locked until started |
-| `0028_smm_content_desk.sql` | SMM team takes content tasks; Team Leaders read the whole Content Bank |
-| `0029_series_title_month.sql` | Repeating SMM projects can be named for the upcoming month |
 
 ### 4. The first Super Admin
 
@@ -222,7 +200,7 @@ lib/
   time.ts / analytics.ts   Time maths, project stats, workload, reports
 scripts/create-admin.mjs   First Super Admin
 supabase/migrations/       Schema baseline (0001–0008) + later changes
-supabase/archive/          The original step-by-step history (0001–0028)
+supabase/archive/          Earlier step-by-step histories the baseline replaces
 ```
 
 **Security.** Row Level Security in Postgres is the real boundary: every read and

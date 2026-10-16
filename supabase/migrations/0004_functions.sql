@@ -137,7 +137,10 @@ as $function$
     or (is_team_leader() and exists (
           select 1 from tasks t
            where t.project_id = p_project_id
-             and t.department = any (my_departments())));
+             and t.department = any (my_departments())))
+    or (sees_every_content_task() and exists (
+          select 1 from tasks t
+           where t.project_id = p_project_id and t.kind = 'content'));
 $function$;
 
 create or replace function can_see_task(p_task_id uuid)
@@ -223,6 +226,10 @@ begin
   if v_owner is null or v_owner <> auth.uid() then
     raise exception 'Only the assignee can start this timer';
   end if;
+  if is_blueprint_task(p_task_id) then
+    raise exception 'This task belongs to a repeating blueprint. Work on the copy made for its date.'
+      using errcode = '22023';
+  end if;
 
   -- §11.3.1 — one timer per user.
   update time_sessions
@@ -247,7 +254,7 @@ begin
 end;
 $function$;
 
-create or replace function submit_task(p_task_id uuid, p_output output_location, p_drive_link text, p_description text)
+create or replace function submit_task(p_task_id uuid, p_output output_location, p_drive_link text, p_description text, p_links text[] default '{}'::text[])
  returns uuid
  language plpgsql
  security definer
@@ -259,6 +266,7 @@ declare
   v_reviewers  uuid[];
   v_allotter   uuid[];
   v_name       text;
+  v_unset      text;
 begin
   select * into v_task from tasks where id = p_task_id;
   -- Null-safe on purpose: an unassigned task belongs to nobody, and `<>`
@@ -267,12 +275,41 @@ begin
     raise exception 'Only the assignee can submit this task';
   end if;
 
+  if v_task.kind = 'content' then
+    -- Every piece the task asked for needs a status first; extras do not.
+    select string_agg(coalesce(nullif(btrim(title), ''), 'Piece ' || slot), ', ' order by slot)
+      into v_unset
+      from content_bank
+     where task_id = p_task_id and slot is not null and stage is null;
+    if v_unset is not null then
+      raise exception 'Give every piece a status before submitting. Still not set: %', v_unset
+        using errcode = '22023';
+    end if;
+    -- And every piece with something in it says where it goes (0023).
+    select string_agg(coalesce(nullif(btrim(title), ''), 'Piece ' || coalesce(slot::text, '')),
+                      ', ' order by slot nulls last, created_at)
+      into v_unset
+      from content_bank c
+     where c.task_id = p_task_id and c.placement is null
+       and (c.slot is not null or not content_is_empty(c));
+    if v_unset is not null then
+      raise exception 'Give every piece a content placement before submitting. Still not set: %', v_unset
+        using errcode = '22023';
+    end if;
+    if p_output <> 'Content Bank' then
+      raise exception 'A content task is submitted to the Content Bank.' using errcode = '22023';
+    end if;
+  elsif p_output = 'Content Bank' then
+    raise exception 'Only a content task is submitted to the Content Bank.' using errcode = '22023';
+  end if;
+
   update time_sessions
      set ended_at = now(), end_reason = 'Submitted'
    where task_id = p_task_id and profile_id = auth.uid() and ended_at is null;
 
-  insert into submissions (task_id, by_profile_id, output_location, drive_link, description)
-  values (p_task_id, auth.uid(), p_output, p_drive_link, p_description)
+  insert into submissions (task_id, by_profile_id, output_location, drive_link, description, links)
+  values (p_task_id, auth.uid(), p_output, p_drive_link, coalesce(p_description, ''),
+          coalesce(p_links, '{}'))
   returning id into v_submission;
 
   update tasks set status = 'Submitted' where id = p_task_id;
@@ -454,6 +491,8 @@ begin
          task_href(t.id, t.project_id)
     from tasks t
    where t.assignee_id is not null
+     and t.recurrence is null
+     and not is_blueprint_project(t.project_id)
      and t.status not in ('Approved', 'Waiting for Client Response')
      and t.due_date = current_date + 1
      and not exists (
@@ -472,6 +511,8 @@ begin
          task_href(t.id, t.project_id)
     from tasks t
    where t.assignee_id is not null
+     and t.recurrence is null
+     and not is_blueprint_project(t.project_id)
      and task_is_overdue(t.id, t.status, t.due_date)
      and not exists (
        select 1 from notifications n
@@ -513,13 +554,24 @@ create or replace function recurrence_matches(rule jsonb, anchor date, d date)
  immutable
 as $function$
 declare
-  n      integer := greatest(1, coalesce((rule ->> 'interval')::integer, 1));
-  mode   text    := coalesce(rule ->> 'monthlyMode', 'monthday');
-  months integer;
-  days   integer[];
+  n       integer := greatest(1, coalesce((rule ->> 'interval')::integer, 1));
+  mode    text    := coalesce(rule ->> 'monthlyMode', 'monthday');
+  months  integer;
+  days    integer[];
+  v_day   integer;
 begin
   if d < anchor then return false; end if;
-  if d = anchor then return true; end if;
+
+  -- The day a monthly rule was told to fall on, when it names one.
+  if rule ->> 'freq' = 'monthly' and mode = 'monthday'
+     and jsonb_typeof(rule -> 'monthDay') = 'number' then
+    v_day := floor((rule ->> 'monthDay')::numeric)::integer;
+    if v_day < 1 or v_day > 31 then
+      v_day := null;
+    end if;
+  end if;
+
+  if d = anchor and v_day is null then return true; end if;
 
   case rule ->> 'freq'
     when 'daily' then
@@ -543,6 +595,12 @@ begin
       months := (extract(year from d)::integer - extract(year from anchor)::integer) * 12
               + (extract(month from d)::integer - extract(month from anchor)::integer);
       if months % n <> 0 then return false; end if;
+      if v_day is not null then
+        return extract(day from d)::integer = least(
+          v_day,
+          extract(day from (date_trunc('month', d::timestamp) + interval '1 month - 1 day'))::integer
+        );
+      end if;
       if mode = 'monthday' then
         return extract(day from d) = extract(day from anchor);
       end if;
@@ -586,20 +644,29 @@ begin
   if new.recurrence is null then
     new.recurrence_anchor := null;
     new.recurrence_cursor := null;
-    -- Nothing left to pause once the rule is gone.
     new.recurrence_paused := false;
     return new;
   end if;
 
   new.recurrence_anchor := new.start_date;
-  -- The cursor belongs to the generator: a user edit can never rewind it and
-  -- make old occurrences come back.
-  if tg_op = 'UPDATE' and auth.uid() is not null and old.recurrence is not null then
-    new.recurrence_cursor := old.recurrence_cursor;
-  end if;
-  if new.recurrence_cursor is null then
+
+  if tg_op = 'UPDATE' and old.recurrence is not null then
+    if auth.uid() is not null then
+      new.recurrence_cursor := old.recurrence_cursor;
+    end if;
+    -- Moving the first date of a series that has produced nothing yet moves
+    -- where it starts, earlier included.
+    if new.start_date is distinct from old.start_date
+       and not exists (
+         select 1 from projects where tg_table_name = 'projects' and series_source_id = new.id
+         union all
+         select 1 from tasks where tg_table_name = 'tasks' and series_source_id = new.id) then
+      new.recurrence_cursor :=
+        case when new.start_date >= ist_today() then new.start_date - 1 else ist_today() - 1 end;
+    end if;
+  elsif auth.uid() is not null or new.recurrence_cursor is null then
     new.recurrence_cursor :=
-      case when new.start_date >= ist_today() then new.start_date else ist_today() - 1 end;
+      case when new.start_date >= ist_today() then new.start_date - 1 else ist_today() - 1 end;
   end if;
   return new;
 end;
@@ -632,11 +699,15 @@ declare
   v_new      uuid;
   v_task     uuid;
   v_name     text;
+  -- A user who saves a blueprint due today runs this themselves; the
+  -- assignment trigger then tells the assignees, so only the cron run (no
+  -- signed-in user) writes its own notifications.
+  v_notify   boolean := auth.uid() is null;
 begin
   -- ----------------------------------------------------------- projects --
   for src in
     select * from projects
-     where recurrence is not null and recurrence_cursor < v_today
+     where recurrence is not null and not recurrence_paused and recurrence_cursor < v_today
      for update
   loop
     v_type  := src.recurrence -> 'ends' ->> 'type';
@@ -651,56 +722,63 @@ begin
         v_index := v_index + 1;
         exit when v_type = 'after' and v_index > v_count;
 
-        if v_day > src.recurrence_cursor then
-          v_start := snap_to_working_day(v_day);
-          if v_start <> src.start_date and not exists (
-               select 1 from projects p
-                where p.series_source_id = src.id and p.start_date = v_start) then
-            v_shift    := v_start - src.start_date;
-            v_deadline := src.deadline + v_shift;
-            v_name     := src.name || ' · ' || to_char(v_start, 'FMDD Mon YYYY');
+        if v_day > src.recurrence_cursor and not exists (
+             select 1 from projects p
+              where p.series_source_id = src.id and p.series_date = v_day) then
+          v_start    := snap_to_working_day(v_day);
+          v_shift    := v_start - src.start_date;
+          v_deadline := greatest(src.deadline + v_shift, v_start);
+          -- An "upcoming month" blueprint names each copy for the month after (0029).
+          v_name     := occurrence_name(src.name, title_day(src.title_month, v_day));
 
-            insert into projects (
-              name, color, client_name, start_date, deadline, description, status,
-              priority, leader_id, created_by, series_source_id, series_index, series_date
+          insert into projects (
+            name, color, client_name, start_date, deadline, description, status,
+            priority, leader_id, created_by, company_id, client_id, property_id,
+            series_source_id, series_index, series_date
+          ) values (
+            v_name, src.color, src.client_name, v_start, v_deadline, src.description,
+            case when src.status in ('Completed', 'Cancelled', 'Archived')
+                 then 'Planning'::project_status else src.status end,
+            src.priority, src.leader_id, src.created_by,
+            src.company_id, src.client_id, src.property_id,
+            src.id, v_index, v_day
+          ) returning id into v_new;
+
+          insert into project_services (project_id, service)
+            select v_new, service from project_services where project_id = src.id;
+          insert into project_members (project_id, profile_id)
+            select v_new, profile_id from project_members where project_id = src.id;
+
+          -- Same tasks and assignees, fresh state, creation order kept (§9.2).
+          -- A content task keeps its kind and count; its slots are laid out
+          -- by the tasks trigger (0026).
+          for t in
+            select * from tasks where project_id = src.id order by created_at, id
+          loop
+            v_tstart := least(greatest(snap_to_working_day(t.start_date + v_shift), v_start), v_deadline);
+            v_due    := least(greatest(snap_to_working_day(t.due_date + v_shift), v_tstart), v_deadline);
+
+            insert into tasks (
+              project_id, title, description, department, assignee_id, priority,
+              start_date, due_date, estimated_hours, tags, kind, content_count,
+              content_types, created_by, created_at
             ) values (
-              v_name, src.color, src.client_name, v_start, v_deadline, src.description,
-              case when src.status in ('Completed', 'Cancelled', 'Archived')
-                   then 'Planning'::project_status else src.status end,
-              src.priority, src.leader_id, src.created_by, src.id, v_index, v_day
-            ) returning id into v_new;
+              v_new, t.title, t.description, t.department, t.assignee_id, t.priority,
+              v_tstart, v_due, t.estimated_hours, t.tags, t.kind, t.content_count,
+              t.content_types, t.created_by, clock_timestamp()
+            ) returning id into v_task;
 
-            insert into project_services (project_id, service)
-              select v_new, service from project_services where project_id = src.id;
-            insert into project_members (project_id, profile_id)
-              select v_new, profile_id from project_members where project_id = src.id;
-
-            -- Same tasks, same assignees, fresh state; creation order kept (§9.2).
-            for t in
-              select * from tasks where project_id = src.id order by created_at
-            loop
-              v_tstart := least(greatest(snap_to_working_day(t.start_date + v_shift), v_start), v_deadline);
-              v_due    := least(greatest(snap_to_working_day(t.due_date + v_shift), v_tstart), v_deadline);
-
-              insert into tasks (
-                project_id, title, description, department, assignee_id, priority,
-                start_date, due_date, estimated_hours, tags, created_by, created_at
-              ) values (
-                v_new, t.title, t.description, t.department, t.assignee_id, t.priority,
-                v_tstart, v_due, t.estimated_hours, t.tags, t.created_by, clock_timestamp()
-              ) returning id into v_task;
-
+            if v_notify and t.assignee_id is not null then
               insert into notifications (profile_id, type, title, body, href)
               values (
                 t.assignee_id, 'task_assigned', 'New task assigned',
                 '"' || t.title || '" in ' || v_name || '.',
-                '/projects/' || v_new || '?task=' || v_task
+                task_href(v_task, v_new)
               );
-              v_created := v_created + 1;
-            end loop;
+            end if;
+          end loop;
 
-            v_created := v_created + 1;
-          end if;
+          v_created := v_created + 1;
         end if;
       end if;
       v_day := v_day + 1;
@@ -712,7 +790,8 @@ begin
   -- --------------------------------------------------- individual tasks --
   for src in
     select * from tasks
-     where recurrence is not null and project_id is null and recurrence_cursor < v_today
+     where recurrence is not null and project_id is null
+       and not recurrence_paused and recurrence_cursor < v_today
      for update
   loop
     v_type  := src.recurrence -> 'ends' ->> 'type';
@@ -727,33 +806,33 @@ begin
         v_index := v_index + 1;
         exit when v_type = 'after' and v_index > v_count;
 
-        if v_day > src.recurrence_cursor then
+        if v_day > src.recurrence_cursor and not exists (
+             select 1 from tasks x
+              where x.series_source_id = src.id and x.series_date = v_day) then
           v_start := snap_to_working_day(v_day);
-          if v_start <> src.start_date and not exists (
-               select 1 from tasks x
-                where x.series_source_id = src.id and x.start_date = v_start) then
-            v_shift := v_start - src.start_date;
-            v_due   := greatest(snap_to_working_day(src.due_date + v_shift), v_start);
+          v_shift := v_start - src.start_date;
+          v_due   := greatest(snap_to_working_day(src.due_date + v_shift), v_start);
+          v_name  := occurrence_name(src.title, v_day);
 
-            insert into tasks (
-              project_id, title, description, department, assignee_id, priority,
-              start_date, due_date, estimated_hours, tags, created_by, created_at,
-              series_source_id, series_index, series_date
-            ) values (
-              null, src.title, src.description, src.department, src.assignee_id, src.priority,
-              v_start, v_due, src.estimated_hours, src.tags, src.created_by, clock_timestamp(),
-              src.id, v_index, v_day
-            ) returning id into v_task;
+          insert into tasks (
+            project_id, title, description, department, assignee_id, priority,
+            start_date, due_date, estimated_hours, tags, created_by, created_at,
+            series_source_id, series_index, series_date
+          ) values (
+            null, v_name, src.description, src.department, src.assignee_id, src.priority,
+            v_start, v_due, src.estimated_hours, src.tags, src.created_by, clock_timestamp(),
+            src.id, v_index, v_day
+          ) returning id into v_task;
 
+          if v_notify and src.assignee_id is not null then
             insert into notifications (profile_id, type, title, body, href)
             values (
               src.assignee_id, 'task_assigned', 'New task assigned',
-              '"' || src.title || '" — repeat #' || v_index || ', due '
-                || to_char(v_due, 'FMDD Mon YYYY') || '.',
-              '/individual-tasks?task=' || v_task
+              '"' || v_name || '", due ' || to_char(v_due, 'FMDD Mon YYYY') || '.',
+              task_href(v_task, null)
             );
-            v_created := v_created + 1;
           end if;
+          v_created := v_created + 1;
         end if;
       end if;
       v_day := v_day + 1;
@@ -865,6 +944,10 @@ begin
     return new;
   end if;
   if tg_op = 'UPDATE' and new.assignee_id is not distinct from old.assignee_id then
+    return new;
+  end if;
+  -- A blueprint's tasks are a plan; the assignee hears when a copy is made.
+  if new.recurrence is not null or is_blueprint_project(new.project_id) then
     return new;
   end if;
 
@@ -1118,22 +1201,35 @@ as $function$
 declare
   v_project text;
 begin
-  if auth.uid() is null or new.allotted_to is null or new.allotted_to = auth.uid() then
+  if auth.uid() is null then
     return new;
   end if;
-  if tg_op = 'UPDATE' and new.allotted_to is not distinct from old.allotted_to then
-    return new;
-  end if;
-
   select name into v_project from projects where id = new.project_id;
 
-  perform notify(
-    array[new.allotted_to],
-    'content_allotted',
-    'Content allotted to you',
-    new.type::text || ' for ' || coalesce(v_project, 'a project'),
-    '/content-bank?entry=' || new.id
-  );
+  if new.allotted_to is not null and new.allotted_to <> auth.uid()
+     and (tg_op = 'INSERT' or new.allotted_to is distinct from old.allotted_to) then
+    perform notify(
+      array[new.allotted_to],
+      'content_allotted',
+      'Content allotted to you',
+      new.type::text
+        || case when is_stm_type(new.type) then ' (static design)' else '' end
+        || ' for ' || coalesce(v_project, 'a project'),
+      '/content-bank?entry=' || new.id
+    );
+  end if;
+
+  if new.motion_allotted_to is not null and new.motion_allotted_to <> auth.uid()
+     and (tg_op = 'INSERT' or new.motion_allotted_to is distinct from old.motion_allotted_to) then
+    perform notify(
+      array[new.motion_allotted_to],
+      'content_allotted',
+      'Reel editing allotted to you',
+      new.type::text || ' for ' || coalesce(v_project, 'a project')
+        || ' - starts once the static design is done',
+      '/content-bank?entry=' || new.id
+    );
+  end if;
   return new;
 end;
 $function$;
@@ -1268,7 +1364,7 @@ as $function$
   );
 $function$;
 
-create or replace function allot_content(p_content_id uuid, p_profile_id uuid, p_task_id uuid)
+create or replace function allot_content(p_content_id uuid, p_profile_id uuid, p_task_id uuid, p_motion_profile_id uuid default null::uuid, p_motion_task_id uuid default null::uuid)
  returns void
  language plpgsql
  security definer
@@ -1276,8 +1372,11 @@ create or replace function allot_content(p_content_id uuid, p_profile_id uuid, p
 as $function$
 declare
   v_project uuid;
+  v_type    cb_type;
+  v_static  date;
+  v_reel    date;
 begin
-  select project_id into v_project from content_bank where id = p_content_id;
+  select project_id, type into v_project, v_type from content_bank where id = p_content_id;
   if v_project is null then
     raise exception 'That content no longer exists.' using errcode = 'P0002';
   end if;
@@ -1286,9 +1385,12 @@ begin
       using errcode = '42501';
   end if;
 
-  -- Taking a piece back clears both halves together.
+  -- Taking a piece back clears every part together.
   if p_profile_id is null then
-    update content_bank set allotted_to = null, allotted_task_id = null where id = p_content_id;
+    update content_bank
+       set allotted_to = null, allotted_task_id = null,
+           motion_allotted_to = null, motion_allotted_task_id = null
+     where id = p_content_id;
     return;
   end if;
 
@@ -1298,31 +1400,63 @@ begin
   if p_task_id is null then
     raise exception 'Pick or create the task this piece is for.' using errcode = '22023';
   end if;
-  if not exists (
-    select 1 from tasks
-     where id = p_task_id and project_id = v_project and assignee_id = p_profile_id
-  ) then
+  select due_date into v_static from tasks
+   where id = p_task_id and project_id = v_project and assignee_id = p_profile_id;
+  if not found then
     raise exception 'That task is not theirs on this project.' using errcode = '22023';
   end if;
 
-  -- notify_content_allotment (0014) tells the new holder.
+  if not is_stm_type(v_type) then
+    update content_bank
+       set allotted_to = p_profile_id, allotted_task_id = p_task_id,
+           motion_allotted_to = null, motion_allotted_task_id = null
+     where id = p_content_id;
+    return;
+  end if;
+
+  -- Static to Motion: the reel part is allotted in the same breath.
+  if p_motion_profile_id is null or p_motion_task_id is null then
+    raise exception 'A Static to Motion piece needs the reel editing allotted too.'
+      using errcode = '22023';
+  end if;
+  if not exists (select 1 from profiles where id = p_motion_profile_id and active) then
+    raise exception 'The reel editor is not active.' using errcode = '22023';
+  end if;
+  select start_date into v_reel from tasks
+   where id = p_motion_task_id and project_id = v_project and assignee_id = p_motion_profile_id;
+  if not found then
+    raise exception 'That reel editing task is not theirs on this project.' using errcode = '22023';
+  end if;
+  if p_motion_task_id = p_task_id then
+    raise exception 'The static design and the reel editing need a task each.' using errcode = '22023';
+  end if;
+  if v_reel < v_static then
+    raise exception 'The reel editing waits for the static design: pick a task starting on or after %.',
+      to_char(v_static, 'FMDD Mon YYYY') using errcode = '22023';
+  end if;
+
+  -- notify_content_allotment tells each new holder.
   update content_bank
-     set allotted_to = p_profile_id, allotted_task_id = p_task_id
+     set allotted_to = p_profile_id, allotted_task_id = p_task_id,
+         motion_allotted_to = p_motion_profile_id, motion_allotted_task_id = p_motion_task_id
    where id = p_content_id;
 end;
 $function$;
 
-create or replace function set_content_stage(p_content_id uuid, p_stage content_stage)
+create or replace function set_content_stage(p_content_id uuid, p_stage content_stage, p_date date default null::date)
  returns void
  language plpgsql
  security definer
  set search_path to 'public'
 as $function$
 declare
-  v_project uuid;
+  v_project  uuid;
   v_allotted uuid;
+  v_motion   uuid;
+  v_for      date;
 begin
-  select project_id, allotted_to into v_project, v_allotted
+  select project_id, allotted_to, motion_allotted_to, for_month
+    into v_project, v_allotted, v_motion, v_for
     from content_bank where id = p_content_id;
   if v_project is null then
     raise exception 'That content no longer exists.' using errcode = 'P0002';
@@ -1330,12 +1464,30 @@ begin
   if not (
     can_manage_content(p_content_id)
     or v_allotted = auth.uid()
+    or v_motion = auth.uid()
     or (can_write_content() and can_see_project(v_project))
   ) then
     raise exception 'You cannot change where this content has got to.' using errcode = '42501';
   end if;
 
-  update content_bank set stage = p_stage where id = p_content_id;
+  if p_stage = 'Scheduled' and p_date is null then
+    raise exception 'Pick the date it is scheduled for.' using errcode = '22023';
+  end if;
+  if p_stage = 'Carry Forwarded' then
+    if p_date is null then
+      raise exception 'Pick the month it is carried forward to.' using errcode = '22023';
+    end if;
+    if date_trunc('month', p_date)::date <= v_for then
+      raise exception 'Carry it forward to a month after the one it is for.' using errcode = '22023';
+    end if;
+  end if;
+
+  update content_bank
+     set stage        = p_stage,
+         scheduled_on = case when p_stage = 'Scheduled' then p_date end,
+         carry_month  = case when p_stage = 'Carry Forwarded'
+                             then date_trunc('month', p_date)::date end
+   where id = p_content_id;
 end;
 $function$;
 
@@ -1362,22 +1514,40 @@ begin
   if auth.uid() is null then
     return new;
   end if;
-  -- Deleting the allotted task blanks the link by foreign key, and whoever
-  -- deleted the task need not be someone who may allot.
-  if tg_op = 'UPDATE'
-     and new.allotted_to is not distinct from old.allotted_to
-     and new.allotted_task_id is null then
-    return new;
-  end if;
   if tg_op = 'INSERT' then
-    if (new.allotted_to is not null or new.allotted_task_id is not null)
+    if (new.allotted_to is not null or new.allotted_task_id is not null
+        or new.motion_allotted_to is not null or new.motion_allotted_task_id is not null)
        and not can_allot_content(new.project_id) then
       raise exception 'Only a manager, the Project Leader or a Team Leader can allot content.'
         using errcode = '42501';
     end if;
-  elsif (new.allotted_to is distinct from old.allotted_to
-         or new.allotted_task_id is distinct from old.allotted_task_id)
-        and not can_allot_content(new.project_id) then
+    return new;
+  end if;
+
+  -- Each part on its own: unchanged, blanked by its task being deleted, or
+  -- following its task's new assignee (0014) needs no right to allot.
+  if (
+       (new.allotted_to is not distinct from old.allotted_to
+        and new.allotted_task_id is not distinct from old.allotted_task_id)
+    or (new.allotted_to is not distinct from old.allotted_to and new.allotted_task_id is null)
+    or (new.allotted_task_id is not null
+        and new.allotted_task_id is not distinct from old.allotted_task_id
+        and new.allotted_to is not distinct from
+            (select assignee_id from tasks where id = new.allotted_task_id))
+  ) and (
+       (new.motion_allotted_to is not distinct from old.motion_allotted_to
+        and new.motion_allotted_task_id is not distinct from old.motion_allotted_task_id)
+    or (new.motion_allotted_to is not distinct from old.motion_allotted_to
+        and new.motion_allotted_task_id is null)
+    or (new.motion_allotted_task_id is not null
+        and new.motion_allotted_task_id is not distinct from old.motion_allotted_task_id
+        and new.motion_allotted_to is not distinct from
+            (select assignee_id from tasks where id = new.motion_allotted_task_id))
+  ) then
+    return new;
+  end if;
+
+  if not can_allot_content(new.project_id) then
     raise exception 'Only a manager, the Project Leader or a Team Leader can allot content.'
       using errcode = '42501';
   end if;
@@ -1422,8 +1592,8 @@ begin
     return;
   end if;
 
-  if t.kind <> 'content' then
-    -- No longer a batch: empty slots go, written ones become ordinary pieces.
+  if t.kind <> 'content' or is_blueprint_project(t.project_id) then
+    -- No slots here: empty ones go, written ones become ordinary pieces.
     delete from content_bank c
      where c.task_id = t.id and c.slot is not null and content_is_empty(c);
     update content_bank set slot = null where task_id = t.id and slot is not null;
@@ -1440,10 +1610,11 @@ begin
   for n in 1 .. t.content_count loop
     if not exists (select 1 from content_bank where task_id = t.id and slot = n) then
       insert into content_bank
-        (project_id, task_id, slot, title, type, billing_type, created_by)
+        (project_id, task_id, slot, title, type, billing_type, created_by, for_month)
       values
         (t.project_id, t.id, n, content_slot_title(t.title, n),
-         'Static Design', 'Count', t.assignee_id);
+         coalesce(t.content_types[n], 'Static Design'), 'Count', t.assignee_id,
+         content_month(t.project_id, t.start_date));
     end if;
   end loop;
 
@@ -1465,6 +1636,7 @@ begin
   if tg_op = 'UPDATE' then
     if new.kind is not distinct from old.kind
        and new.content_count is not distinct from old.content_count
+       and new.content_types is not distinct from old.content_types
        and new.assignee_id is not distinct from old.assignee_id
        and new.title is not distinct from old.title then
       return null;
@@ -1475,6 +1647,14 @@ begin
          set title = content_slot_title(new.title, slot)
        where task_id = new.id and slot is not null
          and title = content_slot_title(old.title, slot);
+    end if;
+    if new.content_types is distinct from old.content_types then
+      update content_bank c
+         set type = new.content_types[c.slot]
+       where c.task_id = new.id and c.slot is not null
+         and new.content_types[c.slot] is not null
+         and new.content_types[c.slot] is distinct from old.content_types[c.slot]
+         and c.type is distinct from new.content_types[c.slot];
     end if;
   end if;
   perform sync_content_slots(new.id);
@@ -1511,6 +1691,697 @@ begin
   end if;
   return old;
 end;
+$function$;
+
+-- ------------------------------------------------- added since the first baseline ---
+
+-- Is this project a blueprint? Copies never carry a rule, so the rule is the mark.
+create or replace function is_blueprint_project(p_project_id uuid)
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select exists (select 1 from projects where id = p_project_id and recurrence is not null);
+$function$;
+
+-- Is this task part of a blueprint - an individual one, or on a blueprint project?
+create or replace function is_blueprint_task(p_task_id uuid)
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select exists (
+    select 1 from tasks t
+     where t.id = p_task_id
+       and (t.recurrence is not null or is_blueprint_project(t.project_id))
+  );
+$function$;
+
+-- "<name> – November 2026", or the name with [Month] and [Year] filled in.
+create or replace function occurrence_name(p_name text, p_day date)
+ returns text
+ language sql
+ immutable
+as $function$
+  select case
+    when p_name ~* '\[(month|year)\]' then
+      btrim(regexp_replace(regexp_replace(p_name,
+        '\[month\]', to_char(p_day, 'FMMonth'), 'gi'),
+        '\[year\]', to_char(p_day, 'YYYY'), 'gi'))
+    else btrim(p_name) || ' – ' || to_char(p_day, 'FMMonth YYYY')
+  end;
+$function$;
+
+-- Create whatever is due now, without waiting for 00:05. The app calls this
+-- after a blueprint is saved, so one whose first date is today appears at once.
+create or replace function run_due_recurrences()
+ returns integer
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+begin
+  if not is_global_manager() then
+    raise exception 'Only Super Admin, Admin or Manager can run repeats.' using errcode = '42501';
+  end if;
+  return generate_recurring_occurrences();
+end;
+$function$;
+
+create or replace function my_project_ids()
+ returns uuid[]
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select coalesce(array_agg(distinct id), '{}') from (
+    select p.id from projects p where p.leader_id = auth.uid()
+    union
+    select t.project_id from tasks t
+     where t.assignee_id = auth.uid() and t.project_id is not null
+    union
+    select t.project_id from tasks t
+     where is_team_leader() and t.project_id is not null
+       and t.department = any (my_departments())
+    union
+    select t.project_id from tasks t
+     where sees_every_content_task() and t.project_id is not null
+       and t.kind = 'content'
+  ) visible;
+$function$;
+
+-- Tasks the caller sees without being a global manager. Mirrors can_see_task().
+create or replace function my_task_ids()
+ returns uuid[]
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select coalesce(array_agg(t.id), '{}') from tasks t
+   where t.assignee_id = auth.uid()
+      or t.created_by = auth.uid()
+      or t.project_id = any (my_project_ids());
+$function$;
+
+-- Reassigning a task moves the part allotted to it (0014), reel part included.
+create or replace function follow_task_assignee()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+begin
+  update content_bank
+     set allotted_to = new.assignee_id
+   where allotted_task_id = new.id
+     and allotted_to is distinct from new.assignee_id;
+  update content_bank
+     set motion_allotted_to = new.assignee_id
+   where motion_allotted_task_id = new.id
+     and motion_allotted_to is distinct from new.assignee_id;
+  return null;
+end;
+$function$;
+
+create or replace function stamp_content_journey()
+ returns trigger
+ language plpgsql
+ set search_path to 'public'
+as $function$
+begin
+  -- Started: Start Writing sets it; failing that, the first thing written.
+  if new.started_at is null and not content_is_empty(new) then
+    new.started_at := now();
+    new.started_by := coalesce(new.started_by, auth.uid());
+  end if;
+
+  if tg_op = 'INSERT' or new.stage is distinct from old.stage then
+    -- No stage before the writer has started.
+    if new.stage is not null and new.started_at is null then
+      raise exception 'Start writing this piece before setting its status.'
+        using errcode = 'check_violation';
+    end if;
+    -- Ready To Design: the first time only; going on from it keeps the date.
+    if new.stage = 'Ready To Design' and new.ready_at is null then
+      new.ready_at := now();
+    end if;
+    -- Completed: on reaching it; stepping back off it clears the date.
+    if new.stage in ('Design Completed', 'Scheduled') then
+      if new.completed_at is null then
+        new.completed_at := now();
+      end if;
+    elsif new.stage is null or new.stage = 'Ready To Design' then
+      new.completed_at := null;
+    end if;
+  end if;
+
+  -- Allotted: each new holder restarts it; taking the piece back clears it.
+  if new.allotted_to is null then
+    new.allotted_at := null;
+  elsif tg_op = 'INSERT' or new.allotted_to is distinct from old.allotted_to then
+    new.allotted_at := now();
+  end if;
+
+  return new;
+end;
+$function$;
+
+create or replace function is_website_dev()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select exists (
+    select 1 from profile_departments
+     where profile_id = auth.uid() and department = 'Website Developers'
+  );
+$function$;
+
+create or replace function can_view_websites()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select is_global_manager() or is_website_dev() or is_finance() or is_business_exec();
+$function$;
+
+create or replace function can_manage_websites()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select is_global_manager() or is_website_dev();
+$function$;
+
+create or replace function can_see_website_passwords()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select auth_role() in ('super_admin', 'admin') or is_website_dev();
+$function$;
+
+create or replace function can_renew_websites()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select can_manage_websites() or is_finance();
+$function$;
+
+-- First renewal: a year after the start, or the next anniversary still ahead
+-- for a site that started years ago. Changing the start date moves it, unless
+-- the same save also set the renewal date by hand.
+create or replace function websites_default_renewal()
+ returns trigger
+ language plpgsql
+ set search_path to 'public'
+as $function$
+declare
+  v date;
+begin
+  if new.start_date is not null and (
+       (tg_op = 'INSERT' and new.renewal_due is null)
+    or (tg_op = 'UPDATE' and new.start_date is distinct from old.start_date
+        and new.renewal_due is not distinct from old.renewal_due)
+  ) then
+    v := (new.start_date + interval '1 year')::date;
+    while v < ist_today() loop
+      v := (v + interval '1 year')::date;
+    end loop;
+    new.renewal_due := v;
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$function$;
+
+create or replace function reveal_website_password(p_credential_id uuid)
+ returns text
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_password text;
+begin
+  if not can_see_website_passwords() then
+    raise exception 'Only a Super Admin, Admin or Website Developer can see passwords.'
+      using errcode = '42501';
+  end if;
+  select password into v_password from website_credentials where id = p_credential_id;
+  if not found then
+    raise exception 'That login no longer exists.' using errcode = 'P0002';
+  end if;
+  insert into website_password_reveals (credential_id, profile_id)
+  values (p_credential_id, auth.uid());
+  return v_password;
+end;
+$function$;
+
+-- The renewal is done: record it and move the due date on a year.
+create or replace function mark_website_renewed(p_website_id uuid, p_amount numeric default null::numeric, p_note text default ''::text)
+ returns date
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  w     websites%rowtype;
+  v_from date;
+  v_to   date;
+begin
+  if not can_renew_websites() then
+    raise exception 'Only a manager, Website Developer or Accounts & Finance can mark a renewal.'
+      using errcode = '42501';
+  end if;
+  select * into w from websites where id = p_website_id for update;
+  if not found then
+    raise exception 'That website no longer exists.' using errcode = 'P0002';
+  end if;
+
+  v_from := coalesce(w.renewal_due, (w.start_date + interval '1 year')::date, ist_today());
+  v_to   := (v_from + interval '1 year')::date;
+
+  insert into website_renewals (website_id, period_from, period_to, amount, note)
+  values (p_website_id, v_from, v_to, p_amount, coalesce(p_note, ''));
+  update websites set renewal_due = v_to where id = p_website_id;
+  return v_to;
+end;
+$function$;
+
+create or replace function notify_website_renewals()
+ returns integer
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_count integer;
+begin
+  with due as (
+    select w.*, w.renewal_due - ist_today() as days_left
+      from websites w
+     where w.status = 'Active'
+       and w.renewal_due is not null
+       -- Only what Synovative pays for; a client renewing their own needs no chasing.
+       and (w.synovative_domain or w.synovative_hosting)
+  ),
+  picked as (
+    select * from due
+     where days_left in (30, 15, 7, 1, 0)
+        or (days_left < 0 and days_left >= -180 and (-days_left) % 7 = 0)
+  ),
+  people as (
+    select p.id from profiles p
+     where p.active
+       and (
+         p.role in ('super_admin', 'admin')
+         or exists (
+           select 1 from profile_departments pd
+            where pd.profile_id = p.id
+              and pd.department in (
+                'Website Developers', 'Accounts & Finance', 'Business Development Executives'
+              )
+         )
+       )
+  ),
+  inserted as (
+    insert into notifications (profile_id, type, title, body, href)
+    select people.id,
+           'website_renewal',
+           case
+             when s.days_left < 0 then 'Website renewal overdue'
+             when s.days_left = 0 then 'Website renewal due today'
+             when s.days_left = 1 then 'Website renewal tomorrow'
+             else 'Website renewal in ' || s.days_left || ' days'
+           end,
+           s.name || coalesce(nullif(' (' || s.url || ')', ' ()'), '') ||
+           case when s.days_left < 0 then ' was due on ' else ' renews on ' end ||
+           to_char(s.renewal_due, 'FMDD Mon YYYY') || ' - ' ||
+           case
+             when s.synovative_domain and s.synovative_hosting then 'domain and hosting'
+             when s.synovative_domain then 'domain'
+             else 'hosting'
+           end || '.',
+           '/websites?site=' || s.id
+      from picked s
+     cross join people
+     where not exists (
+       select 1 from notifications n
+        where n.profile_id = people.id
+          and n.type = 'website_renewal'
+          and n.href = '/websites?site=' || s.id
+          and n.created_at >= current_date
+     )
+    returning 1
+  )
+  select count(*) into v_count from inserted;
+  return v_count;
+end;
+$function$;
+
+create or replace function is_stm_type(p_type cb_type)
+ returns boolean
+ language sql
+ immutable
+as $function$
+  select p_type in ('Static to Motion', 'Festival STM');
+$function$;
+
+-- Writing in a piece, or clearing its placement, needs a placement. Moving a
+-- piece between tasks or changing its status does not touch this.
+create or replace function guard_content_placement()
+ returns trigger
+ language plpgsql
+ set search_path to 'public'
+as $function$
+begin
+  if new.placement is not null or content_is_empty(new) then
+    return new;
+  end if;
+  if tg_op = 'INSERT'
+     or old.placement is not null
+     or new.on_pic is distinct from old.on_pic
+     or new.caption is distinct from old.caption
+     or new.description is distinct from old.description
+     or new.reference_links is distinct from old.reference_links then
+    raise exception 'Pick the content placement: SMM or WhatsApp Share.' using errcode = '23502';
+  end if;
+  return new;
+end;
+$function$;
+
+create or replace function is_content_team_leader()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select is_team_leader() and is_content_writer();
+$function$;
+
+create or replace function in_department(p_profile_id uuid, p_department text)
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select exists (
+    select 1 from profile_departments
+     where profile_id = p_profile_id and department = p_department
+  );
+$function$;
+
+create or replace function assign_content_task(p_task_id uuid, p_profile_id uuid)
+ returns void
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  t tasks%rowtype;
+begin
+  select * into t from tasks where id = p_task_id for update;
+  if not found then
+    raise exception 'That task no longer exists.' using errcode = 'P0002';
+  end if;
+  if t.kind <> 'content' then
+    raise exception 'Only a content task is shared out this way.' using errcode = '22023';
+  end if;
+  if not is_content_team_leader() then
+    raise exception 'Only a Content Writers Team Leader can assign this.' using errcode = '42501';
+  end if;
+  if t.assignee_id is not null then
+    raise exception 'This content task is already assigned.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from profiles where id = p_profile_id and active) then
+    raise exception 'That team member is not active.' using errcode = '22023';
+  end if;
+  if not on_content_desk(p_profile_id) then
+    raise exception 'Pick someone from the Content Writers or Social Media Marketing team.'
+      using errcode = '22023';
+  end if;
+
+  -- The slots follow the assignee (tasks_sync_content_slots); they are told
+  -- by notify_task_assignment.
+  update tasks set assignee_id = p_profile_id where id = p_task_id;
+end;
+$function$;
+
+create or replace function split_content_task(p_task_id uuid, p_piece_ids uuid[], p_title text, p_assignee_id uuid, p_start_date date, p_due_date date, p_estimated_hours numeric, p_priority priority_level default 'Medium'::priority_level)
+ returns uuid
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  t        tasks%rowtype;
+  p        projects%rowtype;
+  v_new    uuid;
+  v_moved  integer;
+  v_slots  integer;
+  v_left   integer;
+begin
+  select * into t from tasks where id = p_task_id for update;
+  if not found then
+    raise exception 'That task no longer exists.' using errcode = 'P0002';
+  end if;
+  if t.kind <> 'content' or t.project_id is null then
+    raise exception 'Only a content task on a project can be split.' using errcode = '22023';
+  end if;
+  select * into p from projects where id = t.project_id;
+
+  if not (is_global_manager() or leads_project(t.project_id) or is_content_team_leader()) then
+    raise exception 'Only a manager, the Project Leader or a Content Writers Team Leader can split a content task.'
+      using errcode = '42501';
+  end if;
+  if btrim(coalesce(p_title, '')) = '' then
+    raise exception 'The new task needs a title.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from profiles where id = p_assignee_id and active) then
+    raise exception 'That team member is not active.' using errcode = '22023';
+  end if;
+  if not (is_global_manager() or leads_project(t.project_id))
+     and not on_content_desk(p_assignee_id) then
+    raise exception 'Pick someone from the Content Writers or Social Media Marketing team.'
+      using errcode = '22023';
+  end if;
+  if p_start_date is null or p_due_date is null or p_due_date < p_start_date then
+    raise exception 'The due date must be on or after the start date.' using errcode = '22023';
+  end if;
+  if p_start_date < p.start_date or p_due_date > p.deadline then
+    raise exception 'The dates must sit inside the project (% to %).',
+      to_char(p.start_date, 'FMDD Mon YYYY'), to_char(p.deadline, 'FMDD Mon YYYY')
+      using errcode = '22023';
+  end if;
+
+  select count(*), count(*) filter (where slot is not null)
+    into v_moved, v_slots
+    from content_bank
+   where id = any (p_piece_ids) and task_id = p_task_id;
+  if v_moved = 0 then
+    raise exception 'Pick the pieces to move.' using errcode = '22023';
+  end if;
+  if v_moved <> coalesce(array_length(p_piece_ids, 1), 0) then
+    raise exception 'Some of those pieces are not on this task.' using errcode = '22023';
+  end if;
+  v_left := t.content_count - v_slots;
+  if v_left < 1 then
+    raise exception 'Leave at least one piece on the original task - to hand over all of it, reassign it instead.'
+      using errcode = '22023';
+  end if;
+
+  -- The new task, empty for now: its count is set once the pieces are on it,
+  -- so no fresh empty slots get laid out.
+  insert into tasks (
+    project_id, title, description, department, assignee_id, priority,
+    start_date, due_date, estimated_hours, tags, kind, content_count, content_types
+  ) values (
+    t.project_id, btrim(p_title), '', t.department, p_assignee_id, p_priority,
+    p_start_date, p_due_date, coalesce(p_estimated_hours, 0), '{}', 'content', 0, '{}'
+  ) returning id into v_new;
+
+  -- Move the pieces. Target pieces are numbered 1.. on the new task in their
+  -- old order; extras stay extras. A name still generated from the old task
+  -- follows the new one; a name someone typed is kept.
+  with moved as (
+    select c.id,
+           c.slot,
+           row_number() over (order by c.slot) as n
+      from content_bank c
+     where c.id = any (p_piece_ids) and c.task_id = p_task_id and c.slot is not null
+  )
+  update content_bank c
+     set task_id = v_new,
+         slot    = m.n,
+         title   = case when c.title = content_slot_title(t.title, m.slot)
+                        then content_slot_title(btrim(p_title), m.n::integer)
+                        else c.title end
+    from moved m
+   where c.id = m.id;
+  update content_bank
+     set task_id = v_new
+   where id = any (p_piece_ids) and task_id = p_task_id and slot is null;
+
+  -- Close the gaps on the original: renumber what is left 1..n, renaming the
+  -- generated names to match. Shifted out of the way first so the unique
+  -- (task, slot) index never sees two pieces on one number.
+  update content_bank set slot = slot + 100000 where task_id = p_task_id and slot is not null;
+  with kept as (
+    select id, slot - 100000 as old_slot, row_number() over (order by slot) as n
+      from content_bank where task_id = p_task_id and slot is not null
+  )
+  update content_bank c
+     set slot  = k.n,
+         title = case when c.title = content_slot_title(t.title, k.old_slot::integer)
+                      then content_slot_title(t.title, k.n::integer)
+                      else c.title end
+    from kept k
+   where c.id = k.id;
+
+  -- Counts and per-piece types now match what each task actually holds.
+  update tasks
+     set content_count = v_left,
+         content_types = coalesce((
+           select array_agg(type order by slot) from content_bank
+            where task_id = p_task_id and slot is not null), '{}')
+   where id = p_task_id;
+  update tasks
+     set content_count = v_slots,
+         content_types = coalesce((
+           select array_agg(type order by slot) from content_bank
+            where task_id = v_new and slot is not null), '{}')
+   where id = v_new;
+
+  return v_new;
+end;
+$function$;
+
+create or replace function sync_project_clients()
+ returns trigger
+ language plpgsql
+ set search_path to 'public'
+as $function$
+begin
+  if tg_op = 'INSERT' then
+    if cardinality(new.client_ids) = 0 and new.series_source_id is not null then
+      -- A recurring copy takes its blueprint's contacts.
+      select p.client_ids into new.client_ids from projects p where p.id = new.series_source_id;
+      new.client_ids := coalesce(new.client_ids, '{}');
+    end if;
+    if cardinality(new.client_ids) = 0 and new.client_id is not null then
+      new.client_ids := array[new.client_id];
+    end if;
+    new.client_id := new.client_ids[1];
+    return new;
+  end if;
+
+  if new.client_ids is distinct from old.client_ids then
+    new.client_id := new.client_ids[1];
+  elsif new.client_id is distinct from old.client_id then
+    if new.client_id is null then
+      -- The first contact was removed (or deleted); the next one steps up.
+      new.client_ids := array_remove(old.client_ids, old.client_id);
+      new.client_id := new.client_ids[1];
+    else
+      -- Something that only knows client_id (an OBC edit) set it outright.
+      new.client_ids := array[new.client_id];
+    end if;
+  end if;
+  return new;
+end;
+$function$;
+
+-- A deleted contact leaves every project it was on, not only those where it
+-- was first (the foreign key only covers client_id).
+create or replace function drop_deleted_client_from_projects()
+ returns trigger
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+begin
+  update projects set client_ids = array_remove(client_ids, old.id)
+   where old.id = any (client_ids);
+  return old;
+end;
+$function$;
+
+create or replace function start_content_piece(p_content_id uuid)
+ returns void
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  v_assignee uuid;
+begin
+  select t.assignee_id into v_assignee
+    from content_bank c join tasks t on t.id = c.task_id
+   where c.id = p_content_id;
+  if not found then
+    raise exception 'This piece is not on a content task.';
+  end if;
+  if v_assignee is distinct from auth.uid() then
+    raise exception 'Only the writer the task is assigned to can start this piece.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  update content_bank
+     set started_at = coalesce(started_at, now()),
+         started_by = coalesce(started_by, auth.uid())
+   where id = p_content_id;
+end;
+$function$;
+
+create or replace function on_content_desk(p_profile_id uuid)
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select in_department(p_profile_id, 'Content Writers / Copywriters / Brand Strategists')
+      or in_department(p_profile_id, 'Social Media Marketing');
+$function$;
+
+create or replace function sees_every_content_task()
+ returns boolean
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select is_team_leader() and on_content_desk(auth.uid());
+$function$;
+
+create or replace function title_day(p_title_month text, p_day date)
+ returns date
+ language sql
+ immutable
+as $function$
+  select case when p_title_month = 'upcoming'
+              then (p_day + interval '1 month')::date
+              else p_day end;
+$function$;
+
+create or replace function content_month(p_project_id uuid, p_day date)
+ returns date
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  select date_trunc('month', title_day(
+           coalesce((select s.title_month from projects p
+                       join projects s on s.id = p.series_source_id
+                      where p.id = p_project_id), 'current'),
+           p_day))::date;
 $function$;
 
 set check_function_bodies = on;

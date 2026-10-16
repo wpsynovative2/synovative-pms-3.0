@@ -43,9 +43,20 @@ create trigger obc_services_relax_status after insert or delete or update on obc
 
 create trigger content_bank_guard_allotment before insert or update on content_bank for each row execute function guard_content_allotment();
 
-create trigger tasks_content_slots after insert or update of kind, content_count, assignee_id, title on tasks for each row execute function tasks_sync_content_slots();
+create trigger tasks_content_slots after insert or update of kind, content_count, content_types, assignee_id, title on tasks for each row execute function tasks_sync_content_slots();
 
 create trigger tasks_drop_content_slots before delete on tasks for each row execute function tasks_drop_empty_slots();
 
 create trigger content_bank_guard_slot_delete before delete on content_bank for each row execute function guard_content_slot_delete();
 
+create trigger tasks_follow_assignee after update of assignee_id on tasks for each row when ((new.assignee_id is distinct from old.assignee_id)) execute function follow_task_assignee();
+
+create trigger content_bank_journey before insert or update on content_bank for each row execute function stamp_content_journey();
+
+create trigger websites_renewal_default before insert or update on websites for each row execute function websites_default_renewal();
+
+create trigger content_bank_guard_placement before insert or update on content_bank for each row execute function guard_content_placement();
+
+create trigger projects_sync_clients before insert or update of client_id, client_ids on projects for each row execute function sync_project_clients();
+
+create trigger clients_leave_projects after delete on clients for each row execute function drop_deleted_client_from_projects();

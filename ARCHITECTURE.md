@@ -106,7 +106,7 @@ lib/
   supabase/             browser / server / service-role clients, route auth
   google/, zoho/, uploads.ts, theme.ts
 supabase/migrations/    numbered, run in order — the real schema and security
-supabase/archive/       the original step-by-step migrations the baseline replaces
+supabase/archive/       earlier step-by-step migrations the baseline replaces
 scripts/create-admin.mjs
 proxy.ts                session refresh + routing (Next 16 "middleware")
 ```
@@ -391,21 +391,15 @@ allottee gets a notification and can read the piece. `task_id` is still the
 ## 8. The database
 
 `supabase/migrations/` starts with a **baseline** (`0001`–`0008`): the whole
-schema as it stands, grouped by kind rather than by history. It was generated
-from the final state of the original 28-step chain, now in `supabase/archive/`,
-and checked object by object (tables, columns, constraints, indexes, functions,
-triggers, policies, views, jobs, seed data) to build an identical database.
+schema as it stands, grouped by kind rather than by history. It has been
+rebuilt twice, each time from the final state of the chain before it and checked
+object by object (tables, columns, constraints, indexes, functions, triggers,
+policies, grants, views, jobs, seed data) to build an identical database:
 
-| File | What it holds |
+| Archive | What it is |
 | --- | --- |
-| `0001_types.sql` | Extensions (`uuid-ossp`, `pg_cron`), every enum, the OBC code sequence, `ist_today()` |
-| `0002_tables.sql` | Every table with its keys, checks, indexes and comments; foreign keys at the end |
-| `0003_seed.sql` | Master data: departments and services |
-| `0004_functions.sql` | Permission predicates, workflow functions (timer, submit, review, allot, stage, slots), trigger functions |
-| `0005_views.sql` | Aggregate views |
-| `0006_triggers.sql` | Notification and invariant triggers |
-| `0007_rls.sql` | Row Level Security on every table, and every policy |
-| `0008_jobs.sql` | `pg_cron` schedules and the Realtime publication |
+| `supabase/archive/1-original/` | The original 28-step chain, `0001_schema` … `0028_drop_content_review_legacy` |
+| `supabase/archive/2-first-baseline/` | The first baseline (`0001`–`0008`, made from the chain above) and the changes run on top of it, `0009_recurring_blueprints` … `0029_series_title_month` |
 
 From here the folder is **append-only**: never edit a shipped file — add
 `0009_…` and onwards, and run it on every database. Two practical reasons:
@@ -413,7 +407,7 @@ deployed databases have already run the old file, and Postgres cannot use a new
 enum value in the same transaction that adds it, so an `alter type … add value`
 needs a file of its own before anything uses the value.
 
-Since the baseline:
+Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
 | File | What it changes |
 | --- | --- |
@@ -439,11 +433,13 @@ Since the baseline:
 | `0028_smm_content_desk.sql` | `on_content_desk` (Content Writers or Social Media Marketing): content tasks can be assigned or split to either team; `sees_every_content_task` - both desks' Team Leaders see every project with a content task; every Team Leader reads the whole Content Bank, and the name row of any project with content (`projects_read`), but not its tasks. Mirrors `onContentDesk` / `seesEveryContentTask` / `canViewContentEntry` |
 | `0029_series_title_month.sql` | `projects.title_month` ('current' / 'upcoming'): a blueprint's copies are named for the month they are made in or the next (`title_day`; December -> January of the next year), and their content slots are filed for that month (`content_month`). `generate_recurring_occurrences` and `sync_content_slots` as 0015 otherwise. Mirrors `Project.titleMonth` |
 
-`supabase/archive/` is history, not a second schema: it is what the original
-database was built from, one step at a time. Code comments that cite a number
-(`0022`, `0025`, `0026` …) refer to those files, where the reasoning for each
-change is written out. A database built from the archive needs every archive
-file up to `0028`; after that it takes the same new files as a fresh one.
+`supabase/archive/` is history, not a second schema: it is what earlier
+databases were built from, one step at a time, with the reasoning for each
+change written out. Code comments that cite a migration number refer to those
+files - `0009`–`0029` (and the content and permission numbers from `0013` on)
+to `2-first-baseline/`, older ones to `1-original/`. A database built from an
+archive needs every file of its chain; after that it takes the same new files
+as a fresh one.
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

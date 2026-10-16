@@ -63,9 +63,12 @@ create table projects (
   client_id         uuid,
   property_id       uuid,
   obc_id            uuid,
+  client_ids        uuid[]         not null default '{}',
+  title_month       text           not null default 'current',
   constraint projects_pkey primary key (id),
   constraint project_dates_ordered check ((deadline >= start_date)),
-  constraint project_recurrence_complete check (((recurrence is null) or ((recurrence_anchor is not null) and (recurrence_cursor is not null))))
+  constraint project_recurrence_complete check (((recurrence is null) or ((recurrence_anchor is not null) and (recurrence_cursor is not null)))),
+  constraint projects_title_month_check check ((title_month = any (array['current'::text, 'upcoming'::text])))
 );
 create index projects_company_idx on projects (company_id);
 create index projects_leader_id_idx on projects (leader_id);
@@ -111,6 +114,7 @@ create table tasks (
   recurrence_paused boolean        not null default false,
   kind              text           not null default 'standard',
   content_count     integer        not null default 0,
+  content_types     cb_type[]      not null default '{}',
   constraint tasks_pkey primary key (id),
   constraint task_dates_ordered check ((due_date >= start_date)),
   constraint task_recurrence_complete check (((recurrence is null) or ((recurrence_anchor is not null) and (recurrence_cursor is not null)))),
@@ -120,6 +124,7 @@ create table tasks (
   constraint tasks_kind_check check ((kind = any (array['standard'::text, 'content'::text])))
 );
 create index tasks_assignee_id_idx on tasks (assignee_id);
+create index tasks_created_by_idx on tasks (created_by);
 create index tasks_department_idx on tasks (department);
 create index tasks_due_date_idx on tasks (due_date);
 create index tasks_project_assignee_idx on tasks (project_id, assignee_id);
@@ -133,6 +138,8 @@ comment on column tasks.kind is
   'standard = one piece of work; content = a batch of Content Bank pieces. Both are submitted and reviewed as a task.';
 comment on column tasks.content_count is
   'Content tasks: how many pieces were asked for. A target, not a ceiling.';
+comment on column tasks.content_types is
+  'Content tasks: the CB type of each target piece, by slot (content_types[1] is Count 1). A missing entry means Static Design.';
 
 -- §11.3.5 — only start/stop timestamps are stored; elapsed time is computed.
 create table time_sessions (
@@ -158,10 +165,13 @@ create table submissions (
   output_location output_location not null,
   drive_link      text,
   description     text            not null default '',
+  links           text[]          not null default '{}',
   constraint submissions_pkey primary key (id),
   constraint drive_needs_link check (((output_location <> 'Google Drive'::output_location) or ((drive_link is not null) and (drive_link <> ''::text))))
 );
 create index submissions_task_id_idx on submissions (task_id);
+comment on column submissions.links is
+  'For a Content Bank submission: a link to every piece on the task.';
 
 create table reviews (
   id              uuid            not null default uuid_generate_v4(),
@@ -254,7 +264,12 @@ create table project_template_tasks (
   tags              text[]         not null default '{}',
   start_offset_days integer        not null default 0,
   duration_days     integer        not null default 3,
-  constraint project_template_tasks_pkey primary key (id)
+  kind              text           not null default 'standard',
+  content_count     integer        not null default 0,
+  content_types     cb_type[]      not null default '{}',
+  constraint project_template_tasks_pkey primary key (id),
+  constraint project_template_tasks_content_count_check check ((content_count >= 0)),
+  constraint project_template_tasks_kind_check check ((kind = any (array['standard'::text, 'content'::text])))
 );
 create index project_template_tasks_template_id_position_idx on project_template_tasks (template_id, "position");
 
@@ -269,7 +284,12 @@ create table task_templates (
   tags              text[]         not null default '{}',
   created_at        timestamptz    not null default now(),
   start_offset_days integer        not null default 0,
-  constraint task_templates_pkey primary key (id)
+  kind              text           not null default 'standard',
+  content_count     integer        not null default 0,
+  content_types     cb_type[]      not null default '{}',
+  constraint task_templates_pkey primary key (id),
+  constraint task_templates_content_count_check check ((content_count >= 0)),
+  constraint task_templates_kind_check check ((kind = any (array['standard'::text, 'content'::text])))
 );
 
 create table holidays (
@@ -341,10 +361,13 @@ create table companies (
   created_by       uuid         default auth.uid(),
   created_at       timestamptz  not null default now(),
   updated_at       timestamptz  not null default now(),
+  nature           text         not null default '',
   constraint companies_pkey primary key (id),
   constraint companies_name_check check (((length(btrim(name)) >= 1) and (length(btrim(name)) <= 160)))
 );
 create unique index companies_name_unique on companies (lower(btrim(name)));
+comment on column companies.nature is
+  'Real Estate Developer, Mandate Company, Channel Partner, or a typed name under Others. Empty when not set.';
 
 create table clients (
   id          uuid         not null default uuid_generate_v4(),
@@ -455,28 +478,42 @@ create index obc_items_obc_idx on obc_items (obc_id, "position");
 -- project, and usually against the specific task they were given. A single
 -- task can carry several entries, which is why the link points this way.
 create table content_bank (
-  id               uuid          not null default uuid_generate_v4(),
-  project_id       uuid          not null,
-  task_id          uuid,
-  entry_date       date          not null default ist_today(),
-  type             cb_type       not null,
-  on_pic           text          not null default '',
-  caption          text          not null default '',
-  description      text          not null default '',
-  reference_links  text[]        not null default '{}',
-  billing_type     cb_billing    not null default 'Count',
-  allotted_to      uuid,
-  created_by       uuid          default auth.uid(),
-  created_at       timestamptz   not null default now(),
-  updated_at       timestamptz   not null default now(),
-  stage            content_stage,
-  allotted_task_id uuid,
-  title            text          not null default '',
-  slot             integer,
+  id                      uuid              not null default uuid_generate_v4(),
+  project_id              uuid              not null,
+  task_id                 uuid,
+  entry_date              date              not null default ist_today(),
+  type                    cb_type           not null,
+  on_pic                  text              not null default '',
+  caption                 text              not null default '',
+  description             text              not null default '',
+  reference_links         text[]            not null default '{}',
+  billing_type            cb_billing        not null default 'Count',
+  allotted_to             uuid,
+  created_by              uuid              default auth.uid(),
+  created_at              timestamptz       not null default now(),
+  updated_at              timestamptz       not null default now(),
+  stage                   content_stage,
+  allotted_task_id        uuid,
+  title                   text              not null default '',
+  slot                    integer,
+  for_month               date              not null default date_trunc('month', ist_today())::date,
+  scheduled_on            date,
+  carry_month             date,
+  started_at              timestamptz,
+  ready_at                timestamptz,
+  allotted_at             timestamptz,
+  completed_at            timestamptz,
+  motion_allotted_to      uuid,
+  motion_allotted_task_id uuid,
+  placement               content_placement,
+  started_by              uuid,
   constraint content_bank_pkey primary key (id),
+  constraint content_bank_months_are_months check (((extract(day from for_month) = (1)::numeric) and ((carry_month is null) or (extract(day from carry_month) = (1)::numeric)))),
   constraint content_bank_slot_check check (((slot is null) or (slot >= 1)))
 );
 create index content_bank_allotted_task_idx on content_bank (allotted_task_id);
+create index content_bank_for_month_idx on content_bank (for_month);
+create index content_bank_motion_task_idx on content_bank (motion_allotted_task_id);
 create index content_bank_project_idx on content_bank (project_id, created_at desc);
 create index content_bank_task_idx on content_bank (task_id);
 create unique index content_bank_task_slot_unique on content_bank (task_id, slot) where (slot is not null);
@@ -490,6 +527,28 @@ comment on column content_bank.title is
   'The piece''s name. Slots are named "<task> Count <n>"; the writer may rename them.';
 comment on column content_bank.slot is
   'Which of the content task''s target pieces this is (1..content_count). Null for extras and library pieces.';
+comment on column content_bank.for_month is
+  'The month this piece is for (first day of the month).';
+comment on column content_bank.scheduled_on is
+  'Set with the Scheduled stage: the day the piece goes out.';
+comment on column content_bank.carry_month is
+  'Set with the Carry Forwarded stage: the month it moves to (first day), after for_month.';
+comment on column content_bank.started_at is
+  'When the piece was started: Start Writing, or the first thing written in it.';
+comment on column content_bank.ready_at is
+  'When the piece was first marked Ready To Design.';
+comment on column content_bank.allotted_at is
+  'When the piece was put in its current holder''s name. Null while unallotted.';
+comment on column content_bank.completed_at is
+  'When the design was done: the stage became Design Completed or Scheduled. Cleared if it goes back.';
+comment on column content_bank.motion_allotted_to is
+  'Static to Motion pieces only: who edits the static into a reel. Set by allot_content().';
+comment on column content_bank.motion_allotted_task_id is
+  'Static to Motion pieces only: the reel editor''s task. Starts no earlier than the static task is due.';
+comment on column content_bank.placement is
+  'Where the piece will be used: SMM or WhatsApp Share. Required once anything is written in it.';
+comment on column content_bank.started_by is
+  'Who started the piece: its writer pressing Start Writing, or whoever first wrote in it.';
 
 -- Quick internal thread. Plain text, so an @mention is just text we highlight.
 create table comments (
@@ -549,6 +608,77 @@ create table property_clients (
   constraint property_clients_pkey primary key (property_id, client_id)
 );
 create index property_clients_client_idx on property_clients (client_id);
+
+create table websites (
+  id                 uuid          not null default uuid_generate_v4(),
+  name               text          not null,
+  url                text          not null default '',
+  company_id         uuid,
+  client_id          uuid,
+  project_id         uuid,
+  built_with         text          not null default 'WordPress',
+  hosting_plan       text          not null default '',
+  synovative_domain  boolean       not null default false,
+  synovative_hosting boolean       not null default true,
+  status             text          not null default 'Active',
+  start_date         date,
+  renewal_due        date,
+  renewal_fee        numeric(12,2) not null default 0,
+  client_email       text          not null default '',
+  notes              text          not null default '',
+  created_by         uuid          default auth.uid(),
+  created_at         timestamptz   not null default now(),
+  updated_at         timestamptz   not null default now(),
+  constraint websites_pkey primary key (id),
+  constraint websites_built_with_check check ((built_with = any (array['WordPress'::text, 'Plain code'::text, 'Other'::text]))),
+  constraint websites_renewal_fee_check check ((renewal_fee >= (0)::numeric)),
+  constraint websites_status_check check ((status = any (array['Active'::text, 'Off-boarded'::text])))
+);
+create index websites_company_idx on websites (company_id);
+create index websites_renewal_idx on websites (renewal_due) where (status = 'Active'::text);
+comment on column websites.renewal_due is
+  'Next annual renewal. Defaults to start_date + 1 year, rolled on to the next anniversary not yet past; mark_website_renewed() moves it on a year.';
+comment on column websites.client_email is
+  'Where the client renewal email goes when no client contact is linked, or to override theirs.';
+
+create table website_credentials (
+  id         uuid        not null default uuid_generate_v4(),
+  website_id uuid        not null,
+  label      text        not null,
+  login_url  text        not null default '',
+  username   text        not null default '',
+  password   text        not null default '',
+  recovery   text        not null default '',
+  notes      text        not null default '',
+  position   integer     not null default 0,
+  created_at timestamptz not null default now(),
+  constraint website_credentials_pkey primary key (id)
+);
+create index website_credentials_site_idx on website_credentials (website_id, "position");
+comment on column website_credentials.password is
+  'Not selectable by app users (column privilege). Read through reveal_website_password(), which logs each read.';
+
+create table website_renewals (
+  id          uuid          not null default uuid_generate_v4(),
+  website_id  uuid          not null,
+  renewed_on  date          not null default ist_today(),
+  period_from date          not null,
+  period_to   date          not null,
+  amount      numeric(12,2),
+  note        text          not null default '',
+  created_by  uuid          default auth.uid(),
+  created_at  timestamptz   not null default now(),
+  constraint website_renewals_pkey primary key (id)
+);
+create index website_renewals_site_idx on website_renewals (website_id, renewed_on desc);
+
+create table website_password_reveals (
+  id            uuid        not null default uuid_generate_v4(),
+  credential_id uuid        not null,
+  profile_id    uuid,
+  revealed_at   timestamptz not null default now(),
+  constraint website_password_reveals_pkey primary key (id)
+);
 
 -- ---------------------------------------------------------- foreign keys ---
 
@@ -694,3 +824,27 @@ alter table property_clients add constraint property_clients_client_id_fkey
   foreign key (client_id) references clients(id) on delete cascade;
 alter table property_clients add constraint property_clients_property_id_fkey
   foreign key (property_id) references properties(id) on delete cascade;
+alter table content_bank add constraint content_bank_motion_allotted_task_id_fkey
+  foreign key (motion_allotted_task_id) references tasks(id) on delete set null;
+alter table content_bank add constraint content_bank_motion_allotted_to_fkey
+  foreign key (motion_allotted_to) references profiles(id) on delete set null;
+alter table content_bank add constraint content_bank_started_by_fkey
+  foreign key (started_by) references profiles(id) on delete set null;
+alter table websites add constraint websites_client_id_fkey
+  foreign key (client_id) references clients(id) on delete set null;
+alter table websites add constraint websites_company_id_fkey
+  foreign key (company_id) references companies(id) on delete set null;
+alter table websites add constraint websites_created_by_fkey
+  foreign key (created_by) references profiles(id) on delete set null;
+alter table websites add constraint websites_project_id_fkey
+  foreign key (project_id) references projects(id) on delete set null;
+alter table website_credentials add constraint website_credentials_website_id_fkey
+  foreign key (website_id) references websites(id) on delete cascade;
+alter table website_renewals add constraint website_renewals_created_by_fkey
+  foreign key (created_by) references profiles(id) on delete set null;
+alter table website_renewals add constraint website_renewals_website_id_fkey
+  foreign key (website_id) references websites(id) on delete cascade;
+alter table website_password_reveals add constraint website_password_reveals_credential_id_fkey
+  foreign key (credential_id) references website_credentials(id) on delete cascade;
+alter table website_password_reveals add constraint website_password_reveals_profile_id_fkey
+  foreign key (profile_id) references profiles(id) on delete set null;

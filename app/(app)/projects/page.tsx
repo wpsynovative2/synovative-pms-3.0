@@ -121,7 +121,17 @@ export default function ProjectsPage() {
     [scoped],
   );
 
-  /** Everything a project can be found by: its name and its whole CRM chain. */
+  // Tags live on tasks; a project is found by any of its tasks' tags.
+  const tagsByProject = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const t of db.tasks) {
+      if (!t.projectId || t.tags.length === 0) continue;
+      map.set(t.projectId, [...(map.get(t.projectId) ?? []), ...t.tags]);
+    }
+    return map;
+  }, [db.tasks]);
+
+  /** Everything a project can be found by: its name, its CRM chain and its tasks' tags. */
   const searchText = useCallback(
     (p: Project) =>
       [
@@ -130,11 +140,12 @@ export default function ProjectsPage() {
         companyById(p.companyId)?.name,
         propertyById(p.propertyId)?.name,
         ...p.clientIds.map((id) => clientById(id)?.fullName),
+        ...(tagsByProject.get(p.id) ?? []),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase(),
-    [companyById, propertyById, clientById],
+    [companyById, propertyById, clientById, tagsByProject],
   );
 
   const filtered = useMemo(() => {
@@ -194,7 +205,7 @@ export default function ProjectsPage() {
       <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
         <SearchInput
           className="min-w-52 flex-1"
-          placeholder="Search projects, companies, properties or clients…"
+          placeholder="Search projects, companies, properties, clients or tags…"
           value={filters.query}
           onChange={(e) => set("query", e.target.value)}
         />
