@@ -122,6 +122,12 @@ async function fetchAll(sb: SupabaseClient, table: string, ...orders: string[]):
 }
 
 /** fetchAll for a table whose rows cannot be read whole (a password column). */
+/** Every readable column of companies / clients - all but the phone numbers (0009). */
+const COMPANY_READ_COLUMNS =
+  "id, name, legal_name, gstin, pan, rera_promoter_id, address, city, website, email, logo_url, account_owner_id, status, created_by, created_at, updated_at, nature";
+const CLIENT_READ_COLUMNS =
+  "id, company_id, full_name, designation, email, role, status, created_by, created_at, updated_at";
+
 async function fetchColumns(
   sb: SupabaseClient,
   table: string,
@@ -500,8 +506,9 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     itemRows,
     serviceRows,
   ] = await Promise.all([
-    fetchAll(sb, "companies", "name", "id"),
-    fetchAll(sb, "clients", "full_name", "id"),
+    // Phone numbers are not selectable (0009); they come from crm_phone_numbers().
+    fetchColumns(sb, "companies", COMPANY_READ_COLUMNS, "name", "id"),
+    fetchColumns(sb, "clients", CLIENT_READ_COLUMNS, "full_name", "id"),
     fetchAll(sb, "properties", "name", "id"),
     fetchAll(sb, "property_configs", "property_id", "position", "id"),
     fetchAll(sb, "property_drive_folders", "property_id", "name"),
@@ -515,6 +522,15 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     fetchAll(sb, "obc_services", "obc_id", "position", "id"),
   ]);
 
+  // Only Super Admin, Admin and Managers get rows back; everyone else sees none.
+  const phones = new Map<string, { phone: string; whatsapp: string }>();
+  {
+    const { data } = await sb.rpc("crm_phone_numbers");
+    for (const r of (data ?? []) as { kind: string; id: string; phone: string; whatsapp: string }[]) {
+      phones.set(`${r.kind}:${r.id}`, { phone: r.phone ?? "", whatsapp: r.whatsapp ?? "" });
+    }
+  }
+
   const companies: Company[] = companyRows.map((r) => ({
     id: str(r.id),
     name: str(r.name),
@@ -526,7 +542,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     address: str(r.address),
     city: str(r.city),
     website: str(r.website),
-    phone: str(r.phone),
+    phone: phones.get(`company:${str(r.id)}`)?.phone ?? "",
     email: str(r.email),
     logoUrl: str(r.logo_url),
     accountOwnerId: nullable(r.account_owner_id),
@@ -540,8 +556,8 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     companyId: str(r.company_id),
     fullName: str(r.full_name),
     designation: str(r.designation),
-    mobile: str(r.mobile),
-    whatsapp: str(r.whatsapp),
+    mobile: phones.get(`client:${str(r.id)}`)?.phone ?? "",
+    whatsapp: phones.get(`client:${str(r.id)}`)?.whatsapp ?? "",
     email: str(r.email),
     role: (r.role as Client["role"]) ?? null,
     status: r.status as Client["status"],

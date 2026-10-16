@@ -30,7 +30,12 @@ import {
 } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
-import { canDeleteCrm, canManageCrm, canViewClientsModule } from "@/lib/permissions";
+import {
+  canDeleteCrm,
+  canManageCrm,
+  canSeeCrmPhones,
+  canViewClientsModule,
+} from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type CompanyInput } from "@/lib/store";
 import { COMPANY_NATURES, type Company, type PartyStatus } from "@/lib/types";
@@ -187,7 +192,7 @@ export default function CompaniesPage() {
                 <Row label="Legal name" value={c.legalName} />
                 <Row label="GSTIN" value={c.gstin} mono />
                 <Row label="RERA" value={c.reraPromoterId} mono />
-                <Row label="Phone" value={c.phone} />
+                {canSeeCrmPhones(user) ? <Row label="Phone" value={c.phone} /> : null}
               </dl>
 
               <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
@@ -260,6 +265,7 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
   const { db, userById, currentUser } = useStore();
   // Names are fine to show; the contact book itself is for managers.
   const mayOpenClients = canViewClientsModule(currentUser!);
+  const mayPhones = canSeeCrmPhones(currentUser!);
   const [pane, setPane] = useState<Pane>("details");
 
   const clients = db.clients.filter((c) => c.companyId === company.id);
@@ -299,7 +305,7 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
                 <Fact label="GSTIN" value={company.gstin} />
                 <Fact label="PAN" value={company.pan} />
                 <Fact label="RERA promoter ID" value={company.reraPromoterId} />
-                <Fact label="Phone" value={company.phone} />
+                {mayPhones ? <Fact label="Phone" value={company.phone} /> : null}
                 <Fact label="Email" value={company.email} />
                 <Fact label="City" value={company.city} />
                 <Fact
@@ -423,7 +429,9 @@ function CompanyFormModal({
   company: Company | null;
   onClose: () => void;
 }) {
-  const { db, createCompany, updateCompany } = useStore();
+  const { db, currentUser, createCompany, updateCompany } = useStore();
+  // Someone who cannot see the number must not be able to wipe it either.
+  const mayPhones = canSeeCrmPhones(currentUser!);
   const [form, setForm] = useState<CompanyInput>({
     name: company?.name ?? "",
     nature: company?.nature ?? "",
@@ -478,8 +486,10 @@ function CompanyFormModal({
                 name: form.name.trim(),
                 nature: form.nature.trim(),
               };
-              if (company) updateCompany(company.id, payload);
-              else createCompany(payload);
+              if (company) {
+                const { phone, ...rest } = payload;
+                updateCompany(company.id, mayPhones ? { ...rest, phone } : rest);
+              } else createCompany(payload);
               onClose();
             }}
           >
@@ -607,13 +617,15 @@ function CompanyFormModal({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Primary phone">
-            <Input
-              value={form.phone}
-              onChange={(e) => set("phone", e.target.value)}
-              placeholder="+91 98200 00000"
-            />
-          </Field>
+          {mayPhones ? (
+            <Field label="Primary phone">
+              <Input
+                value={form.phone}
+                onChange={(e) => set("phone", e.target.value)}
+                placeholder="+91 98200 00000"
+              />
+            </Field>
+          ) : null}
           <Field label="Primary email">
             <Input
               type="email"

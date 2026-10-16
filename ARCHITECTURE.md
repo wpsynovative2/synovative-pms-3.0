@@ -407,6 +407,12 @@ deployed databases have already run the old file, and Postgres cannot use a new
 enum value in the same transaction that adds it, so an `alter type … add value`
 needs a file of its own before anything uses the value.
 
+Since the current baseline:
+
+| File | What it changes |
+| --- | --- |
+| `0009_crm_phone_privacy.sql` | `companies.phone`, `clients.mobile` and `clients.whatsapp` are left out of the column-level `select` grant; `crm_phone_numbers()` returns them to global managers only. Any new column on `companies` / `clients` must be added to that grant (and to `COMPANY_READ_COLUMNS` / `CLIENT_READ_COLUMNS` in `lib/data/db.ts`) or nobody can read it. Mirrors `canSeeCrmPhones` |
+
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
 | File | What it changes |

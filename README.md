@@ -71,6 +71,12 @@ had yet, in order, and it ends up identical to a fresh baseline install:
 (`0009_…`, `0010_…`) and run it on every database — new and old are the same
 from here on.
 
+Added since the current baseline (run on every database):
+
+| File | What it does |
+| --- | --- |
+| `0009_crm_phone_privacy.sql` | Company phone numbers and client mobile / WhatsApp are readable by Super Admin, Admin and Managers only (`crm_phone_numbers()`) |
+
 ### 4. The first Super Admin
 
 ```bash
