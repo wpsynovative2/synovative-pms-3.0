@@ -9,6 +9,7 @@ import {
   IconCrane,
   IconCalendar,
   IconChart,
+  IconChevronDown,
   IconChevronLeft,
   IconClock,
   IconContact,
@@ -47,11 +48,37 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   show: boolean;
+  /** The sidebar section it sits under; none for Dashboard, which leads. */
+  group?: NavGroup;
+}
+
+/** Sidebar sections, in the order they appear. */
+type NavGroup = "Work" | "CRM" | "Operations" | "Insights" | "Admin";
+
+/** Each section's header icon. */
+const GROUP_ICON: Record<NavGroup, React.ReactNode> = {
+  Work: <IconTasks size={18} />,
+  CRM: <IconCrane size={18} />,
+  Operations: <IconGlobe size={18} />,
+  Insights: <IconChart size={18} />,
+  Admin: <IconUser size={18} />,
+};
+
+/** Items grouped by section, keeping their order; a section nobody can see is dropped. */
+function groupNav(items: NavItem[]) {
+  const sections: { group: NavGroup | null; items: NavItem[] }[] = [];
+  for (const item of items) {
+    const group = item.group ?? null;
+    const last = sections[sections.length - 1];
+    if (last && last.group === group) last.items.push(item);
+    else sections.push({ group, items: [item] });
+  }
+  return sections;
 }
 
 function useNavItems(user: User): NavItem[] {
   const gate = navGate(user);
-  return [
+  return ([
     {
       href: "/dashboard",
       label: "Dashboard",
@@ -63,110 +90,128 @@ function useNavItems(user: User): NavItem[] {
       label: "Projects",
       icon: <IconProjects size={18} />,
       show: gate.projects,
+      group: "Work",
     },
     {
       href: "/tasks",
       label: "Tasks",
       icon: <IconTasks size={18} />,
       show: gate.tasks,
+      group: "Work",
     },
     {
       href: "/recurrence",
       label: "Recurrence",
       icon: <IconRepeat size={18} />,
       show: gate.recurrence,
-    },
-    {
-      href: "/companies",
-      label: "Companies",
-      icon: <IconCrane size={18} />,
-      show: gate.companies,
-    },
-    {
-      href: "/clients",
-      label: "Clients",
-      icon: <IconContact size={18} />,
-      show: gate.clients,
-    },
-    {
-      href: "/properties",
-      label: "Properties",
-      icon: <IconProperty size={18} />,
-      show: gate.properties,
-    },
-    {
-      href: "/obcs",
-      label: "New OBCs",
-      icon: <IconQuote size={18} />,
-      show: gate.obcs,
+      group: "Work",
     },
     {
       href: "/content-bank",
       label: "Content Bank",
       icon: <IconContent size={18} />,
       show: gate.contentBank,
-    },
-    {
-      href: "/websites",
-      label: "Websites",
-      icon: <IconGlobe size={18} />,
-      show: gate.websites,
-    },
-    {
-      href: "/expenses",
-      label: "Expenses",
-      icon: <IconWallet size={18} />,
-      show: gate.expenses,
-    },
-    {
-      href: "/workload",
-      label: "Workload",
-      icon: <IconUsers size={18} />,
-      show: gate.workload,
-    },
-    {
-      href: "/vendors",
-      label: "Vendors",
-      icon: <IconTruck size={18} />,
-      show: gate.vendors,
-    },
-    {
-      href: "/links",
-      label: "Operational Links",
-      icon: <IconLink size={18} />,
-      show: gate.links,
+      group: "Work",
     },
     {
       href: "/templates",
       label: "Templates",
       icon: <IconTemplate size={18} />,
       show: gate.templates,
+      group: "Work",
+    },
+    {
+      href: "/companies",
+      label: "Companies",
+      icon: <IconCrane size={18} />,
+      show: gate.companies,
+      group: "CRM",
+    },
+    {
+      href: "/clients",
+      label: "Clients",
+      icon: <IconContact size={18} />,
+      show: gate.clients,
+      group: "CRM",
+    },
+    {
+      href: "/properties",
+      label: "Properties",
+      icon: <IconProperty size={18} />,
+      show: gate.properties,
+      group: "CRM",
+    },
+    {
+      href: "/obcs",
+      label: "New OBCs",
+      icon: <IconQuote size={18} />,
+      show: gate.obcs,
+      group: "CRM",
+    },
+    {
+      href: "/websites",
+      label: "Websites",
+      icon: <IconGlobe size={18} />,
+      show: gate.websites,
+      group: "Operations",
+    },
+    {
+      href: "/links",
+      label: "Operational Links",
+      icon: <IconLink size={18} />,
+      show: gate.links,
+      group: "Operations",
+    },
+    {
+      href: "/vendors",
+      label: "Vendors",
+      icon: <IconTruck size={18} />,
+      show: gate.vendors,
+      group: "Operations",
+    },
+    {
+      href: "/expenses",
+      label: "Expenses",
+      icon: <IconWallet size={18} />,
+      show: gate.expenses,
+      group: "Operations",
+    },
+    {
+      href: "/workload",
+      label: "Workload",
+      icon: <IconUsers size={18} />,
+      show: gate.workload,
+      group: "Insights",
     },
     {
       href: "/reports",
       label: "Reports",
       icon: <IconChart size={18} />,
       show: gate.reports,
+      group: "Insights",
     },
     {
       href: "/calendar",
       label: "Working Calendar",
       icon: <IconCalendar size={18} />,
       show: gate.calendar,
+      group: "Admin",
     },
     {
       href: "/users",
       label: "Users",
       icon: <IconUser size={18} />,
       show: gate.users,
+      group: "Admin",
     },
     {
       href: "/master-data",
       label: "Departments & Services",
       icon: <IconTemplate size={18} />,
       show: gate.masterData,
+      group: "Admin",
     },
-  ].filter((i) => i.show);
+  ] satisfies NavItem[]).filter((i) => i.show);
 }
 
 /**
@@ -217,13 +262,51 @@ function Sidebar({
 }) {
   const pathname = usePathname();
   const items = useNavItems(user);
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+
+  // Sections open and close on a click, and stay as the user left them. The
+  // one holding the current page is always open, so the active item shows.
+  const activeGroup = items.find((i) => isActive(i.href))?.group ?? null;
+  const [opened, setOpened] = useState<NavGroup[]>([]);
+  const [closed, setClosed] = useState<NavGroup[]>([]);
+  const isOpen = (g: NavGroup) =>
+    opened.includes(g) || (g === activeGroup && !closed.includes(g));
+  const toggle = (g: NavGroup) => {
+    if (isOpen(g)) {
+      setOpened((list) => list.filter((x) => x !== g));
+      setClosed((list) => [...list.filter((x) => x !== g), g]);
+    } else {
+      setClosed((list) => list.filter((x) => x !== g));
+      setOpened((list) => [...list.filter((x) => x !== g), g]);
+    }
+  };
+
+  const renderItem = (item: NavItem) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      onClick={onMobileClose}
+      title={collapsed ? item.label : undefined}
+      className={cx(
+        "flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-medium transition-colors",
+        collapsed && "justify-center px-0",
+        isActive(item.href)
+          ? "bg-brand text-white shadow-lg shadow-brand/25"
+          : "text-ink-muted hover:bg-surface-2 hover:text-ink",
+      )}
+    >
+      <span className="shrink-0">{item.icon}</span>
+      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+    </Link>
+  );
 
   const content = (
     <div className="flex h-full min-h-0 flex-col">
       <div
         className={cx(
           "flex items-center gap-2.5 px-3 py-4",
-          collapsed && "justify-center px-0",
+          collapsed && "flex-col justify-center gap-2 px-0",
         )}
       >
         {collapsed ? (
@@ -240,31 +323,80 @@ function Sidebar({
         ) : (
           <BrandWordmark />
         )}
+        {/* Desktop only: below lg the sidebar is a drawer with its own close. */}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={cx(
+            "hidden h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-line bg-surface-2 text-ink-muted transition-colors hover:bg-surface-3 hover:text-ink lg:inline-flex",
+            !collapsed && "ml-auto",
+          )}
+        >
+          <IconChevronLeft
+            size={15}
+            className={cx("transition-transform", collapsed && "rotate-180")}
+          />
+        </button>
       </div>
 
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
-        {items.map((item) => {
-          const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+      <nav className="flex-1 overflow-y-auto px-2 pb-3">
+        {groupNav(items).map((section, si) => {
+          const { group } = section;
+          // The collapsed rail has no headers to hover, so every icon shows.
+          if (!group || collapsed) {
+            return (
+              <div key={group ?? "top"} className={cx("space-y-0.5", si > 0 && "mt-3")}>
+                {group ? (
+                  <div aria-hidden className="mx-3 mb-2 border-t border-line-soft" />
+                ) : null}
+                {section.items.map(renderItem)}
+              </div>
+            );
+          }
+          const open = isOpen(group);
+          const panelId = `nav-${group.toLowerCase()}`;
+          const holdsActive = group === activeGroup;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onMobileClose}
-              title={collapsed ? item.label : undefined}
-              className={cx(
-                "flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-medium transition-colors",
-                collapsed && "justify-center px-0",
-                active
-                  ? "bg-brand text-white shadow-lg shadow-brand/25"
-                  : "text-ink-muted hover:bg-surface-2 hover:text-ink",
-              )}
-            >
-              <span className="shrink-0">{item.icon}</span>
-              {!collapsed ? (
-                <span className="truncate">{item.label}</span>
-              ) : null}
-            </Link>
+            <div key={group} className={cx(si > 0 && "mt-0.5")}>
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={panelId}
+                onClick={() => toggle(group)}
+                className={cx(
+                  "flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-[13px] font-medium transition-colors hover:bg-surface-2 hover:text-ink",
+                  open || holdsActive ? "text-ink" : "text-ink-muted",
+                )}
+              >
+                <span className="shrink-0">{GROUP_ICON[group]}</span>
+                <span className="flex-1 truncate text-left">{group}</span>
+                <IconChevronDown
+                  size={14}
+                  className={cx(
+                    "shrink-0 text-ink-faint transition-transform duration-200",
+                    !open && "-rotate-90",
+                  )}
+                />
+              </button>
+              <div
+                id={panelId}
+                inert={!open}
+                className={cx(
+                  "grid transition-[grid-template-rows] duration-200",
+                  open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                )}
+              >
+                {/* Indented under its header, with a guide line, so a section's
+                    items read as belonging to it. */}
+                <div className="min-h-0 overflow-hidden">
+                  <div className="mt-0.5 mb-1 ml-5 space-y-0.5 border-l border-line-soft pl-2">
+                    {section.items.map(renderItem)}
+                  </div>
+                </div>
+              </div>
+            </div>
           );
         })}
       </nav>
@@ -304,16 +436,6 @@ function Sidebar({
         )}
       >
         {content}
-        <button
-          onClick={onToggle}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="absolute top-5 -right-3 z-100 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-muted transition-colors hover:text-ink"
-        >
-          <IconChevronLeft
-            size={13}
-            className={cx("transition-transform", collapsed && "rotate-180")}
-          />
-        </button>
       </aside>
 
       {/* Mobile drawer */}
