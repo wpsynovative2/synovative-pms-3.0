@@ -414,6 +414,7 @@ Since the current baseline:
 | `0009_crm_phone_privacy.sql` | `companies.phone`, `clients.mobile` and `clients.whatsapp` are left out of the column-level `select` grant; `crm_phone_numbers()` returns them to global managers only. Any new column on `companies` / `clients` must be added to that grant (and to `COMPANY_READ_COLUMNS` / `CLIENT_READ_COLUMNS` in `lib/data/db.ts`) or nobody can read it. Mirrors `canSeeCrmPhones` |
 | `0010_inventory_notification.sql` | `notification_type` gains `inventory_assigned` (own file: run before 0011) |
 | `0011_system_inventory.sql` | System Inventory ([Archi-inventory.md](Archi-inventory.md)): `workstations`, `inventory_items`, `inventory_events` (trigger-written history), `inventory_counters` (asset ID numbers, unreadable). Guards keep each item in one place and its status in step; moves go through `inventory_install` / `_place` / `_remove` / `_assign_workstation`. `can_manage_inventory()` (Super Admin, Admin), `can_view_inventory()` (global managers), `my_inventory_item_ids()` for a person's own desk. Mirrors `canManageInventory` / `canViewInventory` |
+| `0012_content_delivery_date.sql` | `content_bank.delivery_date`, set through `set_content_delivery_date()` by the piece's writer, global managers, the Project Leader or a Content Writers Team Leader. Mirrors `canSetContentDelivery` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 

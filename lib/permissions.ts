@@ -470,6 +470,16 @@ export function canAllotContent(u: User, project: Project | null): boolean {
  * Start Writing: only the writer the piece's task is assigned to, and only
  * once. Mirrors start_content_piece() in 0027.
  */
+/**
+ * The delivery date of a piece: its writer, and the people who plan the work.
+ * Mirrors set_content_delivery_date() (0012).
+ */
+export const canSetContentDelivery = (u: User, entry: ContentEntry, project: Project | null) =>
+  entry.createdBy === u.id ||
+  isGlobalManager(u) ||
+  (!!project && isProjectLeader(u, project)) ||
+  isContentTeamLeader(u);
+
 export function canStartContent(u: User, entry: ContentEntry, task: Task | null) {
   return !!task && task.id === entry.taskId && task.assigneeId === u.id && !isContentStarted(entry);
 }

@@ -674,6 +674,8 @@ export interface ContentEntry {
    * The journey (0018), stamped by the database as the piece reaches each
    * step. Null when not reached - or reached before 0018, with no date kept.
    */
+  /** When the piece is to be delivered; set on its page (0012). */
+  deliveryDate: string | null;
   /** Start Writing pressed, or first written in (0027). */
   startedAt: string | null;
   /** Who started it; null for pieces started before 0027. */

@@ -598,6 +598,7 @@ export type ContentInput = Omit<
   | "stage"
   | "scheduledOn"
   | "carryMonth"
+  | "deliveryDate"
   | "startedAt"
   | "startedBy"
   | "readyAt"
@@ -803,6 +804,8 @@ interface StoreValue {
    * out, Carry Forwarded the month it moves to (any date in it).
    */
   setContentStage: (entryId: string, stage: ContentStage | null, date?: string | null) => void;
+  /** When the piece is to be delivered; null clears it (0012). */
+  setContentDeliveryDate: (entryId: string, date: string | null) => void;
   /** The writer presses Start Writing on a piece of their task (0027). */
   startContentPiece: (entryId: string) => void;
 
@@ -2514,6 +2517,7 @@ const crmActions = {
       allottedTaskId: null,
       motionAllottedTo: null,
       motionAllottedTaskId: null,
+      deliveryDate: null,
       startedAt: null,
       startedBy: null,
       readyAt: null,
@@ -2664,6 +2668,17 @@ const crmActions = {
           }),
         );
       },
+    );
+  },
+
+  setContentDeliveryDate(entryId: string, date: string | null) {
+    void commit(
+      ["content"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) => (e.id === entryId ? { ...e, deliveryDate: date } : e)),
+      }),
+      (c) => run(c.rpc("set_content_delivery_date", { p_content_id: entryId, p_date: date })),
     );
   },
 

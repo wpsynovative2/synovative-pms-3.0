@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ContentComposer } from "@/components/content/content-form";
-import { ContentCard, ContentDetailScreen } from "@/components/content/content-view";
+import {
+  ContentCard,
+  ContentDetailScreen,
+  ContentTableHeader,
+} from "@/components/content/content-view";
 import {
   IconContact,
   IconContent,
@@ -592,7 +596,8 @@ export default function ContentBankPage() {
                 </span>
               </div>
 
-              <div className="flex flex-col gap-3">
+              <Card className="overflow-hidden">
+                <ContentTableHeader />
                 {g.entries.map((e) => (
                   <ContentCard
                     key={e.id}
@@ -624,7 +629,7 @@ export default function ContentBankPage() {
                     }
                   />
                 ))}
-              </div>
+              </Card>
             </section>
           ))}
         </div>

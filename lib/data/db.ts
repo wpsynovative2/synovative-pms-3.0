@@ -682,6 +682,7 @@ async function loadContent(sb: SupabaseClient): Promise<Partial<Database>> {
       allottedTaskId: nullable(r.allotted_task_id),
       motionAllottedTo: nullable(r.motion_allotted_to),
       motionAllottedTaskId: nullable(r.motion_allotted_task_id),
+      deliveryDate: nullable(r.delivery_date) ? dateOnly(r.delivery_date) : null,
       startedAt: nullable(r.started_at),
       startedBy: nullable(r.started_by),
       readyAt: nullable(r.ready_at),
