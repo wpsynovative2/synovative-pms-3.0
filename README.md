@@ -76,6 +76,8 @@ Added since the current baseline (run on every database):
 | File | What it does |
 | --- | --- |
 | `0009_crm_phone_privacy.sql` | Company phone numbers and client mobile / WhatsApp are readable by Super Admin, Admin and Managers only (`crm_phone_numbers()`) |
+| `0010_inventory_notification.sql` | Notification type for System Inventory (run before 0011) |
+| `0011_system_inventory.sql` | System Inventory: workstations, components with unique asset IDs, history ([Archi-inventory.md](Archi-inventory.md)) |
 
 ### 4. The first Super Admin
 

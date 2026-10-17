@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconClock,
   IconSend,
+  IconChip,
   IconGlobe,
   IconSparkle,
   IconTasks,
@@ -39,6 +40,7 @@ const TYPE_LABEL: Record<NotificationType, string> = {
   timer_autostop: "Timer auto-stopped",
   content_allotted: "Content allotted",
   website_renewal: "Website renewal",
+  inventory_assigned: "Workstation",
 };
 
 const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
@@ -53,6 +55,7 @@ const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
   timer_autostop: <IconClock size={15} />,
   content_allotted: <IconSparkle size={15} />,
   website_renewal: <IconGlobe size={15} />,
+  inventory_assigned: <IconChip size={15} />,
 };
 
 const TYPE_TONE: Record<NotificationType, string> = {
@@ -67,6 +70,7 @@ const TYPE_TONE: Record<NotificationType, string> = {
   timer_autostop: "bg-st-changes/15 text-st-changes",
   content_allotted: "bg-brand/15 text-brand-ink",
   website_renewal: "bg-st-submitted/15 text-st-submitted",
+  inventory_assigned: "bg-brand/15 text-brand-ink",
 };
 
 /** §17 — in-app only: list, filter, mark as read. */

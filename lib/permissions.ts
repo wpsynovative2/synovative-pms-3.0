@@ -352,6 +352,17 @@ export const canViewClientsModule = (u: User) => isGlobalManager(u);
  */
 export const canSeeCrmPhones = (u: User) => isGlobalManager(u);
 
+/* ------------------------------------------------------ System Inventory */
+
+/** Add, edit, move, allot and delete hardware. Mirrors can_manage_inventory() (0011). */
+export const canManageInventory = (u: User) => u.role === "super_admin" || u.role === "admin";
+
+/**
+ * The whole register and its history, read-only for Managers. Everyone else
+ * sees only the workstation allotted to them. Mirrors can_view_inventory().
+ */
+export const canViewInventory = (u: User) => isGlobalManager(u);
+
 /**
  * Deleting is narrower than editing: these records are referenced by projects
  * that may already be running, so only Super Admin and Admin may remove one.
@@ -520,6 +531,7 @@ export interface NavGate {
   obcs: boolean;
   contentBank: boolean;
   websites: boolean;
+  inventory: boolean;
   masterData: boolean;
 }
 
@@ -549,6 +561,8 @@ export function navGate(u: User): NavGate {
     // through the task that carries it, but the library itself stays open.
     contentBank: true,
     websites: canViewWebsites(u),
+    // Everyone else sees their own workstation on their Profile.
+    inventory: canViewInventory(u),
     // The name lists everything else points at — Super Admin only.
     masterData: isSuperAdmin(u),
   };

@@ -24,6 +24,9 @@ import {
   TASK_COLUMNS,
   VENDOR_COLUMNS,
   WEBSITE_COLUMNS,
+  WORKSTATION_COLUMNS,
+  INVENTORY_ITEM_COLUMNS,
+  loadInventoryEvents,
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
   loadScopes,
@@ -42,6 +45,9 @@ import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
 import { isAllotted, isContentEmpty, stampJourney } from "./types";
 import type {
+  Workstation,
+  InventoryItem,
+  InventoryEvent,
   CalendarConfig,
   Client,
   CollabEntity,
@@ -701,6 +707,23 @@ interface StoreValue {
   revealWebsitePassword: (credentialId: string) => Promise<string>;
   /** The renewal is done: recorded, and the due date moves on a year. */
   markWebsiteRenewed: (websiteId: string, amount: number | null, note: string) => void;
+
+  /** System Inventory (0011). The ID or code is filled in when the save comes back. */
+  addInventoryItem: (input: InventoryItemInput, placement?: InventoryPlacement) => InventoryItem;
+  updateInventoryItem: (id: string, patch: Partial<InventoryItemInput>) => void;
+  deleteInventoryItem: (id: string) => void;
+  installInventoryItem: (itemId: string, cabinetId: string, note?: string) => void;
+  placeInventoryItem: (itemId: string, workstationId: string, note?: string) => void;
+  /** Take it out of wherever it is and set what it is now; also how a spare changes status. */
+  removeInventoryItem: (itemId: string, status: "Spare" | "Under repair" | "Retired", note?: string) => void;
+  addWorkstation: (input: WorkstationInput) => Workstation;
+  updateWorkstation: (id: string, patch: Partial<WorkstationInput>) => void;
+  deleteWorkstation: (id: string) => void;
+  assignWorkstation: (id: string, profileId: string | null, note?: string) => void;
+  /** History is read when a drawer opens, not kept in the store. */
+  inventoryHistory: (
+    target: { itemId: string } | { workstationId: string },
+  ) => Promise<InventoryEvent[]>;
 
   saveProjectTemplate: (t: ProjectTemplate) => void;
   deleteProjectTemplate: (id: string) => void;
@@ -1694,6 +1717,206 @@ function nextYear(iso: string): string {
   return `${y + 1}-${String(m).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
 }
 
+/* ------------------------------------------------------- System Inventory */
+
+export type InventoryItemInput = Pick<
+  InventoryItem,
+  | "category"
+  | "brand"
+  | "model"
+  | "serialNumber"
+  | "specs"
+  | "purchaseDate"
+  | "price"
+  | "vendorId"
+  | "warrantyUntil"
+  | "notes"
+>;
+
+export type WorkstationInput = Pick<Workstation, "name" | "location" | "notes">;
+
+/** Where a new component goes straight away; none leaves it spare. */
+export type InventoryPlacement = { cabinetId: string } | { workstationId: string } | null;
+
+/** The optimistic copy of a move; the database re-checks every rule (0011). */
+function movedItem(
+  item: InventoryItem,
+  to: { cabinetId: string | null; workstationId: string | null },
+  status?: InventoryItem["status"],
+): InventoryItem {
+  const placed = !!(to.cabinetId || to.workstationId);
+  return { ...item, ...to, status: placed ? "In use" : (status ?? "Spare") };
+}
+
+/** Whatever was inside or at something deleted becomes spare, as the database does. */
+function releaseFrom(items: InventoryItem[], gone: { cabinetId?: string; workstationId?: string }) {
+  return items.map((i) =>
+    (gone.cabinetId && i.cabinetId === gone.cabinetId) ||
+    (gone.workstationId && i.workstationId === gone.workstationId)
+      ? movedItem(i, { cabinetId: null, workstationId: null })
+      : i,
+  );
+}
+
+const inventoryActions = {
+  addInventoryItem(input: InventoryItemInput, placement: InventoryPlacement = null): InventoryItem {
+    const to = {
+      cabinetId: placement && "cabinetId" in placement ? placement.cabinetId : null,
+      workstationId: placement && "workstationId" in placement ? placement.workstationId : null,
+    };
+    const item: InventoryItem = movedItem(
+      { ...input, id: newId(), assetTag: "", status: "Spare", cabinetId: null, workstationId: null, createdBy: me(), createdAt: now() },
+      to,
+    );
+    void commit(
+      ["inventory"],
+      (db) => ({ ...db, inventoryItems: [...db.inventoryItems, item] }),
+      async (c) => {
+        await run(c.from("inventory_items").insert({ id: item.id, ...patchColumns(input, INVENTORY_ITEM_COLUMNS) }));
+        if (to.cabinetId) {
+          await run(c.rpc("inventory_install", { p_item_id: item.id, p_cabinet_id: to.cabinetId }));
+        } else if (to.workstationId) {
+          await run(c.rpc("inventory_place", { p_item_id: item.id, p_workstation_id: to.workstationId }));
+        }
+      },
+    );
+    return item;
+  },
+
+  updateInventoryItem(id: string, patch: Partial<InventoryItemInput>) {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        inventoryItems: db.inventoryItems.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+      }),
+      (c) => run(c.from("inventory_items").update(patchColumns(patch, INVENTORY_ITEM_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteInventoryItem(id: string) {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        inventoryItems: releaseFrom(db.inventoryItems.filter((i) => i.id !== id), { cabinetId: id }),
+      }),
+      (c) => run(c.from("inventory_items").delete().eq("id", id)),
+    );
+  },
+
+  installInventoryItem(itemId: string, cabinetId: string, note = "") {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        inventoryItems: db.inventoryItems.map((i) =>
+          i.id === itemId ? movedItem(i, { cabinetId, workstationId: null }) : i,
+        ),
+      }),
+      (c) => run(c.rpc("inventory_install", { p_item_id: itemId, p_cabinet_id: cabinetId, p_note: note })),
+    );
+  },
+
+  placeInventoryItem(itemId: string, workstationId: string, note = "") {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        inventoryItems: db.inventoryItems.map((i) =>
+          i.id === itemId ? movedItem(i, { cabinetId: null, workstationId }) : i,
+        ),
+      }),
+      (c) =>
+        run(c.rpc("inventory_place", { p_item_id: itemId, p_workstation_id: workstationId, p_note: note })),
+    );
+  },
+
+  removeInventoryItem(itemId: string, status: "Spare" | "Under repair" | "Retired", note = "") {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        inventoryItems: db.inventoryItems.map((i) =>
+          i.id === itemId ? movedItem(i, { cabinetId: null, workstationId: null }, status) : i,
+        ),
+      }),
+      (c) => run(c.rpc("inventory_remove", { p_item_id: itemId, p_status: status, p_note: note })),
+    );
+  },
+
+  addWorkstation(input: WorkstationInput): Workstation {
+    const desk: Workstation = {
+      ...input,
+      id: newId(),
+      code: "",
+      assignedTo: null,
+      assignedAt: null,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["inventory"],
+      (db) => ({ ...db, workstations: [...db.workstations, desk] }),
+      (c) => run(c.from("workstations").insert({ id: desk.id, ...patchColumns(input, WORKSTATION_COLUMNS) })),
+    );
+    return desk;
+  },
+
+  updateWorkstation(id: string, patch: Partial<WorkstationInput>) {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        workstations: db.workstations.map((w) => (w.id === id ? { ...w, ...patch } : w)),
+      }),
+      (c) => run(c.from("workstations").update(patchColumns(patch, WORKSTATION_COLUMNS)).eq("id", id)),
+    );
+  },
+
+  deleteWorkstation(id: string) {
+    void commit(
+      ["inventory"],
+      (db) => ({
+        ...db,
+        workstations: db.workstations.filter((w) => w.id !== id),
+        inventoryItems: releaseFrom(db.inventoryItems, { workstationId: id }),
+      }),
+      (c) => run(c.from("workstations").delete().eq("id", id)),
+    );
+  },
+
+  assignWorkstation(id: string, profileId: string | null, note = "") {
+    void commit(
+      ["inventory", "notifications"],
+      (db) => ({
+        ...db,
+        workstations: db.workstations.map((w) =>
+          w.id === id ? { ...w, assignedTo: profileId, assignedAt: profileId ? now() : null } : w,
+        ),
+      }),
+      (c) =>
+        run(
+          c.rpc("inventory_assign_workstation", {
+            p_workstation_id: id,
+            p_profile_id: profileId,
+            p_note: note,
+          }),
+        ),
+    );
+  },
+
+  async inventoryHistory(
+    target: { itemId: string } | { workstationId: string },
+  ): Promise<InventoryEvent[]> {
+    try {
+      return await loadInventoryEvents(sb(), target);
+    } catch {
+      return [];
+    }
+  },
+};
+
 const websiteActions = {
   createWebsite(input: WebsiteInput): Website {
     const site: Website = { ...input, id: newId(), createdBy: me(), createdAt: now() };
@@ -2654,6 +2877,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...masterActions,
       ...crmActions,
       ...websiteActions,
+      ...inventoryActions,
     }),
     [
       db,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { MySystemCard } from "@/components/inventory/my-system";
 import { useMemo, useState } from "react";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskRow } from "@/components/task/task-list";
@@ -207,6 +208,8 @@ export default function ProfilePage() {
               tone={myTasks.filter(isOverdue).length ? "red" : "green"}
             />
           </div>
+
+          <MySystemCard />
 
           <Card>
             <CardHeader title="Your open tasks" subtitle="Everything currently on your plate" />

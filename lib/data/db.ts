@@ -33,6 +33,9 @@ import type {
   Website,
   WebsiteCredential,
   WebsiteRenewal,
+  Workstation,
+  InventoryItem,
+  InventoryEvent,
   TimeSession,
   User,
   Vendor,
@@ -61,7 +64,8 @@ export type Scope =
   | "crm"
   | "content"
   | "collab"
-  | "websites";
+  | "websites"
+  | "inventory";
 
 export const ALL_SCOPES: Scope[] = [
   "master",
@@ -78,6 +82,7 @@ export const ALL_SCOPES: Scope[] = [
   "content",
   "collab",
   "websites",
+  "inventory",
 ];
 
 export const EMPTY_DB: Database = {
@@ -104,6 +109,8 @@ export const EMPTY_DB: Database = {
   websites: [],
   websiteCredentials: [],
   websiteRenewals: [],
+  workstations: [],
+  inventoryItems: [],
 };
 
 /** How many of the newest notifications the bell and inbox keep in memory. */
@@ -121,13 +128,13 @@ async function fetchAll(sb: SupabaseClient, table: string, ...orders: string[]):
   return fetchColumns(sb, table, "*", ...orders);
 }
 
-/** fetchAll for a table whose rows cannot be read whole (a password column). */
 /** Every readable column of companies / clients - all but the phone numbers (0009). */
 const COMPANY_READ_COLUMNS =
   "id, name, legal_name, gstin, pan, rera_promoter_id, address, city, website, email, logo_url, account_owner_id, status, created_by, created_at, updated_at, nature";
 const CLIENT_READ_COLUMNS =
   "id, company_id, full_name, designation, email, role, status, created_by, created_at, updated_at";
 
+/** fetchAll for a table whose rows cannot be read whole (a password, a phone number). */
 async function fetchColumns(
   sb: SupabaseClient,
   table: string,
@@ -783,6 +790,68 @@ async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
   return { websites, websiteCredentials, websiteRenewals };
 }
 
+async function loadInventory(sb: SupabaseClient): Promise<Partial<Database>> {
+  const [desks, items] = await Promise.all([
+    fetchAll(sb, "workstations", "code", "id"),
+    fetchAll(sb, "inventory_items", "asset_tag", "id"),
+  ]);
+  const workstations: Workstation[] = desks.map((r) => ({
+    id: str(r.id),
+    code: str(r.code),
+    name: str(r.name),
+    location: str(r.location),
+    assignedTo: nullable(r.assigned_to),
+    assignedAt: nullable(r.assigned_at),
+    notes: str(r.notes),
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+  const inventoryItems: InventoryItem[] = items.map((r) => ({
+    id: str(r.id),
+    assetTag: str(r.asset_tag),
+    category: r.category as InventoryItem["category"],
+    brand: str(r.brand),
+    model: str(r.model),
+    serialNumber: str(r.serial_number),
+    specs: (r.specs as InventoryItem["specs"]) ?? {},
+    status: (r.status as InventoryItem["status"]) ?? "Spare",
+    cabinetId: nullable(r.cabinet_id),
+    workstationId: nullable(r.workstation_id),
+    purchaseDate: nullable(r.purchase_date) ? dateOnly(r.purchase_date) : null,
+    price: r.price === null || r.price === undefined ? null : num(r.price),
+    vendorId: nullable(r.vendor_id),
+    warrantyUntil: nullable(r.warranty_until) ? dateOnly(r.warranty_until) : null,
+    notes: str(r.notes),
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+  return { workstations, inventoryItems };
+}
+
+/** One item's or one workstation's history, newest first - read when a drawer opens. */
+export async function loadInventoryEvents(
+  sb: SupabaseClient,
+  target: { itemId: string } | { workstationId: string },
+): Promise<InventoryEvent[]> {
+  const query = sb.from("inventory_events").select("*").order("at", { ascending: false }).limit(200);
+  const { data, error } = await ("itemId" in target
+    ? query.eq("item_id", target.itemId)
+    : query.eq("workstation_id", target.workstationId));
+  if (error) throw new Error(`inventory_events: ${error.message}`);
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: str(r.id),
+    at: str(r.at),
+    actor: nullable(r.actor),
+    itemId: nullable(r.item_id),
+    workstationId: nullable(r.workstation_id),
+    kind: r.kind as InventoryEvent["kind"],
+    subject: str(r.subject),
+    fromLabel: nullable(r.from_label),
+    toLabel: nullable(r.to_label),
+    note: str(r.note),
+  }));
+}
+
 const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>> = {
   master: loadMaster,
   users: loadUsers,
@@ -798,6 +867,7 @@ const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>>
   content: loadContent,
   collab: loadCollab,
   websites: loadWebsites,
+  inventory: loadInventory,
 };
 
 export interface ScopeFailure {
@@ -958,6 +1028,26 @@ export const EXPENSE_COLUMNS: Record<string, string> = {
   expenseDate: "expense_date",
   attachmentName: "attachment_name",
   attachmentUrl: "attachment_url",
+};
+
+export const WORKSTATION_COLUMNS: Record<string, string> = {
+  name: "name",
+  location: "location",
+  notes: "notes",
+};
+
+/** Placement and status move only through the inventory_* functions (0011). */
+export const INVENTORY_ITEM_COLUMNS: Record<string, string> = {
+  category: "category",
+  brand: "brand",
+  model: "model",
+  serialNumber: "serial_number",
+  specs: "specs",
+  purchaseDate: "purchase_date",
+  price: "price",
+  vendorId: "vendor_id",
+  warrantyUntil: "warranty_until",
+  notes: "notes",
 };
 
 export const WEBSITE_COLUMNS: Record<string, string> = {

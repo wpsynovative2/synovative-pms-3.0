@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   IconBell,
+  IconChip,
   IconCrane,
   IconCalendar,
   IconChart,
@@ -189,6 +190,13 @@ function useNavItems(user: User): NavItem[] {
       icon: <IconChart size={18} />,
       show: gate.reports,
       group: "Insights",
+    },
+    {
+      href: "/inventory",
+      label: "System Inventory",
+      icon: <IconChip size={18} />,
+      show: gate.inventory,
+      group: "Admin",
     },
     {
       href: "/calendar",

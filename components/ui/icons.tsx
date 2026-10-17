@@ -310,6 +310,15 @@ export const IconGlobe = (p: IconProps) => (
   </Svg>
 );
 
+/** A chip - System Inventory. */
+export const IconChip = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <rect x="9.5" y="9.5" width="5" height="5" rx="0.5" />
+    <path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5" />
+  </Svg>
+);
+
 /* -------------------------------------------------------------- CRM --- */
 
 /** A tower crane - a developer, as opposed to a building it puts up. */

@@ -821,7 +821,8 @@ export type NotificationType =
   | "overdue"
   | "timer_autostop"
   | "content_allotted"
-  | "website_renewal";
+  | "website_renewal"
+  | "inventory_assigned";
 
 export interface AppNotification {
   id: string;
@@ -917,6 +918,295 @@ export interface WebsiteRenewal {
 
 /* ------------------------------------------------------------------ DB */
 
+/* ------------------------------------------------------- System Inventory */
+
+/*
+ * Office computer hardware (0011, Archi-inventory.md). Internal parts go
+ * inside a cabinet; cabinets, monitors and peripherals go at a workstation;
+ * a workstation is allotted to one person.
+ */
+
+export type InventoryCategory =
+  | "Processor"
+  | "Motherboard"
+  | "RAM"
+  | "Storage"
+  | "GPU"
+  | "Power supply"
+  | "Cabinet"
+  | "Monitor"
+  | "Keyboard"
+  | "Mouse"
+  | "UPS"
+  | "Accessory"
+  | "Other";
+
+/** Where a category goes: inside a cabinet, at a workstation, or either. */
+export type InventoryPlace = "cabinet" | "workstation" | "either";
+
+export type InventoryStatus = "In use" | "Spare" | "Under repair" | "Retired";
+export const INVENTORY_STATUSES: InventoryStatus[] = ["In use", "Spare", "Under repair", "Retired"];
+
+/** One detail a category asks for, stored under `key` in the item's specs. */
+export interface SpecField {
+  key: string;
+  label: string;
+  type: "number" | "text" | "select";
+  unit?: string;
+  options?: string[];
+}
+
+const FORM_FACTORS = ["ATX", "Micro-ATX", "Mini-ITX"];
+const CONNECTIONS = ["Wired", "Wireless"];
+
+/**
+ * Every category: its asset ID prefix, where it goes and the details it asks
+ * for. Prefix and place mirror inventory_category_prefix() and
+ * inventory_category_place() in 0011 - a new category goes in both.
+ */
+export const INVENTORY_CATEGORIES: Record<
+  InventoryCategory,
+  { prefix: string; place: InventoryPlace; specs: SpecField[] }
+> = {
+  Processor: {
+    prefix: "CPU",
+    place: "cabinet",
+    specs: [
+      { key: "cores", label: "Cores", type: "number" },
+      { key: "threads", label: "Threads", type: "number" },
+      { key: "base_ghz", label: "Base clock", type: "number", unit: "GHz" },
+      { key: "socket", label: "Socket", type: "text" },
+    ],
+  },
+  Motherboard: {
+    prefix: "MBD",
+    place: "cabinet",
+    specs: [
+      { key: "chipset", label: "Chipset", type: "text" },
+      { key: "socket", label: "Socket", type: "text" },
+      { key: "form_factor", label: "Form factor", type: "select", options: FORM_FACTORS },
+      { key: "ram_slots", label: "RAM slots", type: "number" },
+      { key: "max_ram_gb", label: "Max RAM", type: "number", unit: "GB" },
+    ],
+  },
+  RAM: {
+    prefix: "RAM",
+    place: "cabinet",
+    specs: [
+      { key: "capacity_gb", label: "Capacity", type: "number", unit: "GB" },
+      { key: "ram_type", label: "Type", type: "select", options: ["DDR3", "DDR4", "DDR5"] },
+      { key: "speed_mhz", label: "Speed", type: "number", unit: "MHz" },
+    ],
+  },
+  Storage: {
+    prefix: "STO",
+    place: "cabinet",
+    specs: [
+      { key: "storage_type", label: "Type", type: "select", options: ["NVMe SSD", "SATA SSD", "HDD"] },
+      { key: "capacity_gb", label: "Capacity", type: "number", unit: "GB" },
+    ],
+  },
+  GPU: {
+    prefix: "GPU",
+    place: "cabinet",
+    specs: [
+      { key: "chipset", label: "Chipset", type: "text" },
+      { key: "vram_gb", label: "VRAM", type: "number", unit: "GB" },
+    ],
+  },
+  "Power supply": {
+    prefix: "PSU",
+    place: "cabinet",
+    specs: [
+      { key: "watts", label: "Wattage", type: "number", unit: "W" },
+      {
+        key: "rating",
+        label: "Rating",
+        type: "select",
+        options: ["None", "80+", "80+ Bronze", "80+ Silver", "80+ Gold", "80+ Platinum"],
+      },
+    ],
+  },
+  Cabinet: {
+    prefix: "CAB",
+    place: "workstation",
+    specs: [
+      { key: "form_factor", label: "Form factor", type: "select", options: FORM_FACTORS },
+      { key: "colour", label: "Colour", type: "text" },
+    ],
+  },
+  Monitor: {
+    prefix: "MON",
+    place: "workstation",
+    specs: [
+      { key: "size_inch", label: "Size", type: "number", unit: "inch" },
+      {
+        key: "resolution",
+        label: "Resolution",
+        type: "select",
+        options: ["1366×768", "1920×1080", "2560×1440", "3840×2160", "Other"],
+      },
+      { key: "panel", label: "Panel", type: "select", options: ["IPS", "VA", "TN", "OLED"] },
+      { key: "refresh_hz", label: "Refresh rate", type: "number", unit: "Hz" },
+    ],
+  },
+  Keyboard: {
+    prefix: "KBD",
+    place: "workstation",
+    specs: [{ key: "connection", label: "Connection", type: "select", options: CONNECTIONS }],
+  },
+  Mouse: {
+    prefix: "MOU",
+    place: "workstation",
+    specs: [{ key: "connection", label: "Connection", type: "select", options: CONNECTIONS }],
+  },
+  UPS: {
+    prefix: "UPS",
+    place: "workstation",
+    specs: [{ key: "va", label: "Rating", type: "number", unit: "VA" }],
+  },
+  Accessory: {
+    prefix: "ACC",
+    place: "workstation",
+    specs: [
+      {
+        key: "kind",
+        label: "Kind",
+        type: "select",
+        options: ["Headphones", "Webcam", "Speaker", "Dock", "Other"],
+      },
+    ],
+  },
+  Other: {
+    prefix: "OTH",
+    place: "either",
+    specs: [{ key: "description", label: "What it is", type: "text" }],
+  },
+};
+
+export const INVENTORY_CATEGORY_LIST = Object.keys(INVENTORY_CATEGORIES) as InventoryCategory[];
+
+/** A desk setup, allotted to at most one person. */
+export interface Workstation {
+  id: string;
+  /** WS-001, generated by the database; empty until the save comes back. */
+  code: string;
+  name: string;
+  location: string;
+  assignedTo: string | null;
+  assignedAt: string | null;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** One component - a cabinet is one too. */
+export interface InventoryItem {
+  id: string;
+  /** SYN-RAM-0031, generated by the database; empty until the save comes back. */
+  assetTag: string;
+  category: InventoryCategory;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  specs: Record<string, string | number>;
+  status: InventoryStatus;
+  /** Inside this cabinet; never set together with workstationId. */
+  cabinetId: string | null;
+  workstationId: string | null;
+  purchaseDate: string | null;
+  price: number | null;
+  vendorId: string | null;
+  warrantyUntil: string | null;
+  notes: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** One line of history, written only by the database. */
+export interface InventoryEvent {
+  id: string;
+  at: string;
+  actor: string | null;
+  itemId: string | null;
+  workstationId: string | null;
+  kind:
+    | "added"
+    | "edited"
+    | "installed"
+    | "placed"
+    | "removed"
+    | "status"
+    | "assigned"
+    | "unassigned"
+    | "deleted";
+  /** The asset ID or workstation code at the time. */
+  subject: string;
+  fromLabel: string | null;
+  toLabel: string | null;
+  note: string;
+}
+
+const specOf = (item: InventoryItem, key: string) => item.specs[key];
+const makeName = (item: InventoryItem) => [item.brand, item.model].filter(Boolean).join(" ");
+
+/** 512 GB, 1 TB. */
+export function formatCapacity(gb: number): string {
+  return gb >= 1000 && gb % 1000 === 0 ? `${gb / 1000} TB` : `${gb} GB`;
+}
+
+/** The one line that says what a component is: "16 GB DDR4 3200 MHz". */
+export function itemSummary(item: InventoryItem): string {
+  const has = (key: string) => {
+    const v = specOf(item, key);
+    return v !== undefined && v !== "" && v !== "None" ? v : undefined;
+  };
+  const parts: (string | number | undefined)[] = [];
+  switch (item.category) {
+    case "RAM":
+      parts.push(
+        has("capacity_gb") ? `${has("capacity_gb")} GB` : undefined,
+        has("ram_type"),
+        has("speed_mhz") ? `${has("speed_mhz")} MHz` : undefined,
+      );
+      break;
+    case "Storage":
+      parts.push(
+        has("capacity_gb") ? formatCapacity(Number(has("capacity_gb"))) : undefined,
+        has("storage_type"),
+      );
+      break;
+    case "GPU":
+      parts.push(makeName(item) || has("chipset"), has("vram_gb") ? `${has("vram_gb")} GB` : undefined);
+      break;
+    case "Power supply":
+      parts.push(has("watts") ? `${has("watts")} W` : undefined, has("rating"));
+      break;
+    case "Monitor":
+      parts.push(has("size_inch") ? `${has("size_inch")}"` : undefined, has("resolution"));
+      break;
+    case "Other":
+      parts.push(has("description"));
+      break;
+  }
+  const line = parts.filter((x) => x !== undefined && x !== "").join(" ");
+  return line || makeName(item) || item.category;
+}
+
+/** A cabinet in one line: "Ryzen 5 5600 · 32 GB RAM · 512 GB NVMe SSD · RTX 3060". */
+export function cabinetSummary(parts: InventoryItem[]): string {
+  const of = (c: InventoryCategory) => parts.filter((p) => p.category === c);
+  const ram = of("RAM").reduce((sum, p) => sum + (Number(specOf(p, "capacity_gb")) || 0), 0);
+  return [
+    ...of("Processor").map((p) => makeName(p) || "Processor"),
+    ram ? `${ram} GB RAM` : of("RAM").length ? `${of("RAM").length} × RAM` : "",
+    ...of("Storage").map(itemSummary),
+    ...of("GPU").map((p) => makeName(p) || itemSummary(p)),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /**
  * The signed-in user's view of the database: every row Row Level Security lets
  * them read, assembled into the nested shapes the screens use.
@@ -949,6 +1239,8 @@ export interface Database {
   websites: Website[];
   websiteCredentials: WebsiteCredential[];
   websiteRenewals: WebsiteRenewal[];
+  workstations: Workstation[];
+  inventoryItems: InventoryItem[];
 }
 
 /**
