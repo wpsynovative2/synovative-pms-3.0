@@ -58,6 +58,13 @@ export function dateUnavailableReason(
   return reason ? NON_WORKING_LABEL[reason] : null;
 }
 
+const MONTHS = Array.from({ length: 12 }, (_, i) =>
+  new Date(2000, i, 1).toLocaleString("en-IN", { month: "short" }),
+);
+
+const HEADER_SELECT =
+  "h-7 cursor-pointer rounded-lg border border-transparent bg-transparent px-1.5 text-[13px] font-medium text-ink hover:border-line hover:bg-surface-3 focus:border-brand-bright focus:outline-none";
+
 export function DatePicker({
   value,
   onChange,
@@ -95,6 +102,17 @@ export function DatePicker({
     () => new Map(config.holidays.map((h) => [h.date, h.name])),
     [config.holidays],
   );
+
+  // Years on offer: the allowed range when there is one, otherwise a
+  // generous window - far back only where past dates may be picked.
+  const years = useMemo(() => {
+    const now = new Date().getFullYear();
+    const from = min ? fromISODate(min).getFullYear() : allowPast || ignoreWorkingRules ? now - 30 : now - 1;
+    const to = max ? fromISODate(max).getFullYear() : now + 10;
+    const lo = Math.min(from, cursor.year);
+    const hi = Math.max(to, cursor.year);
+    return Array.from({ length: hi - lo + 1 }, (_, i) => hi - i);
+  }, [min, max, allowPast, ignoreWorkingRules, cursor.year]);
 
   const shift = (delta: number) => {
     const d = new Date(cursor.year, cursor.month + delta, 1);
@@ -165,9 +183,36 @@ export function DatePicker({
             >
               <IconChevronLeft size={15} />
             </button>
-            <span className="text-[13px] font-medium text-ink">
-              {formatMonthYear(cursor.year, cursor.month)}
-            </span>
+            {/* Month and year jump straight there; the arrows step one month. */}
+            <div
+              className="flex items-center gap-1"
+              aria-label={formatMonthYear(cursor.year, cursor.month)}
+            >
+              <select
+                value={cursor.month}
+                onChange={(e) => setPaged({ year: cursor.year, month: Number(e.target.value) })}
+                aria-label="Month"
+                className={HEADER_SELECT}
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={cursor.year}
+                onChange={(e) => setPaged({ year: Number(e.target.value), month: cursor.month })}
+                aria-label="Year"
+                className={HEADER_SELECT}
+              >
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={() => shift(1)}
