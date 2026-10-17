@@ -7,6 +7,7 @@ import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import {
   contentHolders,
+  isContentEmpty,
   isContentStarted,
   isFullyAllotted,
   type ContentEntry,
@@ -48,14 +49,16 @@ export function journeySteps(
     entry.stage === "Design Completed" ||
     entry.stage === "Scheduled" ||
     task?.status === "Approved";
-  // A Static to Motion piece is allotted once both its parts are.
-  const allotted = isFullyAllotted(entry);
+  // A designer can be named before the writer has written anything; the step
+  // only counts once there is something for them to design. A Static to
+  // Motion piece is allotted once both its parts are.
+  const allotted = isFullyAllotted(entry) && !isContentEmpty(entry);
+  // Ready To Design is the piece's status now, not a date from before - a
+  // status set back to "Not set" undoes it, and allotting does not imply it.
   const ready =
-    !!entry.readyAt ||
     entry.stage === "Ready To Design" ||
     entry.stage === "Design Completed" ||
-    entry.stage === "Scheduled" ||
-    !!entry.allottedTo;
+    entry.stage === "Scheduled";
   const started = isContentStarted(entry);
   // A piece written outside a task was its author's from the start.
   const writer = entry.taskId ? (task?.assigneeId ?? null) : entry.createdBy;
