@@ -279,6 +279,51 @@ export const Select = forwardRef<
   );
 });
 
+/** An on/off switch with its label, the same height as the other controls. */
+export function Switch({
+  on,
+  onChange,
+  label,
+  disabled,
+  className,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  label: React.ReactNode;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={cx(
+        "inline-flex h-9.5 shrink-0 items-center gap-2.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[13px] text-ink hover:border-brand-bright/40",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+    >
+      <span
+        className={cx(
+          "relative h-4.5 w-8 shrink-0 rounded-full transition-colors",
+          on ? "bg-brand-bright" : "bg-line",
+        )}
+      >
+        <span
+          className={cx(
+            "absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-on-brand shadow-sm transition-transform",
+            on && "translate-x-3.5",
+          )}
+        />
+      </span>
+      {label}
+    </button>
+  );
+}
+
 export function SearchInput({
   className,
   ...rest

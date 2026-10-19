@@ -89,6 +89,10 @@ export function TaskDetailDrawer({
   const mayRemark = canAddRemark(currentUser, task, project ?? null);
   const assignee = userById(task.assigneeId);
   const creator = userById(task.createdBy);
+  // The task this one waits on, and whether the chain has run past the
+  // project's deadline - flagged, never squeezed (0014).
+  const waitsOn = task.dependsOnTaskId ? taskById(task.dependsOnTaskId) : undefined;
+  const pastDeadline = !!project && task.dueDate > project.deadline;
 
   const submitRemark = () => {
     if (isRichTextEmpty(remark)) return;
@@ -161,12 +165,40 @@ export function TaskDetailDrawer({
                 <span className="text-ink-faint italic">Unassigned</span>
               )}
             </Fact>
-            <Fact label="Start date">{formatDate(task.startDate)}</Fact>
-            <Fact label="Due date">{formatDate(task.dueDate)}</Fact>
+            <Fact label={task.waitingOnTaskId ? "Start (projected)" : "Start date"}>
+              {formatDate(task.startDate)}
+            </Fact>
+            <Fact label={task.waitingOnTaskId ? "Due (projected)" : "Due date"}>
+              <span className={cx(pastDeadline && "text-st-rejected")}>
+                {formatDate(task.dueDate)}
+              </span>
+            </Fact>
             <Fact label="Estimated">{task.estimatedHours}h</Fact>
             <Fact label="Time spent">{formatDuration(taskElapsedMs(task))}</Fact>
             <Fact label="Created by">{creator?.fullName ?? "—"}</Fact>
           </Card>
+
+          {waitsOn || pastDeadline ? (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
+              {waitsOn ? (
+                <p>
+                  {task.waitingOnTaskId ? "Starts" : "Started"} the day{" "}
+                  <span className="font-medium text-ink-muted">“{waitsOn.title}”</span>{" "}
+                  {task.waitingOnTaskId ? `is approved (now ${waitsOn.status})` : "was approved"},
+                  and is due {task.durationDays ?? 0} working day
+                  {task.durationDays === 1 ? "" : "s"} after that.
+                  {task.waitingOnTaskId
+                    ? " Dates are projected from its due date and move with it."
+                    : ""}
+                </p>
+              ) : null}
+              {pastDeadline && project ? (
+                <p className="text-st-rejected">
+                  Due after the project deadline ({formatDate(project.deadline)}).
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {/*
             An unassigned content task, for the Content Writers' Team Leader

@@ -6,11 +6,12 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconEdit, IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Avatar, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
+import { Avatar, Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
+import { projectedAfter } from "@/lib/dependencies";
 import {
   CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
@@ -59,6 +60,18 @@ interface TaskDraft {
   contentCount: number;
   /** Content tasks only: the CB type of each piece, by slot (0015). */
   contentTypes: ContentType[];
+  /**
+   * Working days from start to due. In a step-by-step project this is all a
+   * task after the first is given; its dates follow the chain (0014).
+   */
+  durationDays: number;
+}
+
+/** Where a task sits in a step-by-step chain: after `after`, on these dates. */
+interface ChainLink {
+  after: TaskDraft;
+  startDate: string;
+  dueDate: string;
 }
 
 /**
@@ -73,7 +86,6 @@ interface TaskDraft {
  */
 interface TemplateDraft extends TaskDraft {
   startOffsetDays: number;
-  durationDays: number;
   tags: string[];
   datesPinned: boolean;
 }
@@ -92,21 +104,34 @@ function templateDates(
   return { startDate, dueDate };
 }
 
-/** Both kinds of draft become the same thing once the project exists. */
-const toTaskInput = (d: TaskDraft, tags: string[] = []): NewProjectTaskInput => ({
+/**
+ * Both kinds of draft become the same thing once the project exists. A link
+ * in a step-by-step chain makes the task wait on the one before it.
+ */
+const toTaskInput = (
+  d: TaskDraft,
+  tags: string[] = [],
+  link?: ChainLink,
+): NewProjectTaskInput => ({
   title: d.title.trim(),
   description: d.description,
   department: d.department,
   assigneeId: d.assigneeId || null,
   priority: d.priority,
   estimatedHours: d.estimatedHours,
-  startDate: d.startDate,
-  dueDate: d.dueDate,
+  startDate: link?.startDate ?? d.startDate,
+  dueDate: link?.dueDate ?? d.dueDate,
   tags,
   kind: d.kind,
   contentCount: d.kind === "content" ? d.contentCount : 0,
   contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
+  key: d.key,
+  dependsOnKey: link?.after.key,
+  durationDays: link ? d.durationDays : undefined,
 });
+
+/** Whole working days, never negative, from what was typed. */
+const toDays = (value: string) => Math.max(0, Math.trunc(Number(value)) || 0);
 
 /**
  * What a repeat made on `day` would be called: "<name> – October 2026", or a
@@ -145,6 +170,8 @@ interface FormState {
   clientIds: string[];
   /** A blueprint's copies are named for this month or the next (0029). */
   titleMonth: TitleMonth;
+  /** SBS: standard tasks run one after another (0014). */
+  stepByStep: boolean;
 }
 
 export function ProjectFormModal({
@@ -187,6 +214,7 @@ export function ProjectFormModal({
     propertyId: project?.propertyId ?? "",
     clientIds: project?.clientIds ?? [],
     titleMonth: project?.titleMonth ?? "current",
+    stepByStep: project?.stepByStep ?? false,
     // Older projects only carry the typed name; match it to a company if one exists.
     companyId:
       project?.companyId ??
@@ -234,6 +262,7 @@ export function ProjectFormModal({
         // it is expected to set the count actually being written.
         contentCount: kind === "content" ? 1 : 0,
         contentTypes: [],
+        durationDays: 1,
       },
     ]);
 
@@ -409,6 +438,36 @@ export function ProjectFormModal({
     [templateDrafts, form.startDate, form.deadline, db.calendar],
   );
 
+  /*
+   * SBS: the standard tasks run in the order listed, template rows first. The
+   * first keeps the dates it was given; each after it starts the day the one
+   * before is approved, so here it shows the projection from that one's due
+   * date (0014). Content tasks keep their own dates, outside the chain.
+   */
+  const chain = useMemo(() => {
+    const links = new Map<string, ChainLink>();
+    if (!form.stepByStep) return links;
+    let prev: TaskDraft | undefined;
+    for (const d of [...resolvedTemplateDrafts, ...drafts]) {
+      if (d.kind !== "standard") continue;
+      if (prev) {
+        const prevDue = links.get(prev.key)?.dueDate ?? prev.dueDate;
+        links.set(d.key, { after: prev, ...projectedAfter(prevDue, d.durationDays, db.calendar) });
+      }
+      prev = d;
+    }
+    return links;
+  }, [form.stepByStep, resolvedTemplateDrafts, drafts, db.calendar]);
+
+  /** "After “Brief” is approved · 12 Nov → 18 Nov", for a task in the chain. */
+  const chainSummary = (link: ChainLink) => (
+    <span className={cx(link.dueDate > form.deadline ? "text-st-rejected" : "text-ink-faint")}>
+      After “{link.after.title.trim() || "the task before"}” is approved ·{" "}
+      {formatDate(link.startDate)} → {formatDate(link.dueDate)} (projected)
+      {link.dueDate > form.deadline ? " · past the project deadline" : ""}
+    </span>
+  );
+
   const startBlocked = dateUnavailableReason(form.startDate, {
     config: db.calendar,
     allowPast: !!project,
@@ -459,6 +518,7 @@ export function ProjectFormModal({
       priority: form.priority,
       leaderId: form.leaderId || null,
       memberIds: form.memberIds,
+      stepByStep: form.stepByStep,
       ...(chainFromObc ? {} : chainFor(form.propertyId)),
       ...(mayRepeat
         ? {
@@ -480,8 +540,8 @@ export function ProjectFormModal({
     const created = createProjectWithTasks({
       project: payload,
       tasks: [
-        ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags)),
-        ...drafts.map((d) => toTaskInput(d)),
+        ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags, chain.get(d.key))),
+        ...drafts.map((d) => toTaskInput(d, [], chain.get(d.key))),
       ],
     });
 
@@ -672,6 +732,20 @@ export function ProjectFormModal({
           </Field>
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <Switch
+            on={form.stepByStep}
+            onChange={(v) => set("stepByStep", v)}
+            label="SBS — step by step"
+            className="self-start"
+          />
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            {project
+              ? "Tasks added to this project wait on the last one by default. Tasks already here keep their dates."
+              : "Tasks run one after another: the first has its own dates, and each after it starts the day the one before is approved and takes the days you give it. Content tasks keep their own dates."}
+          </p>
+        </div>
+
         {mayRepeat ? (
           <Field
             label="Repeat"
@@ -834,8 +908,14 @@ export function ProjectFormModal({
                               ? `Content task · ${d.contentCount} piece${d.contentCount === 1 ? "" : "s"} · `
                               : ""}
                             {d.department || "No department"} · {d.estimatedHours}h ·{" "}
-                            {formatDate(d.startDate)} → {formatDate(d.dueDate)}
-                            {d.datesPinned ? " · dates set by hand" : ""}
+                            {chain.get(d.key) ? (
+                              chainSummary(chain.get(d.key)!)
+                            ) : (
+                              <>
+                                {formatDate(d.startDate)} → {formatDate(d.dueDate)}
+                                {d.datesPinned ? " · dates set by hand" : ""}
+                              </>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-start gap-1.5">
@@ -956,32 +1036,51 @@ export function ProjectFormModal({
                             </Select>
                           </div>
 
-                          <div className="grid gap-2.5 sm:grid-cols-2">
-                            <DatePicker
-                              value={d.startDate}
-                              onChange={(v) =>
-                                setTemplateDraft(d.key, {
-                                  startDate: v,
-                                  dueDate: d.dueDate < v ? v : d.dueDate,
-                                  datesPinned: true,
-                                })
-                              }
-                              config={db.calendar}
-                              min={form.startDate}
-                              max={form.deadline}
-                              allowPast
-                            />
-                            <DatePicker
-                              value={d.dueDate}
-                              onChange={(v) =>
-                                setTemplateDraft(d.key, { dueDate: v, datesPinned: true })
-                              }
-                              config={db.calendar}
-                              min={d.startDate > form.startDate ? d.startDate : form.startDate}
-                              max={form.deadline}
-                              allowPast
-                            />
-                          </div>
+                          {chain.get(d.key) ? (
+                            <label className="flex items-center gap-2 text-[12px] text-ink-muted">
+                              Days to complete
+                              <span className="w-24">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={String(d.durationDays)}
+                                  onChange={(e) =>
+                                    setTemplateDraft(d.key, {
+                                      durationDays: toDays(e.target.value),
+                                    })
+                                  }
+                                  aria-label="Working days for this task"
+                                />
+                              </span>
+                            </label>
+                          ) : (
+                            <div className="grid gap-2.5 sm:grid-cols-2">
+                              <DatePicker
+                                value={d.startDate}
+                                onChange={(v) =>
+                                  setTemplateDraft(d.key, {
+                                    startDate: v,
+                                    dueDate: d.dueDate < v ? v : d.dueDate,
+                                    datesPinned: true,
+                                  })
+                                }
+                                config={db.calendar}
+                                min={form.startDate}
+                                max={form.deadline}
+                                allowPast
+                              />
+                              <DatePicker
+                                value={d.dueDate}
+                                onChange={(v) =>
+                                  setTemplateDraft(d.key, { dueDate: v, datesPinned: true })
+                                }
+                                config={db.calendar}
+                                min={d.startDate > form.startDate ? d.startDate : form.startDate}
+                                max={form.deadline}
+                                allowPast
+                              />
+                            </div>
+                          )}
 
                           <DurationField
                             valueHours={d.estimatedHours}
@@ -1130,24 +1229,44 @@ export function ProjectFormModal({
                       />
                     </div>
 
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      <DatePicker
-                        value={d.startDate}
-                        onChange={(v) => setDraft(d.key, { startDate: v })}
-                        config={db.calendar}
-                        min={form.startDate}
-                        max={form.deadline}
-                        allowPast
-                      />
-                      <DatePicker
-                        value={d.dueDate}
-                        onChange={(v) => setDraft(d.key, { dueDate: v })}
-                        config={db.calendar}
-                        min={d.startDate > form.startDate ? d.startDate : form.startDate}
-                        max={form.deadline}
-                        allowPast
-                      />
-                    </div>
+                    {chain.get(d.key) ? (
+                      <div className="flex flex-col gap-1.5">
+                        <label className="flex items-center gap-2 text-[12px] text-ink-muted">
+                          Days to complete
+                          <span className="w-24">
+                            <Input
+                              type="number"
+                              min="0"
+                              value={String(d.durationDays)}
+                              onChange={(e) =>
+                                setDraft(d.key, { durationDays: toDays(e.target.value) })
+                              }
+                              aria-label={`Working days for task ${i + 1}`}
+                            />
+                          </span>
+                        </label>
+                        <p className="text-[11px]">{chainSummary(chain.get(d.key)!)}</p>
+                      </div>
+                    ) : (
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        <DatePicker
+                          value={d.startDate}
+                          onChange={(v) => setDraft(d.key, { startDate: v })}
+                          config={db.calendar}
+                          min={form.startDate}
+                          max={form.deadline}
+                          allowPast
+                        />
+                        <DatePicker
+                          value={d.dueDate}
+                          onChange={(v) => setDraft(d.key, { dueDate: v })}
+                          config={db.calendar}
+                          min={d.startDate > form.startDate ? d.startDate : form.startDate}
+                          max={form.deadline}
+                          allowPast
+                        />
+                      </div>
+                    )}
 
                     <div className="grid gap-2.5 sm:grid-cols-2">
                       <Select

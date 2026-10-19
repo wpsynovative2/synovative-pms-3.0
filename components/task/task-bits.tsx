@@ -103,8 +103,14 @@ export function RecurrenceBadge({
   );
 }
 
-/** Red overdue flag — due date passed and not yet Approved (§5.3). */
+/**
+ * Red overdue flag — due date passed and not yet Approved (§5.3). A task still
+ * waiting on another one's approval reads as waiting instead (0014).
+ */
 export function OverdueBadge({ task }: { task: Task }) {
+  if (task.waitingOnTaskId) {
+    return <Badge className="border-line bg-surface-2 text-ink-faint">Waiting</Badge>;
+  }
   if (task.status === "Approved" || task.dueDate >= todayISO()) return null;
   return (
     <Badge className="border-st-rejected/40 bg-st-rejected/20 text-st-rejected">
@@ -147,7 +153,8 @@ export function ProjectChip({
 }
 
 export function DueDate({ task }: { task: Task }) {
-  const overdue = task.status !== "Approved" && task.dueDate < todayISO();
+  const overdue =
+    task.status !== "Approved" && !task.waitingOnTaskId && task.dueDate < todayISO();
   return (
     <span
       className={cx("text-[11px]", overdue ? "text-st-rejected" : "text-ink-muted")}

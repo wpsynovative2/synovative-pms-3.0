@@ -53,6 +53,10 @@ export function TimerControls({
     task.status === "Approved" ||
     task.status === "Submitted" ||
     task.status === "Waiting for Client Response";
+  // Nor before the task it waits on is approved (0014).
+  const waitingOn = task.waitingOnTaskId
+    ? db.tasks.find((t) => t.id === task.waitingOnTaskId)
+    : undefined;
 
   const tryStart = () => {
     const other = findRunningTaskForUser(db.tasks, currentUser.id);
@@ -92,6 +96,10 @@ export function TimerControls({
 
       {!mine ? (
         <span className="text-[11px] text-ink-faint">Assignee only</span>
+      ) : waitingOn && !running ? (
+        <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
+          Starts once “{waitingOn.title}” is approved
+        </span>
       ) : finished ? (
         <span className="text-[11px] text-ink-faint">
           {task.status === "Submitted"

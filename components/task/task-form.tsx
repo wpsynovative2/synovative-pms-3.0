@@ -10,11 +10,17 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input, Select, cx } from "@/components/ui/primitives";
+import { Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
+import {
+  chainTail,
+  dependencyCandidates,
+  dependentDates,
+  workingDaysOn,
+} from "@/lib/dependencies";
 import {
   CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
@@ -81,8 +87,23 @@ export function TaskFormModal({
   /** Opened from the Recurrence page: a repeating blueprint, rule required. */
   recurring?: boolean;
 }) {
-  const { db, currentUser, createTask, updateTask } = useStore();
+  const { db, blueprints, currentUser, createTask, updateTask } = useStore();
   const calendar = db.calendar;
+
+  // The project's other tasks, which this one may wait on (0014). A
+  // blueprint's tasks live outside `db`.
+  const projectTasks = useMemo(
+    () =>
+      project && mode === "project"
+        ? [...db.tasks, ...blueprints.tasks].filter((t) => t.projectId === project.id)
+        : [],
+    [db.tasks, blueprints.tasks, project, mode],
+  );
+  // A new task in a step-by-step project waits on the last one by default.
+  const sbsTail = !task && project?.stepByStep ? chainTail(projectTasks) : undefined;
+  const [dependsOn, setDependsOn] = useState(task ? !!task.dependsOnTaskId : !!sbsTail);
+  const [waitsOnId, setWaitsOnId] = useState(task?.dependsOnTaskId ?? sbsTail?.id ?? "");
+  const [durationDays, setDurationDays] = useState(String(task?.durationDays ?? 1));
 
   const initialDepartment =
     task?.department ?? defaultDepartment ?? db.departments[0] ?? "";
@@ -168,6 +189,36 @@ export function TaskFormModal({
     ? { min: project.startDate, max: project.deadline }
     : {};
 
+  /*
+   * A standard project task may wait on another task in the project: it
+   * starts the day that one is approved and runs `durationDays` working days.
+   * Its dates are worked out, not picked - the database recomputes them the
+   * same way (0014).
+   */
+  const mayDepend = mode === "project" && !!project && !isContent;
+  const dependent = mayDepend && dependsOn;
+  const candidates = useMemo(
+    () => dependencyCandidates(task?.id ?? null, projectTasks),
+    [task?.id, projectTasks],
+  );
+  const waitsOn = dependent ? candidates.find((t) => t.id === waitsOnId) : undefined;
+  const days = Number(durationDays);
+  const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
+  const planned =
+    waitsOn && daysValid
+      ? task && task.dependsOnTaskId === waitsOn.id && waitsOn.status === "Approved"
+        ? // Already under way: a new length moves the due date, never the start.
+          {
+            startDate: task.startDate,
+            dueDate:
+              days === task.durationDays
+                ? task.dueDate
+                : workingDaysOn(task.startDate, days, calendar),
+          }
+        : dependentDates(waitsOn, days, calendar)
+      : null;
+  const plannedPastDeadline = !!planned && !!project && planned.dueDate > project.deadline;
+
   const startBlocked = dateUnavailableReason(form.startDate, {
     config: calendar,
     ...bounds,
@@ -186,12 +237,17 @@ export function TaskFormModal({
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
         : undefined,
-    startDate: startBlocked ?? undefined,
-    dueDate:
-      dueBlocked ??
-      (form.dueDate < form.startDate
-        ? "The due date must be on or after the start date."
-        : undefined),
+    // A dependent task's dates are worked out, so there is nothing to check.
+    startDate: dependent ? undefined : (startBlocked ?? undefined),
+    dueDate: dependent
+      ? undefined
+      : (dueBlocked ??
+        (form.dueDate < form.startDate
+          ? "The due date must be on or after the start date."
+          : undefined)),
+    waitsOn: dependent && !waitsOn ? "Pick the task this one waits on." : undefined,
+    durationDays:
+      dependent && !daysValid ? "Enter the working days it takes — 0 or more." : undefined,
     repeat: mayRepeat
       ? repeat
         ? ruleError(repeat, form.startDate)
@@ -235,13 +291,15 @@ export function TaskFormModal({
       assigneeId: form.assigneeId || null,
       status: form.status,
       priority: form.priority,
-      startDate: form.startDate,
-      dueDate: form.dueDate,
+      startDate: planned?.startDate ?? form.startDate,
+      dueDate: planned?.dueDate ?? form.dueDate,
       estimatedHours: hours,
       tags: form.tags,
       kind: isContent ? ("content" as const) : ("standard" as const),
       contentCount: isContent ? pieces : 0,
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
+      dependsOnTaskId: dependent ? waitsOnId : null,
+      durationDays: dependent ? days : null,
       ...(mayRepeat
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
@@ -457,35 +515,125 @@ export function TaskFormModal({
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field
-            label="Start date"
-            required
-            error={touched ? errors.startDate : undefined}
-          >
-            <DatePicker
-              value={form.startDate}
-              onChange={(v) => {
-                set("startDate", v);
-                if (form.dueDate < v) set("dueDate", v);
+        {mayDepend ? (
+          <div className="flex flex-col gap-1.5">
+            <Switch
+              on={dependsOn}
+              onChange={(on) => {
+                setDependsOn(on);
+                if (on && !waitsOnId) setWaitsOnId(chainTail(candidates)?.id ?? "");
               }}
-              config={calendar}
-              min={bounds.min}
-              max={bounds.max}
-              allowPast={!!task}
+              label="Waits on another task"
+              className="self-start"
             />
-          </Field>
+            <p className="text-[11px] text-ink-faint">
+              {project?.stepByStep && !task
+                ? "Step-by-step project: a new task waits on the last one by default."
+                : "Starts the day the task it waits on is approved, and runs for the days you give it."}
+            </p>
+          </div>
+        ) : null}
 
-          <Field label="Due date" required error={touched ? errors.dueDate : undefined}>
-            <DatePicker
-              value={form.dueDate}
-              onChange={(v) => set("dueDate", v)}
-              config={calendar}
-              min={bounds.min && form.startDate > bounds.min ? form.startDate : (bounds.min ?? form.startDate)}
-              max={bounds.max}
-              allowPast={!!task}
-            />
-          </Field>
+        {dependent ? (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field
+              label="Waits on"
+              required
+              className="sm:col-span-2"
+              hint={candidates.length ? undefined : "This project has no other tasks yet."}
+              error={touched ? errors.waitsOn : undefined}
+            >
+              <SearchSelect
+                options={candidates.map((t) => ({
+                  value: t.id,
+                  label: t.title,
+                  hint: `${t.status} · due ${formatDate(t.dueDate)}`,
+                }))}
+                value={waitsOnId}
+                onChange={setWaitsOnId}
+                placeholder="Pick a task in this project"
+              />
+            </Field>
+            <Field
+              label="Days to complete"
+              required
+              hint="Working days from its start to its due date."
+              error={touched ? errors.durationDays : undefined}
+            >
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+                placeholder="e.g. 4"
+              />
+            </Field>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          {dependent ? (
+            <div
+              className={cx(
+                "flex flex-col justify-center gap-1 rounded-lg border px-3 py-2 text-[11px] leading-relaxed sm:col-span-2",
+                plannedPastDeadline
+                  ? "border-st-rejected/30 bg-st-rejected/10 text-st-rejected"
+                  : "border-line bg-surface-2 text-ink-faint",
+              )}
+            >
+              {waitsOn && planned ? (
+                <>
+                  <span>
+                    {waitsOn.status === "Approved"
+                      ? `“${waitsOn.title}” is already approved, so this starts straight away.`
+                      : `Starts the day “${waitsOn.title}” is approved. Until then these dates are projected from its due date.`}
+                  </span>
+                  <span className="font-medium text-ink">
+                    {formatDate(planned.startDate)} → {formatDate(planned.dueDate)}
+                  </span>
+                  {plannedPastDeadline && project ? (
+                    <span>
+                      Runs past the project deadline ({formatDate(project.deadline)}).
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                <span>Pick the task it waits on and how many days it takes to see its dates.</span>
+              )}
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Start date"
+                required
+                error={touched ? errors.startDate : undefined}
+              >
+                <DatePicker
+                  value={form.startDate}
+                  onChange={(v) => {
+                    set("startDate", v);
+                    if (form.dueDate < v) set("dueDate", v);
+                  }}
+                  config={calendar}
+                  min={bounds.min}
+                  max={bounds.max}
+                  allowPast={!!task}
+                />
+              </Field>
+
+              <Field label="Due date" required error={touched ? errors.dueDate : undefined}>
+                <DatePicker
+                  value={form.dueDate}
+                  onChange={(v) => set("dueDate", v)}
+                  config={calendar}
+                  min={bounds.min && form.startDate > bounds.min ? form.startDate : (bounds.min ?? form.startDate)}
+                  max={bounds.max}
+                  allowPast={!!task}
+                />
+              </Field>
+            </>
+          )}
 
           <Field
             label="Estimated effort"
@@ -530,7 +678,7 @@ export function TaskFormModal({
           <TagsInput value={form.tags} onChange={(v) => set("tags", v)} />
         </Field>
 
-        {mode === "project" && project ? (
+        {mode === "project" && project && !dependent ? (
           <p
             className={cx(
               "flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px] leading-relaxed",

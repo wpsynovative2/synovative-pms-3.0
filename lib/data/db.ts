@@ -265,6 +265,7 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       recurrence: readSeries(r),
       series: readLink(r),
       titleMonth: (r.title_month === "upcoming" ? "upcoming" : "current") as Project["titleMonth"],
+      stepByStep: r.step_by_step === true,
       companyId: nullable(r.company_id),
       clientId: nullable(r.client_id),
       clientIds: Array.isArray(r.client_ids)
@@ -339,6 +340,8 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       kind: (r.kind as Task["kind"]) ?? "standard",
       contentCount: num(r.content_count),
       contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
+      dependsOnTaskId: nullable(r.depends_on_task_id),
+      durationDays: r.duration_days === null || r.duration_days === undefined ? null : num(r.duration_days),
       startDate: dateOnly(r.start_date),
       dueDate: dateOnly(r.due_date),
       estimatedHours: num(r.estimated_hours),
@@ -930,6 +933,7 @@ export function projectRow(p: Omit<Project, "services" | "memberIds" | "recurren
     priority: p.priority,
     leader_id: p.leaderId,
     title_month: p.titleMonth ?? "current",
+    step_by_step: p.stepByStep ?? false,
     company_id: p.companyId,
     client_id: p.clientId,
     client_ids: p.clientIds,
@@ -956,6 +960,8 @@ export function taskRow(
     | "kind"
     | "contentCount"
     | "contentTypes"
+    | "dependsOnTaskId"
+    | "durationDays"
   >,
 ) {
   return {
@@ -967,6 +973,8 @@ export function taskRow(
     kind: t.kind,
     content_count: t.contentCount,
     content_types: t.contentTypes,
+    depends_on_task_id: t.dependsOnTaskId ?? null,
+    duration_days: t.dependsOnTaskId ? (t.durationDays ?? 0) : null,
     assignee_id: t.assigneeId,
     status: t.status,
     priority: t.priority,
@@ -998,6 +1006,7 @@ export const PROJECT_COLUMNS: Record<string, string> = {
   priority: "priority",
   leaderId: "leader_id",
   titleMonth: "title_month",
+  stepByStep: "step_by_step",
   companyId: "company_id",
   clientId: "client_id",
   clientIds: "client_ids",
@@ -1019,6 +1028,8 @@ export const TASK_COLUMNS: Record<string, string> = {
   tags: "tags",
   contentCount: "content_count",
   contentTypes: "content_types",
+  dependsOnTaskId: "depends_on_task_id",
+  durationDays: "duration_days",
 };
 
 export const EXPENSE_COLUMNS: Record<string, string> = {

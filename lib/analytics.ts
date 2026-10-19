@@ -13,13 +13,15 @@ import type {
 
 /**
  * A task is late only while the delay is still ours. Approved work is done,
- * work parked with the client is waiting on them, and work submitted on or
+ * work parked with the client is waiting on them, work still waiting on
+ * another task's approval cannot have started (0014), and work submitted on or
  * before its due date is waiting on a reviewer — none of those are the
  * assignee's to answer for. Mirrors task_is_overdue() in the database.
  */
 export function isOverdue(t: Task): boolean {
   if (t.status === "Approved" || t.status === "Waiting for Client Response") return false;
   if (t.dueDate >= todayISO()) return false;
+  if (t.waitingOnTaskId) return false;
   if (t.status === "Submitted") {
     const latest = t.submissions.reduce((at, s) => (s.at > at ? s.at : at), "");
     if (latest && latest.slice(0, 10) <= t.dueDate) return false;

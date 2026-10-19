@@ -314,6 +314,18 @@ Pausing skips the dates it covers rather than banking them. Deleting a blueprint
 ends the series and keeps everything it created. Only Super Admin / Admin /
 Manager may set a rule (`canSetRecurrence`).
 
+**Dependencies and step-by-step projects (`0014`).** A standard project task
+can wait on another task in its project: it starts the day that task is
+approved and is due `durationDays` working days later. Until then its dates are
+a projection from the predecessor's due date, maintained by triggers down the
+whole chain, and it cannot be timed or submitted. The store derives
+`waitingOnTaskId` (`markWaiting`) from the statuses on screen, which is what
+the timer, the Waiting badge and `isOverdue` read. An SBS project is the same
+mechanism laid out by the project form: its standard tasks wait on each other
+in the order listed (content tasks stay outside), and a new task added later
+defaults to waiting on the last one. Dependent dates may run past the project
+deadline; that is flagged, not clamped.
+
 **Templates → project (§13).** Applying a template on the create-project form
 pre-fills the project *and* seeds an editable list of task rows. Rows follow
 the project window as the start date moves, until someone sets a date by hand
@@ -416,6 +428,7 @@ Since the current baseline:
 | `0011_system_inventory.sql` | System Inventory ([Archi-inventory.md](Archi-inventory.md)): `workstations`, `inventory_items`, `inventory_events` (trigger-written history), `inventory_counters` (asset ID numbers, unreadable). Guards keep each item in one place and its status in step; moves go through `inventory_install` / `_place` / `_remove` / `_assign_workstation`. `can_manage_inventory()` (Super Admin, Admin), `can_view_inventory()` (global managers), `my_inventory_item_ids()` for a person's own desk. Mirrors `canManageInventory` / `canViewInventory` |
 | `0012_content_delivery_date.sql` | `content_bank.delivery_date`, set through `set_content_delivery_date()` by the piece's writer, global managers, the Project Leader or a Content Writers Team Leader. Mirrors `canSetContentDelivery` |
 | `0013_bde_crm_phones.sql` | `crm_phone_numbers()` also answers the Business Development Executives department (`is_business_exec()`); the phone columns stay unselectable. Mirrors `canSeeCrmPhones` |
+| `0014_task_dependencies.sql` | `tasks.depends_on_task_id` / `duration_days` and `projects.step_by_step` (SBS). A standard project task waiting on another in its project carries projected dates (`schedule_dependent_task`) until that task is approved, when `follow_task_dependency` sets start = approval day, due = `add_working_days(start, duration_days)` and notifies the assignee. Waiting tasks cannot be timed or submitted (`guard_waiting_task`), are never overdue (`task_is_overdue`, `notify_due_and_overdue`), and recurring copies keep their links (`generate_recurring_occurrences`). Mirrors `lib/dependencies.ts` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 

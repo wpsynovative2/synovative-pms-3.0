@@ -133,6 +133,11 @@ export interface Project {
    */
   titleMonth?: TitleMonth;
   /**
+   * Step by step (SBS, 0014): the standard tasks run one after another, each
+   * starting the day the one before it is approved. False when not given.
+   */
+  stepByStep?: boolean;
+  /**
    * The CRM chain this project came from. All null for work raised by hand;
    * filled in when a New OBC is converted (§CRM).
    */
@@ -250,6 +255,19 @@ export interface Task {
    * Count 1). A missing entry means Static Design (0015).
    */
   contentTypes: ContentType[];
+  /**
+   * A standard project task can wait on another task in its project (0014): it
+   * starts the day that task is approved and is due `durationDays` working days
+   * later. Until then its dates are projected and it cannot be started.
+   */
+  dependsOnTaskId?: string | null;
+  /** Working days from start to due; set whenever `dependsOnTaskId` is. */
+  durationDays?: number | null;
+  /**
+   * `dependsOnTaskId` while that task is not yet approved, else null. Derived
+   * by the store from what is on screen, never stored (see markWaiting).
+   */
+  waitingOnTaskId?: string | null;
   createdBy: string;
   createdAt: string;
   sessions: TimeSession[];

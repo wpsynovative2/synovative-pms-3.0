@@ -2,6 +2,7 @@
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { todayISO } from "./calendar";
+import { markWaiting } from "./dependencies";
 import { splitBlueprints } from "./recurrence";
 import {
   createContext,
@@ -515,7 +516,15 @@ export type NewProjectTaskInput = Pick<
 > &
   // As with NewTaskInput: a plain task says nothing and gets one, and only a
   // content task fills these in.
-  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes">>;
+  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes" | "durationDays">> & {
+    /**
+     * Rows of one project wait on each other before any of them has an id, so
+     * a row names the one it waits on by the caller's key (0014). The row
+     * waited on comes first.
+     */
+    key?: string;
+    dependsOnKey?: string;
+  };
 
 export interface ProjectWithTasksInput {
   project: NewProjectInput;
@@ -820,13 +829,22 @@ const StoreContext = createContext<StoreValue | null>(null);
 /**
  * The opening tasks of a project being created, with every date clamped to the
  * project window here rather than at each call site — a form that laid a task
- * out against an older deadline can never push one outside it.
+ * out against an older deadline can never push one outside it. A task waiting
+ * on another is the exception: its dates follow the chain, and running past
+ * the deadline is flagged rather than squeezed (0014).
  */
 function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[] {
   const clamp = (iso: string) =>
     iso < project.startDate ? project.startDate : iso > project.deadline ? project.deadline : iso;
-  return tasks.map((input) => {
-    const startDate = clamp(input.startDate);
+  const ids = tasks.map(() => newId());
+  const idByKey = new Map(tasks.flatMap((t, i) => (t.key ? [[t.key, ids[i]] as const] : [])));
+  return tasks.map((row, i) => {
+    const { key, dependsOnKey, ...input } = row;
+    void key;
+    const dependsOnTaskId =
+      input.kind !== "content" && dependsOnKey ? (idByKey.get(dependsOnKey) ?? null) : null;
+    const startDate = dependsOnTaskId ? input.startDate : clamp(input.startDate);
+    const dueDate = input.dueDate < startDate ? startDate : input.dueDate;
     return {
       ...input,
       // After the spread, not before it: a caller passing `kind: undefined`
@@ -834,11 +852,13 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
       kind: input.kind ?? "standard",
       contentCount: input.kind === "content" ? (input.contentCount ?? 0) : 0,
       contentTypes: input.kind === "content" ? (input.contentTypes ?? []) : [],
-      id: newId(),
+      dependsOnTaskId,
+      durationDays: dependsOnTaskId ? (input.durationDays ?? 0) : null,
+      id: ids[i],
       projectId: project.id,
       status: "Not Started" as const,
       startDate,
-      dueDate: clamp(input.dueDate < startDate ? startDate : input.dueDate),
+      dueDate: dependsOnTaskId ? dueDate : clamp(dueDate),
       createdBy: me(),
       createdAt: now(),
       sessions: [],
@@ -2817,7 +2837,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Blueprints are taken out once here, so no page has to remember to.
   const { db, blueprints } = useMemo(() => {
-    const split = splitBlueprints(everything.projects, everything.tasks);
+    // Which tasks are still waiting is worked out here too, from the statuses
+    // on screen, so every page reads it off the task (0014).
+    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks));
     const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
     return {
       db: {

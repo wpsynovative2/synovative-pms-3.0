@@ -525,8 +525,10 @@ export function TaskRow({
 function DueCell({ task }: { task: Task }) {
   const today = todayISO();
   const done = task.status === "Approved";
+  // A waiting task's date is a projection, so it is never late (0014).
+  const waiting = !!task.waitingOnTaskId;
   const late =
-    !done && task.dueDate < today ? daysBetween(task.dueDate, today) : 0;
+    !done && !waiting && task.dueDate < today ? daysBetween(task.dueDate, today) : 0;
   return (
     <span className="flex flex-col leading-tight">
       <span
@@ -551,6 +553,8 @@ function DueCell({ task }: { task: Task }) {
           ? `${late} day${late === 1 ? "" : "s"} late`
           : done
             ? "Done"
+            : waiting
+              ? "Projected"
             : task.dueDate === today
               ? "Due today"
               : `in ${daysBetween(today, task.dueDate)} day${daysBetween(today, task.dueDate) === 1 ? "" : "s"}`}
