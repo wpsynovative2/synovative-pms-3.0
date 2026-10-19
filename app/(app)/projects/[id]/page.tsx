@@ -10,6 +10,7 @@ import {
 } from "@/components/expense/expense-dialogs";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
+import { ProjectDriveControls } from "@/components/project/project-drive";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -328,6 +329,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                   </Badge>
                 </span>
               ))}
+              {/* A project selling a 3D walkthrough has its own Drive folder (0015). */}
+              <ProjectDriveControls project={project} />
             </div>
             {project.series ? (
               <p className="mt-2.5 text-[12px] text-ink-muted">

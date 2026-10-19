@@ -1,5 +1,9 @@
 import {
   WEBSITE_DEV_DEPARTMENT,
+  CLIENT_SERVICING_DEPARTMENT,
+  THREE_D_DEPARTMENT,
+  THREE_D_SERVICE,
+  type ProjectDriveArea,
   BUSINESS_DEV_DEPARTMENT,
   CONTENT_AUTHOR_DEPARTMENTS,
   CONTENT_WRITER_DEPARTMENT,
@@ -105,6 +109,38 @@ export const isProjectLeader = (u: User, p: Project) => p.leaderId === u.id;
 /** Global managers edit any project; a Project Leader edits only their own. */
 export const canEditProject = (u: User, p: Project) =>
   isGlobalManager(u) || isProjectLeader(u, p);
+
+/* ------------------------------------------------------- project Drive */
+
+/**
+ * A project selling a 3D walkthrough can have a Drive folder made for it, by
+ * whoever may edit the project or the 3D Artists' Team Leader. The folder
+ * holds two areas. Mirrors can_create_project_drive() (0015).
+ */
+export const projectNeedsDrive = (p: Project) => p.services.includes(THREE_D_SERVICE);
+export const canCreateProjectDrive = (u: User, p: Project) =>
+  projectNeedsDrive(p) &&
+  (canEditProject(u, p) || (isTeamLeader(u) && u.departments.includes(THREE_D_DEPARTMENT)));
+
+/**
+ * Who sees each area of a project's Drive folder, in the PMS: CSF is for
+ * client servicing (the Project Managers desk), Super Admin, Admin, Manager and
+ * the 3D Artists' Team Leader; 3D Team is for the 3D Artists department only.
+ * The folders are not shared on Drive itself - this decides what the PMS shows
+ * and lets you upload to. The Drive API routes check it again server-side.
+ */
+export function canUseProjectDriveArea(
+  u: Pick<User, "role" | "departments">,
+  area: ProjectDriveArea,
+): boolean {
+  const threeD = u.departments.includes(THREE_D_DEPARTMENT);
+  if (area === "team3d") return threeD;
+  return (
+    GLOBAL_MANAGERS.includes(u.role) ||
+    u.departments.includes(CLIENT_SERVICING_DEPARTMENT) ||
+    (u.role === "team_leader" && threeD)
+  );
+}
 
 export const canDeleteProject = (u: User, p: Project) =>
   isGlobalManager(u) || isProjectLeader(u, p);

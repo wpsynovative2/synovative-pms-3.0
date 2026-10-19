@@ -34,6 +34,7 @@ cp .env.example .env.local
 | `SUPABASE_SERVICE_ROLE_KEY` | Project Settings → API (`service_role`) — **secret** | server only: user management, `create-admin` |
 | `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | Cloudinary dashboard — optional | server only: signing bill uploads |
 | `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_DRIVE_PARENT_FOLDER_ID` | Google Cloud service account — optional | server only: creating a property's Drive folders |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` / `GOOGLE_3D_FOLDER_ID` | Google Cloud OAuth client (Desktop app); refresh token from `npm run google-auth` — optional | server only: 3D projects' Drive folders and media uploads, as the agency account |
 | `ZOHO_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Zoho API console — optional | server only: reading quotes onto an OBC |
 
 Without the Supabase values the app shows a setup screen instead of failing.

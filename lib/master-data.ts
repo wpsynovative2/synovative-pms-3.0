@@ -40,6 +40,20 @@ export const SMM_DEPARTMENT = "Social Media Marketing";
 /** Builds and looks after client websites, and holds their logins (0020). */
 export const WEBSITE_DEV_DEPARTMENT = "Website Developers";
 
+/**
+ * A project selling a 3D walkthrough gets a Drive folder with two areas: CSF,
+ * for client servicing - which is the Project Managers desk - and 3D Team, for
+ * the artists. See canUseProjectDriveArea.
+ */
+export const THREE_D_SERVICE = "3D Walkthrough Animation";
+export const THREE_D_DEPARTMENT = "3D Artists";
+export const CLIENT_SERVICING_DEPARTMENT = "Project Managers";
+export const PROJECT_DRIVE_AREAS = {
+  csf: "CSF",
+  team3d: "3D Team",
+} as const;
+export type ProjectDriveArea = keyof typeof PROJECT_DRIVE_AREAS;
+
 /** Departments allowed to write in the Content Bank. */
 export const CONTENT_AUTHOR_DEPARTMENTS = [
   CONTENT_WRITER_DEPARTMENT,

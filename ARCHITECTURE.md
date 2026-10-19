@@ -429,6 +429,7 @@ Since the current baseline:
 | `0012_content_delivery_date.sql` | `content_bank.delivery_date`, set through `set_content_delivery_date()` by the piece's writer, global managers, the Project Leader or a Content Writers Team Leader. Mirrors `canSetContentDelivery` |
 | `0013_bde_crm_phones.sql` | `crm_phone_numbers()` also answers the Business Development Executives department (`is_business_exec()`); the phone columns stay unselectable. Mirrors `canSeeCrmPhones` |
 | `0014_task_dependencies.sql` | `tasks.depends_on_task_id` / `duration_days` and `projects.step_by_step` (SBS). A standard project task waiting on another in its project carries projected dates (`schedule_dependent_task`) until that task is approved, when `follow_task_dependency` sets start = approval day, due = `add_working_days(start, duration_days)` and notifies the assignee. Waiting tasks cannot be timed or submitted (`guard_waiting_task`), are never overdue (`task_is_overdue`, `notify_due_and_overdue`), and recurring copies keep their links (`generate_recurring_occurrences`). Mirrors `lib/dependencies.ts` |
+| `0015_project_drive_folders.sql` | `projects.drive_folder_id` / `drive_csf_folder_id` / `drive_team3d_folder_id` for a project selling "3D Walkthrough Animation", recorded once through `set_project_drive_folders()`, guarded by `can_create_project_drive()` (global managers, the Project Leader, the 3D Artists' Team Leader). Mirrors `canCreateProjectDrive`; who sees CSF / 3D Team is `canUseProjectDriveArea`, re-checked by the Drive routes |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
@@ -534,7 +535,8 @@ All three are optional — the app degrades rather than breaking.
 | Service | Used for | Without it |
 | --- | --- | --- |
 | Cloudinary | expense bill uploads | everything works except attaching bills |
-| Google Drive | a property's media folder tree | "Create Directory" is disabled |
+| Google Drive (service account) | a property's media folder tree | "Create Directory" is disabled |
+| Google Drive (agency account) | a 3D project's folder, its CSF / 3D Team areas, media uploads | "Create Drive folder" is refused |
 | Zoho CRM | pulling quote lines onto an OBC | OBC lines are typed by hand |
 
 Each has a server route that checks the caller first
@@ -543,6 +545,15 @@ and never lets a secret reach the browser. The Drive route reads folder names
 from the database rather than the request, so a caller cannot build folders for
 a property they cannot see. The Zoho route re-checks the Business Development
 department server-side.
+
+Project media goes through the **agency account**, not the service account: a
+service account owns no storage, so Google refuses its uploads into a personal
+Drive. `lib/google/agency-drive.ts` signs in with a refresh token minted once by
+`npm run google-auth` (as Zoho does), and the browser PUTs each file straight
+to a resumable session the server opened — media never passes through Vercel.
+`lib/google/project-drive.ts` checks, for every listing and upload, that the
+caller can see the project, may use that area, and that the folder really sits
+under 3D Operation Work.
 
 The **service-role key** is used in exactly two places: the `/api/admin/users`
 routes (after `requireCaller` has checked the caller's role and seniority) and

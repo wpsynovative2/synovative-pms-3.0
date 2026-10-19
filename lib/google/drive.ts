@@ -68,7 +68,7 @@ async function accessToken(config: DriveConfig): Promise<string> {
 }
 
 /** Drive's query language has no parameter binding; only quotes need escaping. */
-const escape = (name: string) => name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+export const escape = (name: string) => name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
 export interface DriveFolderResult {
   name: string;
@@ -76,13 +76,13 @@ export interface DriveFolderResult {
   url: string;
 }
 
-const folderUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`;
+export const folderUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`;
 
 /**
  * Returns the folder of this name under `parentId`, creating it only if it is
  * not already there. That is what makes "Create Directory" safe to press twice.
  */
-async function findOrCreate(
+export async function findOrCreate(
   token: string,
   parentId: string,
   name: string,
@@ -120,7 +120,7 @@ async function findOrCreate(
   return { name, folderId: id, url: folderUrl(id) };
 }
 
-async function driveError(res: Response): Promise<string> {
+export async function driveError(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as {
     error?: { message?: string };
   } | null;

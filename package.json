@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "create-admin": "node --env-file=.env.local scripts/create-admin.mjs",
+    "google-auth": "node --env-file=.env.local scripts/google-auth.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

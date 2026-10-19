@@ -266,6 +266,9 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       series: readLink(r),
       titleMonth: (r.title_month === "upcoming" ? "upcoming" : "current") as Project["titleMonth"],
       stepByStep: r.step_by_step === true,
+      driveFolderId: str(r.drive_folder_id),
+      driveCsfFolderId: str(r.drive_csf_folder_id),
+      driveTeam3dFolderId: str(r.drive_team3d_folder_id),
       companyId: nullable(r.company_id),
       clientId: nullable(r.client_id),
       clientIds: Array.isArray(r.client_ids)

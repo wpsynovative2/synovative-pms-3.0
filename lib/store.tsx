@@ -647,6 +647,13 @@ export interface DriveResult {
   folders: { name: string; folderId: string; url: string }[];
 }
 
+/** What the project Drive route hands back: the folder and its two areas (0015). */
+export interface ProjectDriveFolders {
+  folderId: string;
+  csfFolderId: string;
+  team3dFolderId: string;
+}
+
 type Result = Promise<{ ok: boolean; error?: string }>;
 
 interface StoreValue {
@@ -775,6 +782,7 @@ interface StoreValue {
   deleteProperty: (id: string) => void;
   /** Records the folder tree the Drive route just created. */
   saveDriveFolders: (propertyId: string, result: DriveResult) => void;
+  saveProjectDrive: (projectId: string, folders: ProjectDriveFolders) => void;
 
   createObc: (input: ObcInput) => Obc;
   updateObc: (id: string, patch: Partial<ObcInput>) => void;
@@ -2259,6 +2267,39 @@ const crmActions = {
           );
         }
       },
+    );
+  },
+
+  /**
+   * Records a project's Drive folder and its CSF / 3D Team areas, once the
+   * Drive route has made them (0015). Through a function, because the 3D
+   * Artists' Team Leader may do this but cannot update projects directly.
+   */
+  saveProjectDrive(projectId: string, folders: ProjectDriveFolders) {
+    void commit(
+      ["projects"],
+      (db) => ({
+        ...db,
+        projects: db.projects.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                driveFolderId: folders.folderId,
+                driveCsfFolderId: folders.csfFolderId,
+                driveTeam3dFolderId: folders.team3dFolderId,
+              }
+            : p,
+        ),
+      }),
+      (c) =>
+        run(
+          c.rpc("set_project_drive_folders", {
+            p_project_id: projectId,
+            p_folder_id: folders.folderId,
+            p_csf_folder_id: folders.csfFolderId,
+            p_team3d_folder_id: folders.team3dFolderId,
+          }),
+        ),
     );
   },
 

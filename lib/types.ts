@@ -138,6 +138,13 @@ export interface Project {
    */
   stepByStep?: boolean;
   /**
+   * Its Drive folder and the two areas inside it, for a project selling a 3D
+   * walkthrough (0015). Empty until "Create Drive folder" is pressed.
+   */
+  driveFolderId?: string;
+  driveCsfFolderId?: string;
+  driveTeam3dFolderId?: string;
+  /**
    * The CRM chain this project came from. All null for work raised by hand;
    * filled in when a New OBC is converted (§CRM).
    */
