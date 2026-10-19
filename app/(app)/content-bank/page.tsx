@@ -406,7 +406,7 @@ export default function ContentBankPage() {
 
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput
-          className="max-w-md flex-1"
+          className="max-w-md min-w-72 flex-1"
           placeholder="Search captions, on-pic lines and content…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
