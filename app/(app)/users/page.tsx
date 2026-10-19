@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { IconEdit, IconPlus, IconTrash, IconUser, IconUsers } from "@/components/ui/icons";
 import { ButtonLoader } from "@/components/ui/loader";
@@ -36,6 +37,7 @@ import { ROLE_LABEL, type Role, type User } from "@/lib/types";
 export default function UsersPage() {
   const { db, currentUser, createUser, updateUser, deleteUser, showToast } = useStore();
   const user = currentUser!;
+  const router = useRouter();
 
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -169,12 +171,19 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {filtered.map((u) => (
-                <tr key={u.id} className="border-t border-line-soft hover:bg-surface-2">
+                <tr
+                  key={u.id}
+                  // The row opens the person's work: their projects and tasks.
+                  onClick={() => router.push(`/users/${u.id}`)}
+                  className="cursor-pointer border-t border-line-soft hover:bg-surface-2"
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <Avatar name={u.fullName} size={30} />
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] text-ink">{u.fullName}</div>
+                        <div className="truncate text-[13px] text-ink hover:text-brand-bright">
+                          {u.fullName}
+                        </div>
                         <div className="truncate text-[11px] text-ink-faint">{u.email}</div>
                       </div>
                     </div>
@@ -223,7 +232,7 @@ export default function UsersPage() {
                       Since {formatDate(u.createdAt.slice(0, 10))}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1.5">
                       {/* Seniority decides this: an HR Admin can't touch an
                           Admin or a Super Admin, an Admin can't touch a Super
