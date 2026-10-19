@@ -6,6 +6,7 @@ import {
   ContentCard,
   ContentDetailScreen,
   ContentTableHeader,
+  PipelineSwitch,
 } from "@/components/content/content-view";
 import { ProjectCard } from "@/components/project/project-card";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
@@ -80,6 +81,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
   const [taskStatus, setTaskStatus] = useState<TaskStatusFilter>("all");
   const [contentRole, setContentRole] = useState<ContentRole>("all");
   const [contentStage, setContentStage] = useState("all");
+  const [showPipeline, setShowPipeline] = useState(true);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -332,6 +334,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
                 </option>
               ))}
             </Select>
+            <PipelineSwitch on={showPipeline} onChange={setShowPipeline} />
           </>
         ) : null}
         {taskView && handable.length ? (
@@ -485,6 +488,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
                     key={e.id}
                     entry={e}
                     showProject={false}
+                    showJourney={showPipeline}
                     onOpen={() => setOpenEntryId(e.id)}
                   />
                 ))}

@@ -347,10 +347,11 @@ export const canManageCrm = (u: User) => isGlobalManager(u) || isBusinessExec(u)
 export const canViewClientsModule = (u: User) => isGlobalManager(u);
 
 /**
- * Company phone numbers and a client's mobile / WhatsApp: Super Admin, Admin
- * and Managers only. Mirrors crm_phone_numbers() in 0009.
+ * Company phone numbers and a client's mobile / WhatsApp: Super Admin, Admin,
+ * Managers and the Business Development Executives department, who call them.
+ * Mirrors crm_phone_numbers() (0009, widened in 0013).
  */
-export const canSeeCrmPhones = (u: User) => isGlobalManager(u);
+export const canSeeCrmPhones = (u: User) => isGlobalManager(u) || isBusinessExec(u);
 
 /* ------------------------------------------------------ System Inventory */
 

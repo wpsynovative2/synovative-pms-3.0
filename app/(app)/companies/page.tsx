@@ -336,9 +336,26 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {clients.map((c) => {
+                    // Numbers for those allowed them (0013): Business
+                    // Development calls these people.
+                    const numbers = mayPhones
+                      ? [
+                          c.mobile ? `Mobile ${c.mobile}` : "",
+                          c.whatsapp && c.whatsapp !== c.mobile ? `WhatsApp ${c.whatsapp}` : "",
+                        ].filter(Boolean)
+                      : [];
                     const body = (
                       <>
-                        <span className="truncate text-ink">{c.fullName}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-ink">{c.fullName}</span>
+                          {numbers.length ? (
+                            <span className="mt-0.5 block truncate font-mono text-[11px] text-ink-muted">
+                              {numbers.join(" · ")}
+                            </span>
+                          ) : mayPhones ? (
+                            <span className="mt-0.5 block text-[11px] text-ink-faint">No number</span>
+                          ) : null}
+                        </span>
                         <span className="shrink-0 text-ink-faint">
                           {c.designation || c.role || "—"}
                         </span>

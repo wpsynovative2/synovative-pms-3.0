@@ -441,6 +441,40 @@ export function ContentTableHeader() {
   );
 }
 
+/** Shows or hides the pipeline under every row of a Content Bank table. */
+export function PipelineSwitch({
+  on,
+  onChange,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className="inline-flex h-9.5 shrink-0 items-center gap-2.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[13px] text-ink hover:border-brand-bright/40"
+    >
+      <span
+        className={cx(
+          "relative h-4.5 w-8 shrink-0 rounded-full transition-colors",
+          on ? "bg-brand-bright" : "bg-line",
+        )}
+      >
+        <span
+          className={cx(
+            "absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+            on && "translate-x-3.5",
+          )}
+        />
+      </span>
+      Pipeline
+    </button>
+  );
+}
+
 /** The dot before a piece: its status at a glance. */
 const STAGE_DOT: Record<string, string> = {
   none: "bg-ink-faint/50",

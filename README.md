@@ -79,6 +79,7 @@ Added since the current baseline (run on every database):
 | `0010_inventory_notification.sql` | Notification type for System Inventory (run before 0011) |
 | `0011_system_inventory.sql` | System Inventory: workstations, components with unique asset IDs, history ([Archi-inventory.md](Archi-inventory.md)) |
 | `0012_content_delivery_date.sql` | A delivery date on each Content Bank piece, set from its page |
+| `0013_bde_crm_phones.sql` | Business Development Executives see CRM phone numbers too |
 
 ### 4. The first Super Admin
 

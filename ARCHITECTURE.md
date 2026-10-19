@@ -415,6 +415,7 @@ Since the current baseline:
 | `0010_inventory_notification.sql` | `notification_type` gains `inventory_assigned` (own file: run before 0011) |
 | `0011_system_inventory.sql` | System Inventory ([Archi-inventory.md](Archi-inventory.md)): `workstations`, `inventory_items`, `inventory_events` (trigger-written history), `inventory_counters` (asset ID numbers, unreadable). Guards keep each item in one place and its status in step; moves go through `inventory_install` / `_place` / `_remove` / `_assign_workstation`. `can_manage_inventory()` (Super Admin, Admin), `can_view_inventory()` (global managers), `my_inventory_item_ids()` for a person's own desk. Mirrors `canManageInventory` / `canViewInventory` |
 | `0012_content_delivery_date.sql` | `content_bank.delivery_date`, set through `set_content_delivery_date()` by the piece's writer, global managers, the Project Leader or a Content Writers Team Leader. Mirrors `canSetContentDelivery` |
+| `0013_bde_crm_phones.sql` | `crm_phone_numbers()` also answers the Business Development Executives department (`is_business_exec()`); the phone columns stay unselectable. Mirrors `canSeeCrmPhones` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
