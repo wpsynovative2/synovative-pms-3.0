@@ -117,6 +117,9 @@ export default function ContentBankPage() {
   const [progress, setProgress] = useState<"" | "started" | "not-started">("");
   const [sort, setSort] = useState<SortKey>("newest");
   const [groupBy, setGroupBy] = useState<GroupKey>("project");
+  // The pipeline under each piece shows by default; the switch hides it for a
+  // tighter table.
+  const [showPipeline, setShowPipeline] = useState(true);
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
@@ -536,6 +539,28 @@ export default function ContentBankPage() {
             </option>
           ))}
         </Select>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showPipeline}
+          onClick={() => setShowPipeline((v) => !v)}
+          className="inline-flex h-9.5 items-center gap-2.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[13px] text-ink hover:border-brand-bright/40"
+        >
+          <span
+            className={cx(
+              "relative h-4.5 w-8 shrink-0 rounded-full transition-colors",
+              showPipeline ? "bg-brand-bright" : "bg-line",
+            )}
+          >
+            <span
+              className={cx(
+                "absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+                showPipeline && "translate-x-3.5",
+              )}
+            />
+          </span>
+          Pipeline
+        </button>
         {filtering ? (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
@@ -606,6 +631,7 @@ export default function ContentBankPage() {
                     // spent on who the piece is waiting on; otherwise it names
                     // the project.
                     showProject={groupBy !== "project"}
+                    showJourney={showPipeline}
                     onOpen={() => setOpenId(e.id)}
                     actions={
                       <>

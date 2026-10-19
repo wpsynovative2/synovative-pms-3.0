@@ -457,12 +457,15 @@ export function ContentCard({
   onOpen,
   actions,
   showProject = true,
+  showJourney = true,
 }: {
   entry: ContentEntry;
   onOpen: () => void;
   actions?: React.ReactNode;
   /** Off where the list is already filed under the project. */
   showProject?: boolean;
+  /** The pipeline under the row; the Content Bank can switch it off. */
+  showJourney?: boolean;
 }) {
   const { db, currentUser, userById, projectById, setContentDeliveryDate } = useStore();
   const user = currentUser!;
@@ -613,7 +616,9 @@ export function ContentCard({
         </div>
 
         {/* The pipeline, under the row it belongs to. */}
-        <ContentJourney entry={entry} className="mt-3 border-t border-dashed border-line-soft pt-3" />
+        {showJourney ? (
+          <ContentJourney entry={entry} className="mt-3 border-t border-dashed border-line-soft pt-3" />
+        ) : null}
       </div>
     </div>
   );
