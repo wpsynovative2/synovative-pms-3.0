@@ -193,8 +193,8 @@ Finance still cannot verify an expense.
 - `canViewProject` / `can_see_project`: global managers see everything; a
   Project Leader sees theirs; **anyone holding ≥ 1 task in a project sees all
   of that project's tasks**; a Team Leader additionally sees every project
-  their department has work in. Being listed in `memberIds` grants nothing on
-  its own.
+  their department has work in, or that lists them in `memberIds` (`0017`).
+  For anyone else, being listed in `memberIds` grants nothing on its own.
 - `assignedTaskScope`: the `/tasks` page lists only *your* tasks for everyone
   except global managers. Wider access still exists where the work needs it
   (the project page, the review queue).
@@ -431,6 +431,7 @@ Since the current baseline:
 | `0014_task_dependencies.sql` | `tasks.depends_on_task_id` / `duration_days` and `projects.step_by_step` (SBS). A standard project task waiting on another in its project carries projected dates (`schedule_dependent_task`) until that task is approved, when `follow_task_dependency` sets start = approval day, due = `add_working_days(start, duration_days)` and notifies the assignee. Waiting tasks cannot be timed or submitted (`guard_waiting_task`), are never overdue (`task_is_overdue`, `notify_due_and_overdue`), and recurring copies keep their links (`generate_recurring_occurrences`). Mirrors `lib/dependencies.ts` |
 | `0015_project_drive_folders.sql` | `projects.drive_folder_id` / `drive_csf_folder_id` / `drive_team3d_folder_id` for a project selling "3D Walkthrough Animation", recorded once through `set_project_drive_folders()`, guarded by `can_create_project_drive()` (global managers, the Project Leader, the 3D Artists' Team Leader). Mirrors `canCreateProjectDrive`; who sees CSF / 3D Team is `canUseProjectDriveArea`, re-checked by the Drive routes |
 | `0016_task_assignment.sql` | `assign_task()` / `can_assign_task()`: a Team Leader may hand any task of a project they can see to someone in its department (assignee only; the rest stays `can_edit_task`), resetting it to Not Started and closing the old assignee's timer; not while Submitted, with the client or Approved. `task_assignments`, written by the `tasks_record_assignment` trigger on every assignee change from any path, backfilled with each task's current assignee. Mirrors `canAssignTask` |
+| `0017_team_leader_members.sql` | `can_see_project()` / `my_project_ids()`: a Team Leader listed in `project_members` sees the project, so they can create its tasks and assign them (0016). Membership still grants nothing to anyone else. Mirrors `canViewProject` / `myProjects` (`isTeamLeaderMember`) |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 

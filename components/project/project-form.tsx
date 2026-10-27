@@ -836,7 +836,7 @@ export function ProjectFormModal({
 
         <Field
           label="Team Members"
-          hint="Optional — for reference. Members see the project once they hold a task in it."
+          hint="Optional. A Team Leader added here sees the project straight away and can create and allot its tasks; anyone else sees it once they hold a task in it."
         >
           <MultiSelect
             options={userOptions.filter((o) => o.value !== form.leaderId)}

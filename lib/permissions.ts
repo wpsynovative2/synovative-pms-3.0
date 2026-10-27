@@ -106,6 +106,10 @@ export const canCreateProjects = (u: User) => isGlobalManager(u);
 
 export const isProjectLeader = (u: User, p: Project) => p.leaderId === u.id;
 
+/** A Team Leader listed among the project's Team Members (0017). */
+export const isTeamLeaderMember = (u: User, p: Project) =>
+  isTeamLeader(u) && p.memberIds.includes(u.id);
+
 /** Global managers edit any project; a Project Leader edits only their own. */
 export const canEditProject = (u: User, p: Project) =>
   isGlobalManager(u) || isProjectLeader(u, p);
@@ -168,6 +172,9 @@ export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   ) {
     return true;
   }
+  // A Team Leader put on the project's team sees it, so they can raise and
+  // hand out its tasks (0017). For anyone else membership grants nothing.
+  if (isTeamLeaderMember(u, p)) return true;
   // The Content Writers' and Social Media Marketing Team Leaders also follow
   // every project with a content task, whatever department it is filed under
   // (0025, 0028).
@@ -185,6 +192,7 @@ export function myProjects(u: User, projects: Project[], tasks: Task[]): Project
   return projects.filter(
     (p) =>
       isProjectLeader(u, p) ||
+      isTeamLeaderMember(u, p) ||
       tasks.some((t) => t.projectId === p.id && t.assigneeId === u.id),
   );
 }
