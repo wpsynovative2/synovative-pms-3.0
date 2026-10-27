@@ -65,9 +65,15 @@ interface TaskDraft {
    * task after the first is given; its dates follow the chain (0014).
    */
   durationDays: number;
+  /**
+   * The task above this one that it waits on, outside SBS; "" when it keeps
+   * its own dates. Only a standard task listed higher up counts, so a stale
+   * key - that task removed or made a content task - simply drops the wait.
+   */
+  waitsOnKey: string;
 }
 
-/** Where a task sits in a step-by-step chain: after `after`, on these dates. */
+/** A task waiting on `after` - by SBS or by choice - and its projected dates. */
 interface ChainLink {
   after: TaskDraft;
   startDate: string;
@@ -263,6 +269,7 @@ export function ProjectFormModal({
         contentCount: kind === "content" ? 1 : 0,
         contentTypes: [],
         durationDays: 1,
+        waitsOnKey: "",
       },
     ]);
 
@@ -413,6 +420,7 @@ export function ProjectFormModal({
         ...templateDates(item, form.startDate, deadline, db.calendar),
         startOffsetDays: item.startOffsetDays,
         durationDays: item.durationDays,
+        waitsOnKey: "",
         tags: item.tags,
         datesPinned: false,
       })),
@@ -438,26 +446,72 @@ export function ProjectFormModal({
     [templateDrafts, form.startDate, form.deadline, db.calendar],
   );
 
+  /** The standard tasks in the order listed, template rows first. */
+  const standardDrafts = useMemo(
+    () => [...resolvedTemplateDrafts, ...drafts].filter((d) => d.kind === "standard"),
+    [resolvedTemplateDrafts, drafts],
+  );
+
   /*
-   * SBS: the standard tasks run in the order listed, template rows first. The
-   * first keeps the dates it was given; each after it starts the day the one
-   * before is approved, so here it shows the projection from that one's due
-   * date (0014). Content tasks keep their own dates, outside the chain.
+   * Which tasks wait on which. SBS: each standard task after the first waits
+   * on the one before it (0014). Otherwise a task waits only where its switch
+   * is on, on a task listed above it. Either way it starts the day that one is
+   * approved, so here it shows the projection from that one's due date.
+   * Content tasks keep their own dates and are never waited on.
    */
   const chain = useMemo(() => {
     const links = new Map<string, ChainLink>();
-    if (!form.stepByStep) return links;
-    let prev: TaskDraft | undefined;
-    for (const d of [...resolvedTemplateDrafts, ...drafts]) {
-      if (d.kind !== "standard") continue;
-      if (prev) {
-        const prevDue = links.get(prev.key)?.dueDate ?? prev.dueDate;
-        links.set(d.key, { after: prev, ...projectedAfter(prevDue, d.durationDays, db.calendar) });
-      }
-      prev = d;
-    }
+    standardDrafts.forEach((d, i) => {
+      const after = form.stepByStep
+        ? standardDrafts[i - 1]
+        : standardDrafts.slice(0, i).find((x) => x.key === d.waitsOnKey);
+      if (!after) return;
+      // Always listed above, so its own projection is already in.
+      const afterDue = links.get(after.key)?.dueDate ?? after.dueDate;
+      links.set(d.key, { after, ...projectedAfter(afterDue, d.durationDays, db.calendar) });
+    });
     return links;
-  }, [form.stepByStep, resolvedTemplateDrafts, drafts, db.calendar]);
+  }, [form.stepByStep, standardDrafts, db.calendar]);
+
+  /**
+   * The "Waits on another task" switch and picker for a standard task with
+   * one listed above it. Under SBS the order decides, so it isn't offered.
+   */
+  const waitsOnControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => {
+    const earlier = standardDrafts.slice(
+      0,
+      standardDrafts.findIndex((x) => x.key === d.key),
+    );
+    if (form.stepByStep || d.kind !== "standard" || earlier.length === 0) return null;
+    const link = chain.get(d.key);
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Switch
+          on={!!link}
+          // Starts on the task just above, the usual case; changeable below.
+          onChange={(on) => update({ waitsOnKey: on ? earlier[earlier.length - 1].key : "" })}
+          label="Waits on another task"
+          className="self-start"
+        />
+        {link ? (
+          <SearchSelect
+            options={earlier.map((x) => ({
+              value: x.key,
+              label: x.title.trim() || "Untitled task",
+              hint: x.department || "No department",
+            }))}
+            value={link.after.key}
+            onChange={(v) => update({ waitsOnKey: v })}
+            placeholder="Pick a task above"
+          />
+        ) : (
+          <p className="text-[11px] text-ink-faint">
+            Starts the day the task it waits on is approved, and runs for the days you give it.
+          </p>
+        )}
+      </div>
+    );
+  };
 
   /** "After “Brief” is approved · 12 Nov → 18 Nov", for a task in the chain. */
   const chainSummary = (link: ChainLink) => (
@@ -1036,23 +1090,28 @@ export function ProjectFormModal({
                             </Select>
                           </div>
 
+                          {waitsOnControls(d, (patch) => setTemplateDraft(d.key, patch))}
+
                           {chain.get(d.key) ? (
-                            <label className="flex items-center gap-2 text-[12px] text-ink-muted">
-                              Days to complete
-                              <span className="w-24">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  value={String(d.durationDays)}
-                                  onChange={(e) =>
-                                    setTemplateDraft(d.key, {
-                                      durationDays: toDays(e.target.value),
-                                    })
-                                  }
-                                  aria-label="Working days for this task"
-                                />
-                              </span>
-                            </label>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="flex items-center gap-2 text-[12px] text-ink-muted">
+                                Days to complete
+                                <span className="w-24">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={String(d.durationDays)}
+                                    onChange={(e) =>
+                                      setTemplateDraft(d.key, {
+                                        durationDays: toDays(e.target.value),
+                                      })
+                                    }
+                                    aria-label="Working days for this task"
+                                  />
+                                </span>
+                              </label>
+                              <p className="text-[11px]">{chainSummary(chain.get(d.key)!)}</p>
+                            </div>
                           ) : (
                             <div className="grid gap-2.5 sm:grid-cols-2">
                               <DatePicker
@@ -1228,6 +1287,8 @@ export function ProjectFormModal({
                         placeholder="Nobody yet"
                       />
                     </div>
+
+                    {waitsOnControls(d, (patch) => setDraft(d.key, patch))}
 
                     {chain.get(d.key) ? (
                       <div className="flex flex-col gap-1.5">
