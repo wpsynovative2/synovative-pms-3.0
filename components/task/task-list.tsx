@@ -198,12 +198,14 @@ export function TaskFilters({
         placeholder="Search tasks or tags…"
         aria-label="Search tasks"
         value={value.query}
+        active={!!value.query.trim()}
         onChange={(e) => set("query", e.target.value)}
       />
 
       <Select
         className="w-auto min-w-36"
         value={value.status}
+        active={value.status !== "all"}
         onChange={(e) =>
           set("status", e.target.value as TaskFilterState["status"])
         }
@@ -222,6 +224,7 @@ export function TaskFilters({
       <Select
         className="w-auto min-w-32"
         value={value.priority}
+        active={value.priority !== "all"}
         onChange={(e) =>
           set("priority", e.target.value as TaskFilterState["priority"])
         }
@@ -239,6 +242,7 @@ export function TaskFilters({
         <Select
           className="w-auto min-w-40"
           value={value.department}
+          active={value.department !== "all"}
           onChange={(e) => set("department", e.target.value)}
           aria-label="Department"
         >
@@ -255,6 +259,7 @@ export function TaskFilters({
         <Select
           className="w-auto min-w-36"
           value={value.assigneeId}
+          active={value.assigneeId !== "all"}
           onChange={(e) => set("assigneeId", e.target.value)}
           aria-label="Assignee"
         >
@@ -271,6 +276,7 @@ export function TaskFilters({
       <Select
         className="w-auto min-w-36"
         value={value.createdById}
+        active={value.createdById !== "all"}
         onChange={(e) => set("createdById", e.target.value)}
         aria-label="Allotted by"
       >
@@ -286,6 +292,7 @@ export function TaskFilters({
         <Select
           className="w-auto min-w-40"
           value={value.service}
+          active={value.service !== "all"}
           onChange={(e) => set("service", e.target.value)}
           aria-label="Service"
         >
@@ -302,6 +309,7 @@ export function TaskFilters({
         <Select
           className="w-auto min-w-40"
           value={value.projectId}
+          active={value.projectId !== "all"}
           onChange={(e) => set("projectId", e.target.value)}
           aria-label="Project"
         >
@@ -320,6 +328,7 @@ export function TaskFilters({
         <div className="w-36">
           <DatePicker
             value={value.from}
+            active={!!value.from}
             onChange={(v) => set("from", v)}
             config={db.calendar}
             ignoreWorkingRules
@@ -331,6 +340,7 @@ export function TaskFilters({
         <div className="w-36">
           <DatePicker
             value={value.to}
+            active={!!value.to}
             onChange={(v) => set("to", v)}
             config={db.calendar}
             ignoreWorkingRules

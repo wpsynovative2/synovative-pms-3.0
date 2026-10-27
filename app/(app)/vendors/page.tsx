@@ -96,6 +96,7 @@ export default function VendorsPage() {
         className="max-w-md"
         placeholder="Search vendors, services or contacts…"
         value={query}
+        active={!!query.trim()}
         onChange={(e) => setQuery(e.target.value)}
       />
 

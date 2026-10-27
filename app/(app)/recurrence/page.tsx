@@ -190,6 +190,7 @@ export default function RecurrencePage() {
           className="min-w-52"
           placeholder="Search repeats…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>

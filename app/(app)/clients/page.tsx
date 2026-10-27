@@ -137,6 +137,7 @@ function ClientsScreen() {
           className="max-w-md flex-1"
           placeholder="Search by name, email, phone or designation…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="w-60">
@@ -144,6 +145,7 @@ function ClientsScreen() {
             allowClear
             options={db.companies.map((c) => ({ value: c.id, label: c.name }))}
             value={companyId}
+            active={!!companyId}
             onChange={setCompanyId}
             placeholder="Any company"
           />

@@ -87,6 +87,7 @@ export default function WorkloadPage() {
           <Select
             className="w-auto min-w-44"
             value={department}
+            active={department !== "all"}
             onChange={(e) => setDepartment(e.target.value)}
             aria-label="Department"
           >

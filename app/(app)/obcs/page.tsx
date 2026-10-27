@@ -163,11 +163,13 @@ export default function ObcsPage() {
           className="max-w-md flex-1"
           placeholder="Search by quote name, code, company or client…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <Select
           className="w-auto min-w-40"
           value={status}
+          active={status !== "all"}
           onChange={(e) => setStatus(e.target.value as ObcStatus | "all")}
           aria-label="Status"
         >

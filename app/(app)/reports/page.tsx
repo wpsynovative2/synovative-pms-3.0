@@ -141,6 +141,7 @@ export default function ReportsPage() {
         <Select
           className="w-auto min-w-44"
           value={projectId}
+          active={projectId !== "all"}
           onChange={(e) => setProjectId(e.target.value)}
           aria-label="Project"
         >
@@ -154,6 +155,7 @@ export default function ReportsPage() {
         <Select
           className="w-auto min-w-40"
           value={department}
+          active={department !== "all"}
           onChange={(e) => setDepartment(e.target.value)}
           aria-label="Department"
         >
@@ -167,6 +169,7 @@ export default function ReportsPage() {
         <Select
           className="w-auto min-w-36"
           value={userId}
+          active={userId !== "all"}
           onChange={(e) => setUserId(e.target.value)}
           aria-label="User"
         >

@@ -328,7 +328,7 @@ function PartPicker({
   const body = (
     <div className="flex flex-col gap-4">
       <Field
-        label={heading ? "Allot to" : "Allotment to"}
+        label={heading ? "Allot to" : "Design allotment to"}
         required
         error={errors.user}
       >

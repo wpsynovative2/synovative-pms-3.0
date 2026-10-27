@@ -183,7 +183,7 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         <Fact label="Billing type">
           <Badge className={billingTone(entry.billingType)}>{entry.billingType}</Badge>
         </Fact>
-        <Fact label="Allotment to">
+        <Fact label={isStmType(entry.type) ? "Allotment to" : "Design allotment to"}>
           {mayAllot ? (
             <button
               type="button"

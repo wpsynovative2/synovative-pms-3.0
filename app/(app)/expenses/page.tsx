@@ -180,11 +180,13 @@ export default function ExpensesPage() {
           className="min-w-52 flex-1"
           placeholder="Search descriptions…"
           value={filters.query}
+          active={!!filters.query.trim()}
           onChange={(e) => set("query", e.target.value)}
         />
         <Select
           className="w-auto min-w-32"
           value={filters.status}
+          active={filters.status !== "all"}
           onChange={(e) => set("status", e.target.value)}
           aria-label="Status"
         >
@@ -196,6 +198,7 @@ export default function ExpensesPage() {
         <Select
           className="w-auto min-w-40"
           value={filters.projectId}
+          active={filters.projectId !== "all"}
           onChange={(e) => set("projectId", e.target.value)}
           aria-label="Project"
         >
@@ -209,6 +212,7 @@ export default function ExpensesPage() {
         <Select
           className="w-auto min-w-36"
           value={filters.vendorId}
+          active={filters.vendorId !== "all"}
           onChange={(e) => set("vendorId", e.target.value)}
           aria-label="Vendor"
         >
@@ -222,6 +226,7 @@ export default function ExpensesPage() {
         <div className="w-36">
           <DatePicker
             value={filters.from}
+            active={!!filters.from}
             onChange={(v) => set("from", v)}
             config={db.calendar}
             ignoreWorkingRules
@@ -233,6 +238,7 @@ export default function ExpensesPage() {
         <div className="w-36">
           <DatePicker
             value={filters.to}
+            active={!!filters.to}
             onChange={(v) => set("to", v)}
             config={db.calendar}
             ignoreWorkingRules

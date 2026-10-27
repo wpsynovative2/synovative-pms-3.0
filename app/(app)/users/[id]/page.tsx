@@ -279,12 +279,14 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
                 : "Search by task, project, department or tag…"
           }
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         {view === "projects" ? (
           <Select
             className="w-auto min-w-36"
             value={projectStatus}
+            active={projectStatus !== "all"}
             onChange={(e) => setProjectStatus(e.target.value)}
             aria-label="Project status"
           >
@@ -300,6 +302,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
           <Select
             className="w-auto min-w-36"
             value={taskStatus}
+            active={taskStatus !== "all"}
             onChange={(e) => setTaskStatus(e.target.value as TaskStatusFilter)}
             aria-label="Task status"
           >
@@ -313,6 +316,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
             <Select
               className="w-auto min-w-44"
               value={contentRole}
+              active={contentRole !== "all"}
               onChange={(e) => setContentRole(e.target.value as ContentRole)}
               aria-label="Their part"
             >
@@ -323,6 +327,7 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
             <Select
               className="w-auto min-w-36"
               value={contentStage}
+              active={contentStage !== "all"}
               onChange={(e) => setContentStage(e.target.value)}
               aria-label="Status"
             >

@@ -180,6 +180,7 @@ export default function TasksPage() {
           <Select
             className="w-auto min-w-40"
             value={taskType}
+            active={taskType !== "all"}
             onChange={(e) => setTaskType(e.target.value as TaskType)}
             aria-label="Kind of task"
           >

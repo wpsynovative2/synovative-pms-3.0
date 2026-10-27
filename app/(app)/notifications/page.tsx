@@ -130,6 +130,7 @@ export default function NotificationsPage() {
         <Select
           className="w-auto min-w-32"
           value={readFilter}
+          active={readFilter !== "all"}
           onChange={(e) => setReadFilter(e.target.value as typeof readFilter)}
           aria-label="Read state"
         >
@@ -140,6 +141,7 @@ export default function NotificationsPage() {
         <Select
           className="w-auto min-w-44"
           value={typeFilter}
+          active={typeFilter !== "all"}
           onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
           aria-label="Type"
         >

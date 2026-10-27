@@ -122,11 +122,13 @@ export default function UsersPage() {
           className="min-w-52 flex-1"
           placeholder="Search by name or email…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <Select
           className="w-auto min-w-36"
           value={roleFilter}
+          active={roleFilter !== "all"}
           onChange={(e) => setRoleFilter(e.target.value)}
           aria-label="Role"
         >
@@ -140,6 +142,7 @@ export default function UsersPage() {
         <Select
           className="w-auto min-w-44"
           value={departmentFilter}
+          active={departmentFilter !== "all"}
           onChange={(e) => setDepartmentFilter(e.target.value)}
           aria-label="Department"
         >

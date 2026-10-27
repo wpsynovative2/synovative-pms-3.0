@@ -167,6 +167,7 @@ function Departments() {
         className="max-w-md"
         placeholder="Search departments…"
         value={query}
+        active={!!query.trim()}
         onChange={(e) => setQuery(e.target.value)}
       />
 
@@ -302,6 +303,7 @@ function Services() {
         className="max-w-md"
         placeholder="Search services…"
         value={query}
+        active={!!query.trim()}
         onChange={(e) => setQuery(e.target.value)}
       />
 

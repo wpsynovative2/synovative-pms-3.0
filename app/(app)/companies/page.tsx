@@ -136,11 +136,13 @@ export default function CompaniesPage() {
           className="max-w-md flex-1"
           placeholder="Search by name, city or GSTIN…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <Select
           className="w-auto min-w-36"
           value={status}
+          active={status !== "all"}
           onChange={(e) => setStatus(e.target.value as PartyStatus | "all")}
           aria-label="Status"
         >

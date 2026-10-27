@@ -18,7 +18,7 @@ import {
   IconClose,
 } from "./icons";
 import { Popover } from "./popover";
-import { cx } from "./primitives";
+import { CONTROL_ACTIVE, cx } from "./primitives";
 
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
@@ -35,6 +35,8 @@ export interface DatePickerProps {
   disabled?: boolean;
   placeholder?: string;
   clearable?: boolean;
+  /** A filter with a date picked; tinted blue like the other filters. */
+  active?: boolean;
 }
 
 /** Why a specific cell is unavailable, or null when it can be picked. */
@@ -76,6 +78,7 @@ export function DatePicker({
   disabled,
   placeholder = "Select a date",
   clearable,
+  active,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -137,7 +140,8 @@ export function DatePicker({
         disabled={disabled}
         onClick={toggle}
         className={cx(
-          "flex h-9.5 w-full items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 text-left text-[13px] transition-colors",
+          "flex h-9.5 w-full items-center gap-2 rounded-[10px] border px-3 text-left text-[13px] transition-colors",
+          active ? CONTROL_ACTIVE : "border-line bg-surface-2",
           "focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/25 focus:outline-none",
           disabled && "cursor-not-allowed opacity-50",
         )}

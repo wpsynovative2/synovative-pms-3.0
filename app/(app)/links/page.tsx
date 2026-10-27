@@ -138,6 +138,7 @@ export default function OperationalLinksPage() {
             className="max-w-md"
             placeholder="Search groups, link names or addresses…"
             value={query}
+            active={!!query.trim()}
             onChange={(e) => setQuery(e.target.value)}
           />
           <span className="text-[12px] text-ink-faint">

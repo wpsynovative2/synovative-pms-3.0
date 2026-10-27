@@ -210,11 +210,13 @@ export default function WebsitesPage() {
           className="w-full sm:max-w-xs"
           placeholder="Search sites, URLs, companies…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="w-full sm:w-40">
           <Select
             value={status}
+            active={status !== "all"}
             onChange={(e) => setStatus(e.target.value as WebsiteStatus | "all")}
             aria-label="Status"
           >
@@ -229,6 +231,7 @@ export default function WebsitesPage() {
         <div className="w-full sm:w-44">
           <Select
             value={renewal}
+            active={renewal !== "any"}
             onChange={(e) => setRenewal(e.target.value as RenewalFilter)}
             aria-label="Renewal"
           >
@@ -241,6 +244,7 @@ export default function WebsitesPage() {
         <div className="w-full sm:w-40">
           <Select
             value={build}
+            active={build !== "all"}
             onChange={(e) => setBuild(e.target.value as WebsiteBuild | "all")}
             aria-label="Built with"
           >

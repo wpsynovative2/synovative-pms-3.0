@@ -204,10 +204,11 @@ function WorkstationsTab({ onOpen }: { onOpen: (id: string) => void }) {
           className="w-full sm:max-w-xs"
           placeholder="Search code, name, location, person…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="w-full sm:w-44">
-          <Select value={allotted} onChange={(e) => setAllotted(e.target.value as typeof allotted)} aria-label="Allotted">
+          <Select value={allotted} active={allotted !== "all"} onChange={(e) => setAllotted(e.target.value as typeof allotted)} aria-label="Allotted">
             <option value="all">Allotted or free</option>
             <option value="yes">Allotted</option>
             <option value="no">Free</option>
@@ -328,10 +329,11 @@ function ComponentsTab({ onOpen }: { onOpen: (id: string) => void }) {
           className="w-full sm:max-w-xs"
           placeholder="Search ID, serial, brand, model, person…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="w-full sm:w-44">
-          <Select value={category} onChange={(e) => setCategory(e.target.value as typeof category)} aria-label="Category">
+          <Select value={category} active={category !== "all"} onChange={(e) => setCategory(e.target.value as typeof category)} aria-label="Category">
             <option value="all">Any category</option>
             {INVENTORY_CATEGORY_LIST.map((c) => (
               <option key={c} value={c}>
@@ -341,7 +343,7 @@ function ComponentsTab({ onOpen }: { onOpen: (id: string) => void }) {
           </Select>
         </div>
         <div className="w-full sm:w-48">
-          <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Status">
+          <Select value={status} active={status !== "all"} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Status">
             <option value="all">Any status</option>
             {INVENTORY_STATUSES.map((s) => (
               <option key={s} value={s}>

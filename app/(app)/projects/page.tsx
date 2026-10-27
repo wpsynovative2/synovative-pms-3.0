@@ -195,11 +195,13 @@ export default function ProjectsPage() {
           className="min-w-52 flex-1"
           placeholder="Search projects, companies, properties, clients or tags…"
           value={filters.query}
+          active={!!filters.query.trim()}
           onChange={(e) => set("query", e.target.value)}
         />
         <Select
           className="w-auto min-w-32"
           value={filters.status}
+          active={filters.status !== "all"}
           onChange={(e) => set("status", e.target.value)}
           aria-label="Status"
         >
@@ -213,6 +215,7 @@ export default function ProjectsPage() {
         <Select
           className="w-auto min-w-32"
           value={filters.priority}
+          active={filters.priority !== "all"}
           onChange={(e) => set("priority", e.target.value)}
           aria-label="Priority"
         >
@@ -226,6 +229,7 @@ export default function ProjectsPage() {
         <Select
           className="w-auto min-w-36"
           value={filters.client}
+          active={filters.client !== "all"}
           onChange={(e) => set("client", e.target.value)}
           aria-label="Client"
         >
@@ -239,6 +243,7 @@ export default function ProjectsPage() {
         <Select
           className="w-auto min-w-40"
           value={filters.service}
+          active={filters.service !== "all"}
           onChange={(e) => set("service", e.target.value)}
           aria-label="Service"
         >
@@ -252,6 +257,7 @@ export default function ProjectsPage() {
         <Select
           className="w-auto min-w-36"
           value={filters.leaderId}
+          active={filters.leaderId !== "all"}
           onChange={(e) => set("leaderId", e.target.value)}
           aria-label="Project leader"
         >
@@ -265,6 +271,7 @@ export default function ProjectsPage() {
         <Select
           className="w-auto min-w-36"
           value={filters.memberId}
+          active={filters.memberId !== "all"}
           onChange={(e) => set("memberId", e.target.value)}
           aria-label="Team member"
         >
@@ -278,6 +285,7 @@ export default function ProjectsPage() {
         <div className="w-36">
           <DatePicker
             value={filters.from}
+            active={!!filters.from}
             onChange={(v) => set("from", v)}
             config={db.calendar}
             ignoreWorkingRules
@@ -289,6 +297,7 @@ export default function ProjectsPage() {
         <div className="w-36">
           <DatePicker
             value={filters.to}
+            active={!!filters.to}
             onChange={(v) => set("to", v)}
             config={db.calendar}
             ignoreWorkingRules

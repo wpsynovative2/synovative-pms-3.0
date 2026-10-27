@@ -141,6 +141,7 @@ export default function PropertiesPage() {
           className="max-w-md flex-1"
           placeholder="Search by name, address or MahaRERA…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="w-60">
@@ -148,6 +149,7 @@ export default function PropertiesPage() {
             allowClear
             options={db.companies.map((c) => ({ value: c.id, label: c.name }))}
             value={companyId}
+            active={!!companyId}
             onChange={setCompanyId}
             placeholder="Any company"
           />
