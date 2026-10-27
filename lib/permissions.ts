@@ -234,6 +234,23 @@ export function canEditTaskFully(
 
 export const canDeleteTask = canEditTaskFully;
 
+/** Work with a reviewer, the client, or already approved stays where it is. */
+export const ASSIGN_LOCKED_STATUSES: Task["status"][] = [
+  "Submitted",
+  "Waiting for Client Response",
+  "Approved",
+];
+
+/**
+ * Who may hand a task to someone: anyone who may edit it fully, and a Team
+ * Leader for any task of a project they can see - assigning only, the rest
+ * stays with its creator (0016). Mirrors can_assign_task().
+ */
+export function canAssignTask(u: User, task: Task, project: Project | null): boolean {
+  if (ASSIGN_LOCKED_STATUSES.includes(task.status)) return false;
+  return canEditTaskFully(u, task, project) || (isTeamLeader(u) && !!task.projectId);
+}
+
 /** Timer + remarks belong to the assignee alone (§4.2, §9.4). */
 export const isAssignee = (u: User, task: Task) => task.assigneeId === u.id;
 

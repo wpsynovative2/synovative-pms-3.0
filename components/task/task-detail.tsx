@@ -20,9 +20,11 @@ import {
   cx,
 } from "@/components/ui/primitives";
 import { RichText, RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
+import { SearchSelect } from "@/components/ui/selects";
 import { formatDate, formatDateTime, relativeTime } from "@/lib/calendar";
 import {
   canAddRemark,
+  canAssignTask,
   canDeleteTask,
   canAssignContentTask,
   canEditTaskFully,
@@ -51,8 +53,16 @@ export function TaskDetailDrawer({
   taskId: string | null;
   onClose: () => void;
 }) {
-  const { db, currentUser, taskById, projectById, userById, addRemark, deleteTask } =
-    useStore();
+  const {
+    db,
+    currentUser,
+    taskById,
+    projectById,
+    userById,
+    addRemark,
+    deleteTask,
+    assignTask,
+  } = useStore();
   const [remark, setRemark] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -93,6 +103,14 @@ export function TaskDetailDrawer({
   // project's deadline - flagged, never squeezed (0014).
   const waitsOn = task.dependsOnTaskId ? taskById(task.dependsOnTaskId) : undefined;
   const pastDeadline = !!project && task.dueDate > project.deadline;
+  // A Team Leader may hand any task of the project on, without editing it (0016).
+  const mayAssign = canAssignTask(currentUser, task, project ?? null);
+  // §9.1 - the people to pick from are the task's department.
+  const assigneeOptions = db.users
+    .filter((u) => u.active && u.departments.includes(task.department))
+    .map((u) => ({ value: u.id, label: u.fullName, avatarName: u.fullName }));
+  const assignments = [...(task.assignments ?? [])].reverse();
+  const nameOf = (id: string | null) => (id ? (userById(id)?.fullName ?? "Someone") : null);
 
   const submitRemark = () => {
     if (isRichTextEmpty(remark)) return;
@@ -156,7 +174,15 @@ export function TaskDetailDrawer({
           {/* Facts */}
           <Card className="grid grid-cols-2 gap-x-4 gap-y-3.5 p-4 sm:grid-cols-3">
             <Fact label="Assigned to">
-              {assignee ? (
+              {mayAssign ? (
+                <SearchSelect
+                  options={assigneeOptions}
+                  value={task.assigneeId ?? ""}
+                  onChange={(v) => assignTask(task.id, v || null)}
+                  placeholder="Unassigned"
+                  allowClear
+                />
+              ) : assignee ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Avatar name={assignee.fullName} size={20} />
                   <span className="truncate">{assignee.fullName}</span>
@@ -225,6 +251,47 @@ export function TaskDetailDrawer({
 
           {/* Content Bank — the writer's interface, and everyone else's link */}
           <TaskContentSection task={task} project={project ?? null} />
+
+          {/* Every change of hands, newest first (0016) */}
+          {assignments.length ? (
+            <Section title="Assignment history">
+              <ol className="flex flex-col gap-2">
+                {assignments.map((a) => {
+                  const from = nameOf(a.fromUserId);
+                  const to = nameOf(a.toUserId);
+                  return (
+                    <li
+                      key={a.id}
+                      className="flex flex-wrap items-baseline gap-x-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[12px]"
+                    >
+                      <span className="text-ink">
+                        {!from && to ? (
+                          <>
+                            Assigned to <span className="font-medium">{to}</span>
+                          </>
+                        ) : from && to ? (
+                          <>
+                            <span className="font-medium">{from}</span> →{" "}
+                            <span className="font-medium">{to}</span>
+                          </>
+                        ) : (
+                          <>
+                            Taken off <span className="font-medium">{from}</span>, now unassigned
+                          </>
+                        )}
+                      </span>
+                      <span className="text-[11px] text-ink-faint">
+                        by {nameOf(a.byUserId) ?? "the system"}
+                      </span>
+                      <span className="ml-auto text-[10px] text-ink-faint">
+                        {formatDateTime(a.at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </Section>
+          ) : null}
 
           {/* Submission & review history (§12.3) */}
           <Section

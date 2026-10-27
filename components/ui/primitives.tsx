@@ -193,10 +193,19 @@ export function Field({
   );
 }
 
-const CONTROL_BASE =
-  "w-full rounded-[10px] border border-line bg-surface-2 px-3 text-[13px] text-ink placeholder:text-ink-faint " +
+const CONTROL_SHAPE =
+  "w-full rounded-[10px] border px-3 text-[13px] text-ink placeholder:text-ink-faint " +
   "transition-colors focus:border-brand-bright focus:outline-none focus:ring-2 focus:ring-brand-bright/25 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
+const CONTROL_BASE = `${CONTROL_SHAPE} border-line bg-surface-2`;
+
+/**
+ * A filter that is narrowing the list reads blue, so it is plain at a glance
+ * which of a row of filters are on. Shared with SearchSelect.
+ */
+export const CONTROL_ACTIVE = "border-st-inprogress/60 bg-st-inprogress/15";
+const control = (active?: boolean) =>
+  active ? `${CONTROL_SHAPE} ${CONTROL_ACTIVE}` : CONTROL_BASE;
 
 export const Input = forwardRef<
   HTMLInputElement,
@@ -260,13 +269,16 @@ export const Textarea = forwardRef<
 
 export const Select = forwardRef<
   HTMLSelectElement,
-  React.SelectHTMLAttributes<HTMLSelectElement>
->(function Select({ className, children, ...rest }, ref) {
+  React.SelectHTMLAttributes<HTMLSelectElement> & {
+    /** A filter set to something other than its default; tinted blue. */
+    active?: boolean;
+  }
+>(function Select({ className, children, active, ...rest }, ref) {
   return (
     <div className="relative">
       <select
         ref={ref}
-        className={cx(CONTROL_BASE, "h-9.5 appearance-none pr-9", className)}
+        className={cx(control(active), "h-9.5 appearance-none pr-9", className)}
         {...rest}
       >
         {children}
@@ -326,15 +338,19 @@ export function Switch({
 
 export function SearchInput({
   className,
+  active,
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement>) {
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  /** Something is typed and narrowing the list; tinted blue. */
+  active?: boolean;
+}) {
   return (
     <div className={cx("relative", className)}>
       <IconSearch
         size={15}
         className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
       />
-      <input className={cx(CONTROL_BASE, "h-9.5 pl-9")} {...rest} />
+      <input className={cx(control(active), "h-9.5 pl-9")} {...rest} />
     </div>
   );
 }

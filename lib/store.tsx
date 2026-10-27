@@ -695,6 +695,8 @@ interface StoreValue {
 
   createTask: (input: NewTaskInput) => Task;
   updateTask: (id: string, patch: Partial<Task>) => void;
+  /** Hand a task to someone, or take it off them (0016). */
+  assignTask: (taskId: string, assigneeId: string | null) => void;
   deleteTask: (id: string) => void;
   addRemark: (taskId: string, text: string) => void;
 
@@ -1112,6 +1114,37 @@ const actions = {
         }
         return run(c.from("tasks").update(columns).eq("id", id));
       },
+    );
+  },
+
+  /**
+   * Hands a task to someone, or takes it off them (null), through
+   * assign_task() - the one way a Team Leader may change a task they did not
+   * create (0016). It starts again at Not Started and the old assignee's timer
+   * closes; the database records the change.
+   */
+  assignTask(taskId: string, assigneeId: string | null) {
+    const before = state.db.tasks.find((t) => t.id === taskId);
+    if (!before || (before.assigneeId ?? null) === assigneeId) return;
+    // Slots and allotted content follow the assignee (0026, 0014).
+    const contentMoves =
+      before.kind === "content" ||
+      state.db.contentEntries.some(
+        (e) => e.allottedTaskId === taskId || e.motionAllottedTaskId === taskId,
+      );
+    void commit(
+      withSlots(["tasks"], contentMoves),
+      (db) =>
+        mapTask(db, taskId, (t) => ({
+          ...closeOpenSession(t, "Switched", "Task reassigned"),
+          assigneeId,
+          status: "Not Started",
+          assignments: [
+            ...(t.assignments ?? []),
+            { id: newId(), fromUserId: t.assigneeId, toUserId: assigneeId, byUserId: me(), at: now() },
+          ],
+        })),
+      (c) => run(c.rpc("assign_task", { p_task_id: taskId, p_assignee: assigneeId })),
     );
   },
 

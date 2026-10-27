@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { IconChevronDown, IconClose, IconSearch } from "./icons";
 import { Popover } from "./popover";
-import { Avatar, cx } from "./primitives";
+import { Avatar, CONTROL_ACTIVE, cx } from "./primitives";
 
 export interface Option {
   value: string;
@@ -196,6 +196,7 @@ export function SearchSelect({
   placeholder = "Select…",
   disabled,
   allowClear,
+  active,
 }: {
   options: Option[];
   value: string;
@@ -203,6 +204,8 @@ export function SearchSelect({
   placeholder?: string;
   disabled?: boolean;
   allowClear?: boolean;
+  /** A filter set to something other than its default; tinted blue. */
+  active?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -226,7 +229,8 @@ export function SearchSelect({
           setQuery("");
         }}
         className={cx(
-          "flex h-9.5 w-full items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 text-left text-[13px] transition-colors",
+          "flex h-9.5 w-full items-center gap-2 rounded-[10px] border px-3 text-left text-[13px] transition-colors",
+          active ? CONTROL_ACTIVE : "border-line bg-surface-2",
           "focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/25 focus:outline-none",
           disabled && "cursor-not-allowed opacity-50",
         )}

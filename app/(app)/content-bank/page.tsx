@@ -68,11 +68,24 @@ type Scope = "all" | "mine" | "allotted";
 /** Stands for "nobody" in the assignee filter and "not set" in the status one. */
 const NONE = "__none__";
 
-type SortKey = "newest" | "oldest" | "assignee" | "writer" | "status";
+type SortKey =
+  | "newest"
+  | "oldest"
+  | "delivery-asc"
+  | "delivery-desc"
+  | "due-asc"
+  | "due-desc"
+  | "assignee"
+  | "writer"
+  | "status";
 
 const SORTS: { value: SortKey; label: string }[] = [
   { value: "newest", label: "Newest first" },
   { value: "oldest", label: "Oldest first" },
+  { value: "delivery-asc", label: "Delivery date, earliest first" },
+  { value: "delivery-desc", label: "Delivery date, latest first" },
+  { value: "due-asc", label: "Task deadline, earliest first" },
+  { value: "due-desc", label: "Task deadline, latest first" },
   { value: "assignee", label: "Assignee A–Z" },
   { value: "writer", label: "Writer A–Z" },
   { value: "status", label: "Status" },
@@ -240,10 +253,24 @@ export default function ContentBankPage() {
     const last = (x: string) => x || "\uffff";
     const stageRank = (e: ContentEntry) =>
       e.stage ? CONTENT_STAGES.indexOf(e.stage) : CONTENT_STAGES.length;
+    // Deadlines: the piece's own delivery date, or the due date of the
+    // writer's task. A piece with neither sorts last whichever way round.
+    const dueOf = new Map(db.tasks.map((t) => [t.id, t.dueDate]));
+    const byDate = (x: string | null | undefined, y: string | null | undefined, dir: 1 | -1) =>
+      !x && !y ? 0 : !x ? 1 : !y ? -1 : dir * x.localeCompare(y);
+    const due = (e: ContentEntry) => (e.taskId ? dueOf.get(e.taskId) : undefined);
     return (a: ContentEntry, b: ContentEntry) => {
       switch (sort) {
         case "oldest":
           return -newest(a, b);
+        case "delivery-asc":
+          return byDate(a.deliveryDate, b.deliveryDate, 1) || newest(a, b);
+        case "delivery-desc":
+          return byDate(a.deliveryDate, b.deliveryDate, -1) || newest(a, b);
+        case "due-asc":
+          return byDate(due(a), due(b), 1) || newest(a, b);
+        case "due-desc":
+          return byDate(due(a), due(b), -1) || newest(a, b);
         case "assignee":
           return (
             last(name(a.allottedTo)).localeCompare(last(name(b.allottedTo))) || newest(a, b)
@@ -256,7 +283,7 @@ export default function ContentBankPage() {
           return newest(a, b);
       }
     };
-  }, [sort, db.users]);
+  }, [sort, db.users, db.tasks]);
 
   /*
    * The library is read one project at a time - "what have we written for
@@ -410,11 +437,13 @@ export default function ContentBankPage() {
           className="max-w-md min-w-72 flex-1"
           placeholder="Search captions, on-pic lines and content…"
           value={query}
+          active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
         />
         <Select
           className="w-auto min-w-44"
           value={type}
+          active={type !== "all"}
           onChange={(e) => setType(e.target.value as ContentType | "all")}
           aria-label="CB type"
         >
@@ -428,6 +457,7 @@ export default function ContentBankPage() {
         <Select
           className="w-auto min-w-44"
           value={forMonth}
+          active={!!forMonth}
           onChange={(e) => setForMonth(e.target.value)}
           aria-label="Content for month"
         >
@@ -443,6 +473,7 @@ export default function ContentBankPage() {
             allowClear
             options={projectOptions}
             value={projectId}
+            active={!!projectId}
             onChange={setProjectId}
             placeholder="Any project"
           />
@@ -452,6 +483,7 @@ export default function ContentBankPage() {
             allowClear
             options={peopleOptions.assignees}
             value={assigneeId}
+            active={!!assigneeId}
             onChange={setAssigneeId}
             placeholder="Any assignee"
           />
@@ -461,6 +493,7 @@ export default function ContentBankPage() {
             allowClear
             options={peopleOptions.writers}
             value={writerId}
+            active={!!writerId}
             onChange={setWriterId}
             placeholder="Any writer"
           />
@@ -468,6 +501,7 @@ export default function ContentBankPage() {
         <Select
           className="w-auto min-w-40"
           value={stage}
+          active={!!stage}
           onChange={(e) => setStage(e.target.value as ContentStage | typeof NONE | "")}
           aria-label="Status"
         >
@@ -482,6 +516,7 @@ export default function ContentBankPage() {
         <Select
           className="w-auto min-w-40"
           value={placement}
+          active={!!placement}
           onChange={(e) => setPlacement(e.target.value as ContentPlacement | typeof NONE | "")}
           aria-label="Content placement"
         >
@@ -496,6 +531,7 @@ export default function ContentBankPage() {
         <Select
           className="w-auto min-w-36"
           value={progress}
+          active={!!progress}
           onChange={(e) => setProgress(e.target.value as "" | "started" | "not-started")}
           aria-label="Started or not"
         >
@@ -506,6 +542,7 @@ export default function ContentBankPage() {
         <Select
           className="w-auto min-w-36"
           value={billing}
+          active={!!billing}
           onChange={(e) => setBilling(e.target.value as ContentBillingType | "")}
           aria-label="Billing type"
         >

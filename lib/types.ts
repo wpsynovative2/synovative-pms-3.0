@@ -235,6 +235,18 @@ export interface Remark {
   text: string;
 }
 
+/** One change of hands on a task, recorded by the database (0016). */
+export interface TaskAssignment {
+  id: string;
+  /** null - it had nobody before (the first assignment). */
+  fromUserId: string | null;
+  /** null - it was taken off someone and left unassigned. */
+  toUserId: string | null;
+  /** null - done by the system, e.g. a recurring copy being made. */
+  byUserId: string | null;
+  at: string;
+}
+
 export interface Task {
   id: string;
   /** null → individual task (§10). */
@@ -281,6 +293,8 @@ export interface Task {
   submissions: Submission[];
   reviews: Review[];
   remarks: Remark[];
+  /** Every change of assignee, oldest first (0016). */
+  assignments?: TaskAssignment[];
   /** Set on a repeating individual task's source (§10 tasks only). */
   recurrence?: RecurrenceSeries | null;
   /** Set on an individual task generated from a repeating source. */

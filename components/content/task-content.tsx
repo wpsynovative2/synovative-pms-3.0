@@ -374,13 +374,13 @@ function PieceRow({
           <button
             type="button"
             onClick={() => setAllotting(true)}
-            aria-label={held ? `Allotted to ${held}. Change` : "Allot this piece"}
+            aria-label={held ? `Design allotted to ${held}. Change` : "Design allotment for this piece"}
             title={held ?? undefined}
-            className="flex min-h-9.5 w-44 shrink-0 items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 py-1 text-left text-[13px] hover:border-brand-bright/40"
+            className="flex min-h-9.5 w-52 shrink-0 items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-3 py-1 text-left text-[13px] hover:border-brand-bright/40"
           >
             {allotted ? <Avatar name={allotted.fullName} size={18} /> : null}
             <span className={cx("min-w-0 flex-1 truncate", allotted ? "text-ink" : "text-ink-faint")}>
-              {allotted ? allotted.fullName : "Allot to…"}
+              {allotted ? allotted.fullName : "Design allotment to…"}
             </span>
             <IconChevronDown size={14} className="shrink-0 text-ink-faint" />
           </button>

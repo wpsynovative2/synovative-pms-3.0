@@ -11,6 +11,7 @@ import {
 import { CollabPanel } from "@/components/collab/collab-panel";
 import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
 import { ProjectDriveControls } from "@/components/project/project-drive";
+import { AssignTasksDialog, assignableTo } from "@/components/task/assign-tasks-dialog";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { RecurrenceBadge } from "@/components/task/task-bits";
@@ -80,6 +81,7 @@ import {
   type ContentType,
   type Expense,
   type TaskStatus,
+  type User,
 } from "@/lib/types";
 
 /** One hop of the Company → Client → Property → OBC chain behind a project. */
@@ -135,6 +137,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [reviewingExpense, setReviewingExpense] = useState<Expense | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** The Team tab member whose "Assign tasks" was pressed. */
+  const [assigningTo, setAssigningTo] = useState<User | null>(null);
   const [filters, setFilters] = useState(emptyTaskFilters);
   const [taskScope, setTaskScope] = useState<TaskScope>("all");
 
@@ -840,6 +844,8 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           {[leader, ...members].filter(Boolean).map((m) => {
             const theirTasks = tasks.filter((t) => t.assigneeId === m!.id);
             const done = theirTasks.filter((t) => t.status === "Approved").length;
+            // A Team Leader (or anyone who edits the project) can hand them work (0016).
+            const canGive = assignableTo(m!, user, project, tasks).length > 0;
             return (
               <Card key={m!.id} className="p-4">
                 <div className="flex items-center gap-3">
@@ -879,10 +885,24 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                     </dd>
                   </div>
                 </dl>
+                {canGive ? (
+                  <Button size="sm" className="mt-3 w-full" onClick={() => setAssigningTo(m!)}>
+                    <IconPlus size={13} /> Assign tasks
+                  </Button>
+                ) : null}
               </Card>
             );
           })}
         </div>
+      ) : null}
+
+      {assigningTo ? (
+        <AssignTasksDialog
+          member={assigningTo}
+          project={project}
+          tasks={tasks}
+          onClose={() => setAssigningTo(null)}
+        />
       ) : null}
 
       {/* ------------------------------------------------------ Content Bank */}
@@ -918,7 +938,10 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       {/* ----------------------------------------------------------- Activity */}
       {tab === "activity" ? (
         <Card>
-          <CardHeader title="Activity" subtitle="Every submission and review on this project" />
+          <CardHeader
+            title="Activity"
+            subtitle="Every assignment, submission and review on this project"
+          />
           <ProjectActivity projectId={project.id} onOpen={setOpenTaskId} />
         </Card>
       ) : null}
@@ -1030,6 +1053,21 @@ function ProjectActivity({
           at: r.at,
           who: userById(r.byUserId)?.fullName ?? "Someone",
           detail: r.source ? `Source: ${r.source}` : undefined,
+        });
+      }
+      // Who it was handed to, and by whom (0016).
+      for (const a of t.assignments ?? []) {
+        const from = a.fromUserId ? (userById(a.fromUserId)?.fullName ?? "Someone") : null;
+        const to = a.toUserId ? (userById(a.toUserId)?.fullName ?? "Someone") : null;
+        list.push({
+          id: a.id,
+          taskId: t.id,
+          taskTitle: t.title,
+          label: !from ? "Assigned" : to ? "Reassigned" : "Unassigned",
+          tone: "text-st-inprogress",
+          at: a.at,
+          who: a.byUserId ? (userById(a.byUserId)?.fullName ?? "Someone") : "the system",
+          detail: !from ? `To ${to}` : to ? `${from} → ${to}` : `Taken off ${from}`,
         });
       }
     }

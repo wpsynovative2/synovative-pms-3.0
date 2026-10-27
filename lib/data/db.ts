@@ -27,6 +27,7 @@ import type {
   Role,
   SeriesLink,
   Submission,
+  TaskAssignment,
   Task,
   TaskTemplate,
   TaskTemplateItem,
@@ -285,12 +286,15 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
 }
 
 async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, sessions, submissions, reviews, remarks] = await Promise.all([
+  const [rows, sessions, submissions, reviews, remarks, assignments] = await Promise.all([
     fetchAll(sb, "tasks", "created_at", "id"),
     fetchAll(sb, "time_sessions", "started_at", "id"),
     fetchAll(sb, "submissions", "submitted_at", "id"),
     fetchAll(sb, "reviews", "reviewed_at", "id"),
     fetchAll(sb, "remarks", "created_at", "id"),
+    // History only (0016): a database that has not run the migration yet still
+    // loads its tasks, just without it.
+    fetchAll(sb, "task_assignments", "at", "id").catch(() => []),
   ]);
 
   const ses = groupBy<TimeSession>(sessions, "task_id", (r) => ({
@@ -320,6 +324,13 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     remarks: str(r.remarks),
     newAssigneeId: opt(r.new_assignee_id),
     newDueDate: r.new_due_date ? dateOnly(r.new_due_date) : undefined,
+  }));
+  const asg = groupBy<TaskAssignment>(assignments, "task_id", (r) => ({
+    id: str(r.id),
+    fromUserId: nullable(r.from_profile_id),
+    toUserId: nullable(r.to_profile_id),
+    byUserId: nullable(r.by_profile_id),
+    at: str(r.at),
   }));
   const rem = groupBy<Remark>(remarks, "task_id", (r) => ({
     id: str(r.id),
@@ -355,6 +366,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       submissions: sub.get(id) ?? [],
       reviews: rev.get(id) ?? [],
       remarks: rem.get(id) ?? [],
+      assignments: asg.get(id) ?? [],
       recurrence: readSeries(r),
       series: readLink(r),
     };
