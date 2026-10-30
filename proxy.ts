@@ -35,8 +35,10 @@ export async function proxy(request: NextRequest) {
 
   const { pathname, search } = request.nextUrl;
   const onLogin = pathname === "/login";
+  // Linked from Google's OAuth consent screen, so readable signed out.
+  const isPublic = pathname === "/privacy";
 
-  if (!user && !onLogin) {
+  if (!user && !onLogin && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
