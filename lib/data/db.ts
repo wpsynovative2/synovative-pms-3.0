@@ -345,6 +345,9 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     return {
       id,
       projectId: (r.project_id as string | null) ?? null,
+      companyId: nullable(r.company_id),
+      propertyId: nullable(r.property_id),
+      clientIds: (r.client_ids as string[] | null) ?? [],
       title: str(r.title),
       description: str(r.description),
       department: str(r.department),
@@ -547,7 +550,7 @@ async function loadCrm(sb: SupabaseClient): Promise<Partial<Database>> {
     fetchAll(sb, "obc_services", "obc_id", "position", "id"),
   ]);
 
-  // Only Super Admin, Admin and Managers get rows back; everyone else sees none.
+  // Only those allowed each kind get rows back (0020); everyone else sees none.
   const phones = new Map<string, { phone: string; whatsapp: string }>();
   {
     const { data } = await sb.rpc("crm_phone_numbers");
@@ -977,11 +980,17 @@ export function taskRow(
     | "contentTypes"
     | "dependsOnTaskId"
     | "durationDays"
+    | "companyId"
+    | "propertyId"
+    | "clientIds"
   >,
 ) {
   return {
     id: t.id,
     project_id: t.projectId,
+    company_id: t.companyId ?? null,
+    property_id: t.propertyId ?? null,
+    client_ids: t.clientIds ?? [],
     title: t.title,
     description: t.description,
     department: t.department,
@@ -1045,6 +1054,9 @@ export const TASK_COLUMNS: Record<string, string> = {
   contentTypes: "content_types",
   dependsOnTaskId: "depends_on_task_id",
   durationDays: "duration_days",
+  companyId: "company_id",
+  propertyId: "property_id",
+  clientIds: "client_ids",
 };
 
 export const EXPENSE_COLUMNS: Record<string, string> = {

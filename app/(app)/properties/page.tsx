@@ -40,7 +40,7 @@ import {
   CONFIG_STATUS_STYLE,
   PROPERTY_MEDIA_FOLDERS,
 } from "@/lib/master-data";
-import { canDeleteCrm, canManageCrm } from "@/lib/permissions";
+import { canDeleteCrm, canManageCrm, canSeeClients } from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type DriveResult, type PropertyInput } from "@/lib/store";
 import {
@@ -213,15 +213,17 @@ export default function PropertiesPage() {
                   ) : null}
                 </div>
 
-                <p
-                  className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-muted"
-                  title={contacts.join(", ")}
-                >
-                  <IconContact size={13} className="shrink-0" />
-                  <span className="truncate">
-                    {contacts.length ? contacts.join(", ") : "No client linked"}
-                  </span>
-                </p>
+                {canSeeClients(currentUser!) ? (
+                  <p
+                    className="mt-3 flex items-center gap-1.5 text-[12px] text-ink-muted"
+                    title={contacts.join(", ")}
+                  >
+                    <IconContact size={13} className="shrink-0" />
+                    <span className="truncate">
+                      {contacts.length ? contacts.join(", ") : "No client linked"}
+                    </span>
+                  </p>
+                ) : null}
 
                 {p.configs.length ? (
                   <ul className="mt-2.5 flex flex-wrap gap-1.5">
@@ -350,9 +352,13 @@ function PropertyDrawer({
       open
       onClose={onClose}
       title={property.name}
-      subtitle={`${company?.name ?? "Unknown company"} · ${
-        contacts.length ? contacts.join(", ") : "No client linked"
-      }`}
+      subtitle={
+        canSeeClients(user)
+          ? `${company?.name ?? "Unknown company"} · ${
+              contacts.length ? contacts.join(", ") : "No client linked"
+            }`
+          : (company?.name ?? "Unknown company")
+      }
       headerExtra={
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Badge>{property.configs.length} configurations</Badge>
@@ -509,7 +515,8 @@ function PropertyDrawer({
                   <span className="text-ink-muted">
                     {" "}
                     Clients / {company?.name ?? "Company"} /{" "}
-                    {client?.fullName ?? "Unassigned client"} / {property.name}{" "}
+                    {canSeeClients(user) ? (client?.fullName ?? "Unassigned client") : "Client"} /{" "}
+                    {property.name}{" "}
                   </span>
                   with {PROPERTY_MEDIA_FOLDERS.join(", ")} inside, then everyone uploads
                   straight into it.

@@ -33,6 +33,8 @@ import { PARTY_STATUS_STYLE } from "@/lib/master-data";
 import {
   canDeleteCrm,
   canManageCrm,
+  canSeeClientDetails,
+  canSeeClients,
   canSeeCrmPhones,
   canViewClientsModule,
 } from "@/lib/permissions";
@@ -117,12 +119,14 @@ export default function CompaniesPage() {
           value={db.companies.filter((c) => c.status === "active").length}
           tone="green"
         />
-        <StatTile
-          label="Clients on record"
-          value={db.clients.length}
-          tone="blue"
-          icon={<IconContact size={17} />}
-        />
+        {canSeeClients(user) ? (
+          <StatTile
+            label="Clients on record"
+            value={db.clients.length}
+            tone="blue"
+            icon={<IconContact size={17} />}
+          />
+        ) : null}
         <StatTile
           label="Properties"
           value={db.properties.length}
@@ -198,7 +202,9 @@ export default function CompaniesPage() {
               </dl>
 
               <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
-                <Badge>{counts.clients.get(c.id) ?? 0} clients</Badge>
+                {canSeeClients(user) ? (
+                  <Badge>{counts.clients.get(c.id) ?? 0} clients</Badge>
+                ) : null}
                 <Badge>{counts.properties.get(c.id) ?? 0} properties</Badge>
                 <div className="ml-auto flex gap-1">
                   {mayManage ? (
@@ -267,6 +273,8 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
   const { db, userById, currentUser } = useStore();
   // Names are fine to show; the contact book itself is for managers.
   const mayOpenClients = canViewClientsModule(currentUser!);
+  const maySeeClients = canSeeClients(currentUser!);
+  const mayClientDetails = canSeeClientDetails(currentUser!);
   const mayPhones = canSeeCrmPhones(currentUser!);
   const [pane, setPane] = useState<Pane>("details");
 
@@ -329,60 +337,64 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose: () => 
               ) : null}
             </Card>
 
-            <section>
-              <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                Clients ({clients.length})
-              </h3>
-              {clients.length === 0 ? (
-                <p className="text-[12px] text-ink-faint">Nobody linked yet.</p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {clients.map((c) => {
-                    // Numbers for those allowed them (0013): Business
-                    // Development calls these people.
-                    const numbers = mayPhones
-                      ? [
-                          c.mobile ? `Mobile ${c.mobile}` : "",
-                          c.whatsapp && c.whatsapp !== c.mobile ? `WhatsApp ${c.whatsapp}` : "",
-                        ].filter(Boolean)
-                      : [];
-                    const body = (
-                      <>
-                        <span className="min-w-0">
-                          <span className="block truncate text-ink">{c.fullName}</span>
-                          {numbers.length ? (
-                            <span className="mt-0.5 block truncate font-mono text-[11px] text-ink-muted">
-                              {numbers.join(" · ")}
+            {maySeeClients ? (
+              <section>
+                <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+                  Clients ({clients.length})
+                </h3>
+                {clients.length === 0 ? (
+                  <p className="text-[12px] text-ink-faint">Nobody linked yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-1.5">
+                    {clients.map((c) => {
+                      // Numbers for those allowed them (0020): Business
+                      // Development calls these people.
+                      const numbers = mayClientDetails
+                        ? [
+                            c.mobile ? `Mobile ${c.mobile}` : "",
+                            c.whatsapp && c.whatsapp !== c.mobile ? `WhatsApp ${c.whatsapp}` : "",
+                          ].filter(Boolean)
+                        : [];
+                      const body = (
+                        <>
+                          <span className="min-w-0">
+                            <span className="block truncate text-ink">{c.fullName}</span>
+                            {numbers.length ? (
+                              <span className="mt-0.5 block truncate font-mono text-[11px] text-ink-muted">
+                                {numbers.join(" · ")}
+                              </span>
+                            ) : mayClientDetails ? (
+                              <span className="mt-0.5 block text-[11px] text-ink-faint">No number</span>
+                            ) : null}
+                          </span>
+                          {mayClientDetails ? (
+                            <span className="shrink-0 text-ink-faint">
+                              {c.designation || c.role || "—"}
                             </span>
-                          ) : mayPhones ? (
-                            <span className="mt-0.5 block text-[11px] text-ink-faint">No number</span>
                           ) : null}
-                        </span>
-                        <span className="shrink-0 text-ink-faint">
-                          {c.designation || c.role || "—"}
-                        </span>
-                      </>
-                    );
-                    const box =
-                      "flex items-center justify-between gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]";
-                    return (
-                      <li key={c.id}>
-                        {mayOpenClients ? (
-                          <Link
-                            href={`/clients?client=${c.id}`}
-                            className={`${box} hover:border-brand-bright/40`}
-                          >
-                            {body}
-                          </Link>
-                        ) : (
-                          <div className={box}>{body}</div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+                        </>
+                      );
+                      const box =
+                        "flex items-center justify-between gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px]";
+                      return (
+                        <li key={c.id}>
+                          {mayOpenClients ? (
+                            <Link
+                              href={`/clients?client=${c.id}`}
+                              className={`${box} hover:border-brand-bright/40`}
+                            >
+                              {body}
+                            </Link>
+                          ) : (
+                            <div className={box}>{body}</div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            ) : null}
 
             <section>
               <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">

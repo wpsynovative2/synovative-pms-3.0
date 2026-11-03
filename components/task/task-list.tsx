@@ -19,6 +19,7 @@ import {
 } from "@/lib/master-data";
 import { daysBetween, formatShortDate, todayISO } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
+import { CrmChain, taskCrm } from "@/components/crm/crm-chain";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
 import { contentProgress } from "@/lib/types";
@@ -429,6 +430,7 @@ export function TaskRow({
   const { db, userById, projectById } = useStore();
   const assignee = userById(task.assigneeId);
   const project = task.projectId ? projectById(task.projectId) : null;
+  const crm = taskCrm(task, project);
   const elapsed = taskElapsedMs(task);
   const running = isTimerRunning(task);
   // A content task also shows how many of its pieces are written.
@@ -477,6 +479,18 @@ export function TaskRow({
                 · <DueDate task={task} />
               </span>
             </span>
+            {/* Inside a project every row would repeat the same line. The client
+                stays in the task panel, so rows don't get crowded. */}
+            {showProject ? (
+              <CrmChain
+                inline
+                className="mt-0.5"
+                companyId={crm.companyId}
+                clientId={null}
+                propertyId={crm.propertyId}
+                fallbackCompany={crm.fallbackCompany}
+              />
+            ) : null}
             {batch ? (
               <span className="mt-1.5 block max-w-56">
                 <ProgressBar

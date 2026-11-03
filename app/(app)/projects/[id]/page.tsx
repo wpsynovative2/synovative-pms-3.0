@@ -71,6 +71,7 @@ import {
   canReviewExpense,
   canViewProject,
   isMyReviewQueue,
+  canSeeClients,
   canViewClientsModule,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
@@ -225,7 +226,9 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
   }
 
   const company = companyById(project.companyId);
-  const clients = project.clientIds.map((cid) => clientById(cid)).filter((c) => !!c);
+  const clients = canSeeClients(user)
+    ? project.clientIds.map((cid) => clientById(cid)).filter((c) => !!c)
+    : [];
   const property = propertyById(project.propertyId);
   const obc = obcById(project.obcId);
 

@@ -20,7 +20,7 @@ import {
   SMM_SERVICE,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
-import { canSetRecurrence } from "@/lib/permissions";
+import { canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore, type NewProjectTaskInput } from "@/lib/store";
 import type {
@@ -337,6 +337,11 @@ export function ProjectFormModal({
       propertyId: id,
       ...(company ? { companyId: company.id, clientName: company.name } : {}),
       clientIds: (() => {
+        // Someone who may not see clients has no list to check them against,
+        // so they stay unless the company changed under them.
+        if (!currentUser || !canSeeClients(currentUser)) {
+          return company && company.id !== f.companyId ? [] : f.clientIds;
+        }
         const kept = f.clientIds.filter(
           (cid) => !company || db.clients.find((x) => x.id === cid)?.companyId === company.id,
         );
@@ -704,28 +709,30 @@ export function ProjectFormModal({
             />
           </Field>
 
-          <Field
-            label="Clients"
-            hint={
-              chainFromObc
-                ? "Set by the OBC this project was raised from."
-                : !form.companyId
-                  ? "Pick the company first."
-                  : clientContactOptions.length === 0
-                    ? "This company has no clients yet."
-                    : `${form.clientIds.length} selected`
-            }
-          >
-            <MultiSelect
-              disabled={chainFromObc || !form.companyId}
-              options={clientContactOptions}
-              value={form.clientIds}
-              onChange={(v) => set("clientIds", v)}
-              placeholder="Search clients…"
-              emptyLabel="No clients selected"
-              maxVisibleChips={3}
-            />
-          </Field>
+          {currentUser && canSeeClients(currentUser) ? (
+            <Field
+              label="Clients"
+              hint={
+                chainFromObc
+                  ? "Set by the OBC this project was raised from."
+                  : !form.companyId
+                    ? "Pick the company first."
+                    : clientContactOptions.length === 0
+                      ? "This company has no clients yet."
+                      : `${form.clientIds.length} selected`
+              }
+            >
+              <MultiSelect
+                disabled={chainFromObc || !form.companyId}
+                options={clientContactOptions}
+                value={form.clientIds}
+                onChange={(v) => set("clientIds", v)}
+                placeholder="Search clients…"
+                emptyLabel="No clients selected"
+                maxVisibleChips={3}
+              />
+            </Field>
+          ) : null}
         </div>
 
         <Field label="Project colour" required>

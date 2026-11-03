@@ -251,6 +251,13 @@ export interface Task {
   id: string;
   /** null → individual task (§10). */
   projectId: string | null;
+  /**
+   * Whose work an individual task is, all optional (0019). A project task
+   * leaves these empty and shows its project's: read them through taskCrm.
+   */
+  companyId?: string | null;
+  propertyId?: string | null;
+  clientIds?: string[];
   title: string;
   description: string;
   department: string;

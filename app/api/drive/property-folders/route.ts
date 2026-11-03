@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPropertyTree, driveConfig } from "@/lib/google/drive";
 import { PROPERTY_MEDIA_FOLDERS } from "@/lib/master-data";
-import { getServerSupabase } from "@/lib/supabase/server";
+import { getAdminSupabase, getServerSupabase } from "@/lib/supabase/server";
 import { fail, requireCaller } from "@/lib/supabase/route-auth";
 
 /**
@@ -12,6 +12,10 @@ import { fail, requireCaller } from "@/lib/supabase/route-auth";
  * The folder names are read from the database rather than the request, so a
  * caller cannot make folders for a property they cannot see. Every step is
  * find-or-create, so pressing the button twice is harmless.
+ *
+ * The client's name goes on the folder, but not everyone may read it (0020), so
+ * it comes through the service role once the property has been checked as the
+ * caller. Only Drive sees it; it is not in the response.
  */
 export async function POST(request: Request) {
   const caller = await requireCaller();
@@ -42,7 +46,11 @@ export async function POST(request: Request) {
   const [{ data: company }, { data: client }] = await Promise.all([
     sb.from("companies").select("name").eq("id", property.company_id).maybeSingle(),
     property.client_id
-      ? sb.from("clients").select("full_name").eq("id", property.client_id).maybeSingle()
+      ? getAdminSupabase()
+          .from("clients")
+          .select("full_name")
+          .eq("id", property.client_id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 

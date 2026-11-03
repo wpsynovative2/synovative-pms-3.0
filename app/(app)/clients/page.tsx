@@ -56,7 +56,7 @@ export default function ClientsPage() {
         <EmptyState
           icon={<IconContact size={30} />}
           title="You don't have access to Clients"
-          body="The client contact book is open to Super Admins, Admins and Managers."
+          body="The client contact book is open to Super Admins, Admins, Business Development and Accounts & Finance."
         />
       </Card>
     );

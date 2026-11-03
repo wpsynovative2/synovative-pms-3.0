@@ -401,16 +401,27 @@ export const canManageLinks = (u: User) => isGlobalManager(u);
 export const canManageCrm = (u: User) => isGlobalManager(u) || isBusinessExec(u);
 
 /**
- * The Clients module - the contact book, with phone numbers and emails - is
- * for Super Admin, Admin and Managers. Everyone else still sees a client's
- * name where a project or piece shows it; they just cannot open the module.
+ * Who sees that a client exists at all, wherever a project, task, company,
+ * property or piece would name one. Everyone else gets no rows from clients.
+ * Mirrors can_see_clients() (0020).
  */
-export const canViewClientsModule = (u: User) => isGlobalManager(u);
+export const canSeeClients = (u: User) =>
+  isGlobalManager(u) || isBusinessExec(u) || isFinance(u);
 
 /**
- * Company phone numbers and a client's mobile / WhatsApp: Super Admin, Admin,
- * Managers and the Business Development Executives department, who call them.
- * Mirrors crm_phone_numbers() (0009, widened in 0013).
+ * Everything held on a client - numbers, email, designation. A Manager gets
+ * the name and no more. Mirrors can_see_client_details() (0020).
+ */
+export const canSeeClientDetails = (u: User) =>
+  u.role === "super_admin" || u.role === "admin" || isBusinessExec(u) || isFinance(u);
+
+/** The Clients module is the contact book, so it goes with the details. */
+export const canViewClientsModule = canSeeClientDetails;
+
+/**
+ * Company phone numbers: Super Admin, Admin, Managers and the Business
+ * Development Executives department, who call them. A client's numbers go by
+ * canSeeClientDetails. Mirrors crm_phone_numbers() (0009, 0013, 0020).
  */
 export const canSeeCrmPhones = (u: User) => isGlobalManager(u) || isBusinessExec(u);
 

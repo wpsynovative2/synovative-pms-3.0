@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
+import { taskCrm } from "@/components/crm/crm-chain";
 import {
   IconCheck,
   IconClose,
@@ -29,12 +31,15 @@ import {
   canAssignContentTask,
   canEditTaskFully,
   canReviewTask,
+  canSeeClientDetails,
+  canSeeClients,
+  canViewClientsModule,
   isAssignee,
   visibleTasks,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
-import { contentLabel, type Review, type Submission } from "@/lib/types";
+import { contentLabel, type Client, type Review, type Submission } from "@/lib/types";
 import { AssignContentTaskBox } from "@/components/content/content-task-sharing";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
@@ -59,6 +64,9 @@ export function TaskDetailDrawer({
     taskById,
     projectById,
     userById,
+    companyById,
+    propertyById,
+    clientById,
     addRemark,
     deleteTask,
     assignTask,
@@ -88,6 +96,15 @@ export function TaskDetailDrawer({
     })),
     ...task.reviews.map<HistoryEntry>((r) => ({ kind: "review", at: r.at, data: r })),
   ].sort((a, b) => b.at.localeCompare(a.at));
+
+  // Whose work it is: the project's on a project task, its own otherwise (0019).
+  const crm = taskCrm(task, project);
+  const company = companyById(crm.companyId);
+  const companyName = company?.name ?? crm.fallbackCompany;
+  const property = propertyById(crm.propertyId);
+  const clients = canSeeClients(currentUser)
+    ? crm.clientIds.map((id) => clientById(id)).filter((c) => !!c)
+    : [];
 
   const mayEdit = canEditTaskFully(currentUser, task, project ?? null);
   const mayDelete = canDeleteTask(currentUser, task, project ?? null);
@@ -202,7 +219,51 @@ export function TaskDetailDrawer({
             <Fact label="Estimated">{task.estimatedHours}h</Fact>
             <Fact label="Time spent">{formatDuration(taskElapsedMs(task))}</Fact>
             <Fact label="Created by">{creator?.fullName ?? "—"}</Fact>
+            {companyName ? (
+              <Fact label="Company">
+                {company ? (
+                  <Link href={`/companies?company=${company.id}`} className="hover:underline">
+                    {company.name}
+                  </Link>
+                ) : (
+                  companyName
+                )}
+              </Fact>
+            ) : null}
+            {property ? (
+              <Fact label="Property">
+                <Link href={`/properties?property=${property.id}`} className="hover:underline">
+                  {property.name}
+                </Link>
+              </Fact>
+            ) : null}
+            {clients.length ? (
+              <Fact label={clients.length === 1 ? "Client" : "Clients"}>
+                {clients.map((c, i) => (
+                  <span key={c.id}>
+                    {i > 0 ? ", " : ""}
+                    {canViewClientsModule(currentUser) ? (
+                      <Link href={`/clients?client=${c.id}`} className="hover:underline">
+                        {c.fullName}
+                      </Link>
+                    ) : (
+                      c.fullName
+                    )}
+                  </span>
+                ))}
+              </Fact>
+            ) : null}
           </Card>
+
+          {clients.length && canSeeClientDetails(currentUser) ? (
+            <Section title="Client details">
+              <div className="flex flex-col gap-2">
+                {clients.map((c) => (
+                  <ClientDetails key={c.id} client={c} />
+                ))}
+              </div>
+            </Section>
+          ) : null}
 
           {waitsOn || pastDeadline ? (
             <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
@@ -442,6 +503,31 @@ export function TaskDetailDrawer({
         body="The task, its time log, submissions and reviews are removed. This cannot be undone."
       />
     </>
+  );
+}
+
+/** Everything held on a client, for those allowed it (canSeeClientDetails). */
+function ClientDetails({ client }: { client: Client }) {
+  const rows = [
+    ["Designation", client.designation],
+    ["Role", client.role ?? ""],
+    ["Status", client.status],
+    ["Mobile", client.mobile],
+    ["WhatsApp", client.whatsapp],
+    ["Email", client.email],
+  ];
+  return (
+    <Card className="p-3.5">
+      <p className="text-[13px] font-medium text-ink">{client.fullName}</p>
+      <dl className="mt-2 grid gap-x-4 gap-y-1.5 text-[12px] sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex min-w-0 gap-2">
+            <dt className="w-20 shrink-0 text-ink-faint">{label}</dt>
+            <dd className="min-w-0 truncate text-ink-muted">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </Card>
   );
 }
 

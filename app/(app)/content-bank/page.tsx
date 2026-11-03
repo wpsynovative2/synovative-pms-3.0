@@ -38,6 +38,7 @@ import {
   canEditContentEntry,
   canViewContentEntry,
   canWriteContent,
+  canSeeClients,
   canViewClientsModule,
 } from "@/lib/permissions";
 import { formatMonth } from "@/lib/calendar";
@@ -559,7 +560,7 @@ export default function ContentBankPage() {
           onChange={(e) => setGroupBy(e.target.value as GroupKey)}
           aria-label="Group by"
         >
-          {GROUPS.map((o) => (
+          {GROUPS.filter((o) => o.value !== "client" || canSeeClients(user)).map((o) => (
             <option key={o.value} value={o.value}>
               Group by: {o.label}
             </option>

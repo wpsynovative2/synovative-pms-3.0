@@ -38,6 +38,8 @@ import {
   canManageWebsites,
   canRenewWebsites,
   canSeeWebsitePasswords,
+  canSeeClientDetails,
+  canSeeClients,
 } from "@/lib/permissions";
 import { useStore, type WebsiteCredentialInput, type WebsiteInput } from "@/lib/store";
 import {
@@ -390,10 +392,11 @@ function WebsiteRow({
 
 /** Who the renewal email goes to: the linked contact, else the address on the site. */
 function useClientEmail(site: Website) {
-  const { clientById } = useStore();
+  const { currentUser, clientById } = useStore();
   const client = clientById(site.clientId);
+  const contactEmail = canSeeClientDetails(currentUser!) ? client?.email.trim() : "";
   return {
-    email: site.clientEmail.trim() || client?.email.trim() || "",
+    email: site.clientEmail.trim() || contactEmail || "",
     name: client?.fullName ?? "",
   };
 }
@@ -516,7 +519,9 @@ function WebsiteDrawer({
             )}
           </Fact>
           <Fact label="Company">{companyById(site.companyId)?.name ?? "—"}</Fact>
-          <Fact label="Client contact">{client ? client.fullName : "—"}</Fact>
+          {canSeeClients(user) ? (
+            <Fact label="Client contact">{client ? client.fullName : "—"}</Fact>
+          ) : null}
           <Fact label="Renewal email to">{email || "—"}</Fact>
           <Fact label="Project">{project?.name ?? "—"}</Fact>
           <Fact label="Built with">{site.builtWith}</Fact>
@@ -949,7 +954,7 @@ function RenewModal({ site, onClose }: { site: Website; onClose: () => void }) {
 /* ------------------------------------------------------------------ form */
 
 function WebsiteFormModal({ site, onClose }: { site?: Website; onClose: () => void }) {
-  const { db, createWebsite, updateWebsite } = useStore();
+  const { db, currentUser, createWebsite, updateWebsite } = useStore();
   const [form, setForm] = useState<WebsiteInput>(() => ({
     name: site?.name ?? "",
     url: site?.url ?? "",
@@ -1053,19 +1058,21 @@ function WebsiteFormModal({ site, onClose }: { site?: Website; onClose: () => vo
               allowClear
             />
           </Field>
-          <Field label="Client contact" hint="The renewal email is addressed to them.">
-            <SearchSelect
-              options={contacts.map((c) => ({
-                value: c.id,
-                label: c.fullName,
-                hint: c.email || undefined,
-              }))}
-              value={form.clientId ?? ""}
-              onChange={(v) => set("clientId", v || null)}
-              placeholder="Pick a contact"
-              allowClear
-            />
-          </Field>
+          {currentUser && canSeeClients(currentUser) ? (
+            <Field label="Client contact" hint="The renewal email is addressed to them.">
+              <SearchSelect
+                options={contacts.map((c) => ({
+                  value: c.id,
+                  label: c.fullName,
+                  hint: canSeeClientDetails(currentUser) ? c.email || undefined : undefined,
+                }))}
+                value={form.clientId ?? ""}
+                onChange={(v) => set("clientId", v || null)}
+                placeholder="Pick a contact"
+                allowClear
+              />
+            </Field>
+          ) : null}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

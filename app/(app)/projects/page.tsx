@@ -28,6 +28,7 @@ import {
   isGlobalManager,
   isProjectLeader,
   isTeamLeader,
+  canSeeClients,
   myProjects,
   visibleProjects,
 } from "@/lib/permissions";
@@ -127,13 +128,13 @@ export default function ProjectsPage() {
         p.clientName,
         companyById(p.companyId)?.name,
         propertyById(p.propertyId)?.name,
-        ...p.clientIds.map((id) => clientById(id)?.fullName),
+        ...(canSeeClients(user) ? p.clientIds.map((id) => clientById(id)?.fullName) : []),
         ...(tagsByProject.get(p.id) ?? []),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase(),
-    [companyById, propertyById, clientById, tagsByProject],
+    [companyById, propertyById, clientById, tagsByProject, user],
   );
 
   const filtered = useMemo(() => {

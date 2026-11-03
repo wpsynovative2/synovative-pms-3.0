@@ -13,7 +13,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
-import { SearchSelect, TagsInput } from "@/components/ui/selects";
+import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
   chainTail,
@@ -28,7 +28,7 @@ import {
   TASK_STATUSES,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
-import { canReviewTask, canSetRecurrence } from "@/lib/permissions";
+import { canReviewTask, canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
 import {
@@ -53,6 +53,10 @@ interface FormState {
   dueDate: string;
   estimatedHours: string;
   tags: string[];
+  /** Individual tasks only; a project task shows its project's (0019). */
+  companyId: string;
+  propertyId: string;
+  clientIds: string[];
 }
 
 export function TaskFormModal({
@@ -125,6 +129,9 @@ export function TaskFormModal({
     dueDate: task?.dueDate ?? firstStart,
     estimatedHours: task ? String(task.estimatedHours) : "",
     tags: task?.tags ?? [],
+    companyId: task?.companyId ?? "",
+    propertyId: task?.propertyId ?? "",
+    clientIds: task?.clientIds ?? [],
   });
   const [templateId, setTemplateId] = useState("");
   /*
@@ -170,6 +177,74 @@ export function TaskFormModal({
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  // Someone who may not see clients gets company and property only; a client
+  // already on the task stays there, unseen.
+  const showClients = !!currentUser && canSeeClients(currentUser);
+
+  const companyOptions = useMemo(
+    () =>
+      [...db.companies]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ value: c.id, label: c.name, hint: c.city || undefined })),
+    [db.companies],
+  );
+  const propertyOptions = useMemo(
+    () =>
+      db.properties
+        .filter((p) => !form.companyId || p.companyId === form.companyId)
+        .map((p) => ({ value: p.id, label: p.name })),
+    [db.properties, form.companyId],
+  );
+  const clientOptions = useMemo(
+    () =>
+      db.clients
+        .filter((c) => c.companyId === form.companyId)
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        .map((c) => ({
+          value: c.id,
+          label: c.fullName,
+          hint: c.designation || undefined,
+          avatarName: c.fullName,
+        })),
+    [db.clients, form.companyId],
+  );
+
+  const companyOfClient = (id: string) => db.clients.find((c) => c.id === id)?.companyId;
+
+  /** A property and its contacts belong to one company; changing it drops a mismatch. */
+  const pickCompany = (id: string) =>
+    setForm((f) => {
+      const property = db.properties.find((p) => p.id === f.propertyId);
+      return {
+        ...f,
+        companyId: id,
+        propertyId: property && property.companyId !== id ? "" : f.propertyId,
+        clientIds: f.clientIds.filter((c) => companyOfClient(c) === id),
+      };
+    });
+
+  /** A property implies its company, and offers its contacts when none are picked. */
+  const pickProperty = (id: string) =>
+    setForm((f) => {
+      const property = db.properties.find((p) => p.id === id);
+      if (!property) return { ...f, propertyId: "" };
+      const kept = f.clientIds.filter((c) => companyOfClient(c) === property.companyId);
+      return {
+        ...f,
+        propertyId: id,
+        companyId: property.companyId,
+        // Without the client list there is nothing to check them against, so
+        // they stay unless the company changed under them.
+        clientIds: showClients
+          ? kept.length
+            ? kept
+            : property.clientIds
+          : property.companyId === f.companyId
+            ? f.clientIds
+            : [],
+      };
+    });
 
   /** §9.1 — assignee list is limited to the chosen department. */
   const assigneeOptions = useMemo(
@@ -300,6 +375,13 @@ export function TaskFormModal({
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
       dependsOnTaskId: dependent ? waitsOnId : null,
       durationDays: dependent ? days : null,
+      ...(mode === "individual"
+        ? {
+            companyId: form.companyId || null,
+            propertyId: form.propertyId || null,
+            clientIds: form.clientIds,
+          }
+        : {}),
       ...(mayRepeat
         ? { recurrence: seriesFor(task?.recurrence, repeat, form.startDate) }
         : {}),
@@ -445,6 +527,52 @@ export function TaskFormModal({
             placeholder="Brief, references, deliverable format…"
           />
         </Field>
+
+        {mode === "individual" ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Company" hint="Optional — leave empty for internal work.">
+              <SearchSelect
+                allowClear
+                options={companyOptions}
+                value={form.companyId}
+                onChange={pickCompany}
+                placeholder="No company"
+              />
+            </Field>
+            <Field label="Property" hint="Optional.">
+              <SearchSelect
+                allowClear
+                options={propertyOptions}
+                value={form.propertyId}
+                onChange={pickProperty}
+                placeholder="No property"
+              />
+            </Field>
+            {showClients ? (
+              <Field
+                label="Clients"
+                className="sm:col-span-2"
+                hint={
+                  !form.companyId
+                    ? "Pick the company first."
+                    : clientOptions.length === 0
+                      ? "This company has no clients yet."
+                      : `Optional — ${form.clientIds.length} selected`
+                }
+              >
+                <MultiSelect
+                  disabled={!form.companyId}
+                  options={clientOptions}
+                  value={form.clientIds}
+                  onChange={(v) => set("clientIds", v)}
+                  placeholder="Search clients…"
+                  emptyLabel="No clients selected"
+                  maxVisibleChips={3}
+                />
+              </Field>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Department" required>

@@ -2,7 +2,28 @@
 
 import { IconContact, IconCrane, IconProperty } from "@/components/ui/icons";
 import { cx } from "@/components/ui/primitives";
+import { canSeeClients } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
+import type { Project, Task } from "@/lib/types";
+
+/**
+ * Whose work a task is. A project task is its project's, so it follows the
+ * project; an individual task holds its own (0019).
+ */
+export const taskCrm = (task: Task, project: Project | null | undefined) =>
+  project
+    ? {
+        companyId: project.companyId,
+        propertyId: project.propertyId,
+        clientIds: project.clientIds,
+        fallbackCompany: project.clientName as string | undefined,
+      }
+    : {
+        companyId: task.companyId ?? null,
+        propertyId: task.propertyId ?? null,
+        clientIds: task.clientIds ?? [],
+        fallbackCompany: undefined,
+      };
 
 /**
  * Whose a project is: its company, property and client contact, each with
@@ -29,7 +50,7 @@ export function CrmChain({
   inline?: boolean;
   className?: string;
 }) {
-  const { companyById, clientById, propertyById } = useStore();
+  const { currentUser, companyById, clientById, propertyById } = useStore();
   const items = [
     {
       key: "company",
@@ -48,10 +69,12 @@ export function CrmChain({
       label: "Client",
       icon: <IconContact size={12} />,
       value:
-        (clientIds ?? (clientId ? [clientId] : []))
-          .map((id) => clientById(id)?.fullName)
-          .filter(Boolean)
-          .join(", ") || undefined,
+        currentUser && canSeeClients(currentUser)
+          ? (clientIds ?? (clientId ? [clientId] : []))
+              .map((id) => clientById(id)?.fullName)
+              .filter(Boolean)
+              .join(", ") || undefined
+          : undefined,
     },
   ].filter((i) => !!i.value);
   if (items.length === 0) return null;
