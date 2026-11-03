@@ -432,6 +432,7 @@ Since the current baseline:
 | `0015_project_drive_folders.sql` | `projects.drive_folder_id` / `drive_csf_folder_id` / `drive_team3d_folder_id` for a project selling "3D Walkthrough Animation", recorded once through `set_project_drive_folders()`, guarded by `can_create_project_drive()` (global managers, the Project Leader, the 3D Artists' Team Leader). Mirrors `canCreateProjectDrive`; who sees CSF / 3D Team is `canUseProjectDriveArea`, re-checked by the Drive routes |
 | `0016_task_assignment.sql` | `assign_task()` / `can_assign_task()`: a Team Leader may hand any task of a project they can see to someone in its department (assignee only; the rest stays `can_edit_task`), resetting it to Not Started and closing the old assignee's timer; not while Submitted, with the client or Approved. `task_assignments`, written by the `tasks_record_assignment` trigger on every assignee change from any path, backfilled with each task's current assignee. Mirrors `canAssignTask` |
 | `0017_team_leader_members.sql` | `can_see_project()` / `my_project_ids()`: a Team Leader listed in `project_members` sees the project, so they can create its tasks and assign them (0016). Membership still grants nothing to anyone else. Mirrors `canViewProject` / `myProjects` (`isTeamLeaderMember`) |
+| `0018_cb_type_festival_static.sql` | `cb_type` gains `Festival Static`: one piece, allotted once. Mirrors `ContentType` / `CONTENT_TYPES` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 

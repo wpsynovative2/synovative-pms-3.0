@@ -638,7 +638,8 @@ export type ContentType =
   | "Website Content"
   | "Brochure Content"
   | "Static to Motion"
-  | "Festival STM";
+  | "Festival STM"
+  | "Festival Static";
 
 export const CONTENT_TYPES: ContentType[] = [
   "Static Design",
@@ -651,6 +652,7 @@ export const CONTENT_TYPES: ContentType[] = [
   "Brochure Content",
   "Static to Motion",
   "Festival STM",
+  "Festival Static",
 ];
 
 /**

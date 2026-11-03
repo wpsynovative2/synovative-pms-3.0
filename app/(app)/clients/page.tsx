@@ -8,6 +8,7 @@ import {
   IconCrane,
   IconContact,
   IconEdit,
+  IconFilter,
   IconPlus,
   IconProperty,
   IconTrash,
@@ -33,6 +34,15 @@ import { canDeleteCrm, canManageCrm, canViewClientsModule } from "@/lib/permissi
 import { formatDate } from "@/lib/calendar";
 import { useStore, type ClientInput } from "@/lib/store";
 import { CLIENT_ROLES, type Client, type ClientRole, type PartyStatus } from "@/lib/types";
+
+/** What a client's contact details hold, for the filter. */
+const CONTACT_FILTERS: { value: string; label: string; test: (c: Client) => boolean }[] = [
+  { value: "has-mobile", label: "Has mobile", test: (c) => !!c.mobile.trim() },
+  { value: "no-mobile", label: "No mobile", test: (c) => !c.mobile.trim() },
+  { value: "has-email", label: "Has email", test: (c) => !!c.email.trim() },
+  { value: "no-email", label: "No email", test: (c) => !c.email.trim() },
+  { value: "has-whatsapp", label: "Has WhatsApp", test: (c) => !!c.whatsapp.trim() },
+];
 
 /**
  * Module 2 — the people at a company. A client always belongs to exactly one
@@ -61,6 +71,10 @@ function ClientsScreen() {
 
   const [query, setQuery] = useState("");
   const [companyId, setCompanyId] = useState(params.get("company") ?? "");
+  const [propertyId, setPropertyId] = useState("");
+  const [role, setRole] = useState<ClientRole | "none" | "all">("all");
+  const [status, setStatus] = useState<PartyStatus | "all">("all");
+  const [contact, setContact] = useState("all");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [deleting, setDeleting] = useState<Client | null>(null);
@@ -71,16 +85,55 @@ function ClientsScreen() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const property = db.properties.find((p) => p.id === propertyId);
+    const contactTest = CONTACT_FILTERS.find((f) => f.value === contact)?.test;
     return db.clients.filter(
       (c) =>
         (!companyId || c.companyId === companyId) &&
+        (!property || property.clientIds.includes(c.id)) &&
+        (role === "all" || (role === "none" ? !c.role : c.role === role)) &&
+        (status === "all" || c.status === status) &&
+        (!contactTest || contactTest(c)) &&
         (!q ||
           c.fullName.toLowerCase().includes(q) ||
           c.email.toLowerCase().includes(q) ||
           c.mobile.includes(q) ||
           c.designation.toLowerCase().includes(q)),
     );
-  }, [db.clients, query, companyId]);
+  }, [db.clients, db.properties, query, companyId, propertyId, role, status, contact]);
+
+  /** Properties narrow to the chosen company, as they do on a project. */
+  const propertyOptions = useMemo(
+    () =>
+      db.properties
+        .filter((p) => !companyId || p.companyId === companyId)
+        .map((p) => ({ value: p.id, label: p.name })),
+    [db.properties, companyId],
+  );
+
+  /** A property belongs to one company, so changing it drops a mismatch. */
+  const pickCompany = (id: string) => {
+    setCompanyId(id);
+    const property = db.properties.find((p) => p.id === propertyId);
+    if (id && property && property.companyId !== id) setPropertyId("");
+  };
+
+  const filtering =
+    !!query.trim() ||
+    !!companyId ||
+    !!propertyId ||
+    role !== "all" ||
+    status !== "all" ||
+    contact !== "all";
+
+  const clearFilters = () => {
+    setQuery("");
+    setCompanyId("");
+    setPropertyId("");
+    setRole("all");
+    setStatus("all");
+    setContact("all");
+  };
 
   const open = openId ? db.clients.find((c) => c.id === openId) : undefined;
 
@@ -146,10 +199,68 @@ function ClientsScreen() {
             options={db.companies.map((c) => ({ value: c.id, label: c.name }))}
             value={companyId}
             active={!!companyId}
-            onChange={setCompanyId}
+            onChange={pickCompany}
             placeholder="Any company"
           />
         </div>
+        <div className="w-60">
+          <SearchSelect
+            allowClear
+            options={propertyOptions}
+            value={propertyId}
+            active={!!propertyId}
+            onChange={setPropertyId}
+            placeholder="Any property"
+          />
+        </div>
+        <Select
+          className="w-auto min-w-36"
+          value={role}
+          active={role !== "all"}
+          onChange={(e) => setRole(e.target.value as typeof role)}
+          aria-label="Role"
+        >
+          <option value="all">Any role</option>
+          {CLIENT_ROLES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+          <option value="none">Role not set</option>
+        </Select>
+        <Select
+          className="w-auto min-w-36"
+          value={status}
+          active={status !== "all"}
+          onChange={(e) => setStatus(e.target.value as typeof status)}
+          aria-label="Status"
+        >
+          <option value="all">Any status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </Select>
+        <Select
+          className="w-auto min-w-44"
+          value={contact}
+          active={contact !== "all"}
+          onChange={(e) => setContact(e.target.value)}
+          aria-label="Contact details"
+        >
+          <option value="all">Any contact details</option>
+          {CONTACT_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </Select>
+        {filtering ? (
+          <button
+            onClick={clearFilters}
+            className="inline-flex h-9.5 items-center gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[12px] text-ink-muted hover:text-ink"
+          >
+            <IconFilter size={13} /> Clear
+          </button>
+        ) : null}
       </div>
 
       {noCompanies ? (
