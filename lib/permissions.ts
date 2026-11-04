@@ -38,6 +38,22 @@ export const isSocialMediaMarketer = (u: User) =>
 
 export const isWebsiteDev = (u: User) => u.departments.includes(WEBSITE_DEV_DEPARTMENT);
 
+/* ------------------------------------------------------------- 3D module */
+
+/*
+ * The 3D module (0022, Archi-3d.md) is for the 3D Artists department, global
+ * managers and Business Development, and nobody else. Mirrors is_3d_artist,
+ * is_3d_team_leader and can_manage_task_groups.
+ */
+export const isThreeDArtist = (u: User) => u.departments.includes(THREE_D_DEPARTMENT);
+export const isThreeDTeamLeader = (u: User) => isTeamLeader(u) && isThreeDArtist(u);
+export const canViewThreeD = (u: User) =>
+  isGlobalManager(u) || isThreeDArtist(u) || isBusinessExec(u);
+export const canCreateThreeDProjects = (u: User) =>
+  isGlobalManager(u) || isThreeDTeamLeader(u);
+export const canManageTaskGroups = (u: User, p: Project) =>
+  !!p.is3d && (isGlobalManager(u) || p.leaderId === u.id || isThreeDTeamLeader(u));
+
 /* -------------------------------------------------------------- websites */
 
 /*
@@ -175,6 +191,9 @@ export function canViewProject(u: User, p: Project, tasks: Task[]): boolean {
   // A Team Leader put on the project's team sees it, so they can raise and
   // hand out its tasks (0017). For anyone else membership grants nothing.
   if (isTeamLeaderMember(u, p)) return true;
+  // The 3D Artists' Team Leader and Business Development see every 3D project
+  // (0022), so the 3D module is not empty for them.
+  if (p.is3d && (isThreeDTeamLeader(u) || isBusinessExec(u))) return true;
   // The Content Writers' and Social Media Marketing Team Leaders also follow
   // every project with a content task, whatever department it is filed under
   // (0025, 0028).
@@ -597,6 +616,7 @@ export const canDeleteCollabEntry = (u: User, authorId: string) =>
 
 export interface NavGate {
   projects: boolean;
+  threeD: boolean;
   tasks: boolean;
   individualTasks: boolean;
   expenses: boolean;
@@ -621,6 +641,7 @@ export interface NavGate {
 export function navGate(u: User): NavGate {
   return {
     projects: true,
+    threeD: canViewThreeD(u),
     tasks: true,
     individualTasks: true,
     expenses: true,

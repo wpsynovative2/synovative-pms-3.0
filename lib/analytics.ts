@@ -8,6 +8,7 @@ import type {
   Task,
   User,
 } from "./types";
+import { isTaskWaiting } from "./types";
 
 /** Derived figures for the project header, workload and reports (§7.2, §14, §16). */
 
@@ -21,7 +22,7 @@ import type {
 export function isOverdue(t: Task): boolean {
   if (t.status === "Approved" || t.status === "Waiting for Client Response") return false;
   if (t.dueDate >= todayISO()) return false;
-  if (t.waitingOnTaskId) return false;
+  if (isTaskWaiting(t)) return false;
   if (t.status === "Submitted") {
     const latest = t.submissions.reduce((at, s) => (s.at > at ? s.at : at), "");
     if (latest && latest.slice(0, 10) <= t.dueDate) return false;
@@ -30,6 +31,46 @@ export function isOverdue(t: Task): boolean {
 }
 
 export const isOpen = (t: Task) => t.status !== "Approved";
+
+export type GroupState = "Not Started" | "Waiting" | "In Progress" | "Done";
+
+export interface GroupProgress {
+  total: number;
+  approved: number;
+  state: GroupState;
+  /** Earliest start and latest due among its tasks; "" with no tasks. */
+  startDate: string;
+  dueDate: string;
+  overdue: boolean;
+}
+
+/**
+ * A 3D task group, worked out from its tasks every time so it cannot drift out of
+ * step (Archi-3d.md §4). Nothing here is stored.
+ */
+export function groupProgress(tasks: Task[]): GroupProgress {
+  const approved = tasks.filter((t) => t.status === "Approved").length;
+  const begun = tasks.some((t) => t.status !== "Not Started" || t.sessions.length > 0);
+  const state: GroupState =
+    tasks.length > 0 && approved === tasks.length
+      ? "Done"
+      : begun
+        ? "In Progress"
+        : tasks.length > 0 && tasks.every(isTaskWaiting)
+          ? "Waiting"
+          : "Not Started";
+  return {
+    total: tasks.length,
+    approved,
+    state,
+    startDate: tasks.reduce(
+      (min, t) => (!min || t.startDate < min ? t.startDate : min),
+      "",
+    ),
+    dueDate: tasks.reduce((max, t) => (t.dueDate > max ? t.dueDate : max), ""),
+    overdue: tasks.some(isOverdue),
+  };
+}
 
 export interface ProjectStats {
   totalTasks: number;

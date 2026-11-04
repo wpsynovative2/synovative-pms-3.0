@@ -438,12 +438,17 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
         tabs={[
           { id: "overview", label: "Overview", icon: <IconChart size={14} /> },
           { id: "tasks", label: "Tasks", icon: <IconTasks size={14} />, count: tasks.length },
-          {
-            id: "content",
-            label: "Content Bank",
-            icon: <IconContent size={14} />,
-            count: content.length,
-          },
+          // A 3D project has none (0023), though an older one marked 3D may.
+          ...(project.is3d && content.length === 0
+            ? []
+            : [
+                {
+                  id: "content" as const,
+                  label: "Content Bank",
+                  icon: <IconContent size={14} />,
+                  count: content.length,
+                },
+              ]),
           { id: "time", label: "Time", icon: <IconClock size={14} /> },
           {
             id: "expenses",

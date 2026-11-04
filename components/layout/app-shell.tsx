@@ -32,6 +32,7 @@ import {
   IconUser,
   IconUsers,
   IconWallet,
+  IconCube,
 } from "@/components/ui/icons";
 import { Avatar, cx } from "@/components/ui/primitives";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -41,7 +42,7 @@ import { navGate } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { usePersistentFlag } from "@/lib/use-persistent-flag";
 import { findRunningTaskForUser, formatClock, taskElapsedMs } from "@/lib/time";
-import { ROLE_LABEL, type User } from "@/lib/types";
+import { ROLE_LABEL, taskLabel, type User } from "@/lib/types";
 import { PauseDialog, SubmitDialog } from "@/components/task/task-dialogs";
 
 interface NavItem {
@@ -98,6 +99,13 @@ function useNavItems(user: User): NavItem[] {
       label: "Tasks",
       icon: <IconTasks size={18} />,
       show: gate.tasks,
+      group: "Work",
+    },
+    {
+      href: "/3d-projects",
+      label: "3D Projects",
+      icon: <IconCube size={18} />,
+      show: gate.threeD,
       group: "Work",
     },
     {
@@ -611,7 +619,7 @@ function RunningTimerStrip({ user }: { user: User }) {
           }
           className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink hover:underline"
         >
-          {task.title}
+          {taskLabel(task)}
           <span className="ml-2 text-[11px] text-ink-muted">
             {project ? project.name : "Individual task"}
           </span>

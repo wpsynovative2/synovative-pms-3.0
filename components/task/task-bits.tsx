@@ -13,6 +13,7 @@ import type {
   Task,
   TaskStatus,
 } from "@/lib/types";
+import { isTaskWaiting } from "@/lib/types";
 import { IconRepeat } from "@/components/ui/icons";
 import { Badge, cx } from "@/components/ui/primitives";
 
@@ -108,7 +109,7 @@ export function RecurrenceBadge({
  * waiting on another one's approval reads as waiting instead (0014).
  */
 export function OverdueBadge({ task }: { task: Task }) {
-  if (task.waitingOnTaskId) {
+  if (isTaskWaiting(task)) {
     return <Badge className="border-line bg-surface-2 text-ink-faint">Waiting</Badge>;
   }
   if (task.status === "Approved" || task.dueDate >= todayISO()) return null;
@@ -154,7 +155,7 @@ export function ProjectChip({
 
 export function DueDate({ task }: { task: Task }) {
   const overdue =
-    task.status !== "Approved" && !task.waitingOnTaskId && task.dueDate < todayISO();
+    task.status !== "Approved" && !isTaskWaiting(task) && task.dueDate < todayISO();
   return (
     <span
       className={cx("text-[11px]", overdue ? "text-st-rejected" : "text-ink-muted")}

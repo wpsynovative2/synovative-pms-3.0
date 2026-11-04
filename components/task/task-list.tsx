@@ -22,7 +22,7 @@ import { useStore } from "@/lib/store";
 import { CrmChain, taskCrm } from "@/components/crm/crm-chain";
 import { isOverdue } from "@/lib/analytics";
 import { formatDuration, isTimerRunning, taskElapsedMs } from "@/lib/time";
-import { contentProgress } from "@/lib/types";
+import { contentProgress, isTaskWaiting, taskLabel } from "@/lib/types";
 import type { Priority, Project, Task, TaskStatus, User } from "@/lib/types";
 import {
   DueDate,
@@ -458,7 +458,7 @@ export function TaskRow({
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate text-[13px] font-medium text-ink group-hover:text-ink-strong">
-                {task.title}
+                {taskLabel(task)}
               </span>
               <RecurrenceBadge item={task} />
               {batch ? (
@@ -550,7 +550,7 @@ function DueCell({ task }: { task: Task }) {
   const today = todayISO();
   const done = task.status === "Approved";
   // A waiting task's date is a projection, so it is never late (0014).
-  const waiting = !!task.waitingOnTaskId;
+  const waiting = isTaskWaiting(task);
   const late =
     !done && !waiting && task.dueDate < today ? daysBetween(task.dueDate, today) : 0;
   return (
@@ -689,7 +689,7 @@ export function TaskTimeline({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
-                  {task.title}
+                  {taskLabel(task)}
                 </span>
                 <OverdueBadge task={task} />
                 <PriorityBadge priority={task.priority} />

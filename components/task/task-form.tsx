@@ -16,6 +16,7 @@ import { RichTextEditor } from "@/components/ui/rich-text";
 import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import {
+  chainPredecessor,
   chainTail,
   dependencyCandidates,
   dependentDates,
@@ -40,6 +41,7 @@ import {
   type TaskKind,
   type TaskStatus,
   type TaskTemplate,
+  taskLabel,
 } from "@/lib/types";
 
 interface FormState {
@@ -66,6 +68,7 @@ export function TaskFormModal({
   project,
   mode,
   defaultDepartment,
+  defaultGroupId,
   defaultTitle,
   defaultDescription,
   onCreated,
@@ -79,6 +82,8 @@ export function TaskFormModal({
   project: Project | null;
   mode: "project" | "individual";
   defaultDepartment?: string;
+  /** The group a new task goes in, when added from a group in a 3D project. */
+  defaultGroupId?: string;
   /** Seeds a new task, e.g. from the OBC line it delivers. */
   defaultTitle?: string;
   /** Rich text, seeded the same way — the brief that was sold. */
@@ -103,10 +108,31 @@ export function TaskFormModal({
         : [],
     [db.tasks, blueprints.tasks, project, mode],
   );
-  // A new task in a step-by-step project waits on the last one by default.
-  const sbsTail = !task && project?.stepByStep ? chainTail(projectTasks) : undefined;
-  const [dependsOn, setDependsOn] = useState(task ? !!task.dependsOnTaskId : !!sbsTail);
-  const [waitsOnId, setWaitsOnId] = useState(task?.dependsOnTaskId ?? sbsTail?.id ?? "");
+  // 3D projects file their tasks in numbered groups (0022). Once in a group a
+  // task stays there, but an ungrouped one can still be filed.
+  const is3d = mode === "project" && !!project?.is3d;
+  const groups = useMemo(
+    () =>
+      is3d
+        ? db.taskGroups
+            .filter((g) => g.projectId === project?.id)
+            .sort((a, b) => a.number - b.number)
+        : [],
+    [is3d, db.taskGroups, project?.id],
+  );
+  const [groupId, setGroupId] = useState(task?.groupId ?? defaultGroupId ?? "");
+  const defaultWaitsOn = (group: string, among: Task[]) =>
+    is3d ? chainPredecessor(among, groups, group) : chainTail(among);
+  // A new task in a step-by-step project waits on the one before it by default:
+  // the last created, or in a 3D project the one before it in number order.
+  const sbsTail =
+    !task && project?.stepByStep ? defaultWaitsOn(groupId, projectTasks) : undefined;
+  const [dependsOn, setDependsOn] = useState(
+    task ? !!task.dependsOnTaskIds?.length : !!sbsTail,
+  );
+  const [waitsOnIds, setWaitsOnIds] = useState<string[]>(
+    task?.dependsOnTaskIds ?? (sbsTail ? [sbsTail.id] : []),
+  );
   const [durationDays, setDurationDays] = useState(String(task?.durationDays ?? 1));
 
   const initialDepartment =
@@ -159,7 +185,9 @@ export function TaskFormModal({
       (_, i) => bySlot.get(i + 1) ?? task.contentTypes[i] ?? DEFAULT_CONTENT_TYPE,
     );
   });
-  const mayBeContentTask = mode === "project";
+  // A 3D project has no content tasks (0023). One already there, in an older
+  // project marked 3D, still opens as what it is.
+  const mayBeContentTask = mode === "project" && (!is3d || task?.kind === "content");
   const isContent = mayBeContentTask && kind === "content";
   const pieces = Number(contentCount);
   const pieceCount = isContent && Number.isFinite(pieces) ? Math.max(Math.trunc(pieces), 0) : 0;
@@ -265,10 +293,10 @@ export function TaskFormModal({
     : {};
 
   /*
-   * A standard project task may wait on another task in the project: it
-   * starts the day that one is approved and runs `durationDays` working days.
-   * Its dates are worked out, not picked - the database recomputes them the
-   * same way (0014).
+   * A standard project task may wait on others in the project: it starts the
+   * day the last of them is approved and runs `durationDays` working days. Its
+   * dates are worked out, not picked - the database recomputes them the same way
+   * (0014, 0021). Only a 3D project's form offers more than one.
    */
   const mayDepend = mode === "project" && !!project && !isContent;
   const dependent = mayDepend && dependsOn;
@@ -276,12 +304,17 @@ export function TaskFormModal({
     () => dependencyCandidates(task?.id ?? null, projectTasks),
     [task?.id, projectTasks],
   );
-  const waitsOn = dependent ? candidates.find((t) => t.id === waitsOnId) : undefined;
+  const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
   const days = Number(durationDays);
   const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
+  const linksUnchanged =
+    !!task &&
+    waitsOn.length === (task.dependsOnTaskIds?.length ?? 0) &&
+    waitsOn.every((t) => task.dependsOnTaskIds?.includes(t.id));
+  const allApproved = waitsOn.every((t) => t.status === "Approved");
   const planned =
-    waitsOn && daysValid
-      ? task && task.dependsOnTaskId === waitsOn.id && waitsOn.status === "Approved"
+    waitsOn.length && daysValid
+      ? task && linksUnchanged && allApproved
         ? // Already under way: a new length moves the due date, never the start.
           {
             startDate: task.startDate,
@@ -320,7 +353,7 @@ export function TaskFormModal({
         (form.dueDate < form.startDate
           ? "The due date must be on or after the start date."
           : undefined)),
-    waitsOn: dependent && !waitsOn ? "Pick the task this one waits on." : undefined,
+    waitsOn: dependent && !waitsOn.length ? "Pick the task this one waits on." : undefined,
     durationDays:
       dependent && !daysValid ? "Enter the working days it takes — 0 or more." : undefined,
     repeat: mayRepeat
@@ -373,8 +406,10 @@ export function TaskFormModal({
       kind: isContent ? ("content" as const) : ("standard" as const),
       contentCount: isContent ? pieces : 0,
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
-      dependsOnTaskId: dependent ? waitsOnId : null,
+      dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
       durationDays: dependent ? days : null,
+      // Content tasks stay outside the groups, and so does anything not in 3D.
+      groupId: is3d && !isContent && groupId ? groupId : null,
       ...(mode === "individual"
         ? {
             companyId: form.companyId || null,
@@ -643,21 +678,63 @@ export function TaskFormModal({
           </Field>
         </div>
 
+        {is3d && !isContent ? (
+          <Field
+            label="Group"
+            hint={
+              task?.groupId
+                ? "A task stays in its group."
+                : groups.length
+                  ? "Its number comes from the group: the next one in T1 is T1.4."
+                  : "This project has no groups yet."
+            }
+          >
+            <Select
+              value={groupId}
+              disabled={!!task?.groupId}
+              onChange={(e) => {
+                const next = e.target.value;
+                setGroupId(next);
+                // A new task's place in the chain follows its group.
+                if (!task && project?.stepByStep) {
+                  const before = defaultWaitsOn(next, projectTasks);
+                  setDependsOn(!!before);
+                  setWaitsOnIds(before ? [before.id] : []);
+                }
+              }}
+            >
+              <option value="">Ungrouped</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  T{g.number} {g.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
         {mayDepend ? (
           <div className="flex flex-col gap-1.5">
             <Switch
               on={dependsOn}
               onChange={(on) => {
                 setDependsOn(on);
-                if (on && !waitsOnId) setWaitsOnId(chainTail(candidates)?.id ?? "");
+                if (on && !waitsOnIds.length) {
+                  const before = defaultWaitsOn(groupId, candidates);
+                  setWaitsOnIds(before ? [before.id] : []);
+                }
               }}
               label="Waits on another task"
               className="self-start"
             />
             <p className="text-[11px] text-ink-faint">
               {project?.stepByStep && !task
-                ? "Step-by-step project: a new task waits on the last one by default."
-                : "Starts the day the task it waits on is approved, and runs for the days you give it."}
+                ? is3d
+                  ? "Step-by-step project: a new task waits on the one before it by default."
+                  : "Step-by-step project: a new task waits on the last one by default."
+                : is3d
+                  ? "Starts the day the last task it waits on is approved, and runs for the days you give it."
+                  : "Starts the day the task it waits on is approved, and runs for the days you give it."}
             </p>
           </div>
         ) : null}
@@ -671,16 +748,31 @@ export function TaskFormModal({
               hint={candidates.length ? undefined : "This project has no other tasks yet."}
               error={touched ? errors.waitsOn : undefined}
             >
-              <SearchSelect
-                options={candidates.map((t) => ({
-                  value: t.id,
-                  label: t.title,
-                  hint: `${t.status} · due ${formatDate(t.dueDate)}`,
-                }))}
-                value={waitsOnId}
-                onChange={setWaitsOnId}
-                placeholder="Pick a task in this project"
-              />
+              {is3d ? (
+                <MultiSelect
+                  options={candidates.map((t) => ({
+                    value: t.id,
+                    label: taskLabel(t),
+                    hint: `${t.status} · due ${formatDate(t.dueDate)}`,
+                  }))}
+                  value={waitsOnIds}
+                  onChange={setWaitsOnIds}
+                  placeholder="Search tasks in this project…"
+                  emptyLabel="No tasks selected"
+                  maxVisibleChips={4}
+                />
+              ) : (
+                <SearchSelect
+                  options={candidates.map((t) => ({
+                    value: t.id,
+                    label: t.title,
+                    hint: `${t.status} · due ${formatDate(t.dueDate)}`,
+                  }))}
+                  value={waitsOnIds[0] ?? ""}
+                  onChange={(v) => setWaitsOnIds([v])}
+                  placeholder="Pick a task in this project"
+                />
+              )}
             </Field>
             <Field
               label="Days to complete"
@@ -710,12 +802,16 @@ export function TaskFormModal({
                   : "border-line bg-surface-2 text-ink-faint",
               )}
             >
-              {waitsOn && planned ? (
+              {waitsOn.length && planned ? (
                 <>
                   <span>
-                    {waitsOn.status === "Approved"
-                      ? `“${waitsOn.title}” is already approved, so this starts straight away.`
-                      : `Starts the day “${waitsOn.title}” is approved. Until then these dates are projected from its due date.`}
+                    {allApproved
+                      ? waitsOn.length === 1
+                        ? `“${taskLabel(waitsOn[0])}” is already approved, so this starts straight away.`
+                        : "Those tasks are already approved, so this starts straight away."
+                      : waitsOn.length === 1
+                        ? `Starts the day “${taskLabel(waitsOn[0])}” is approved. Until then these dates are projected from its due date.`
+                        : "Starts the day the last of these is approved. Until then these dates are projected from the latest due date among those still open."}
                   </span>
                   <span className="font-medium text-ink">
                     {formatDate(planned.startDate)} → {formatDate(planned.dueDate)}

@@ -79,6 +79,7 @@ import type {
   ReviewSource,
   Role,
   Task,
+  TaskGroup,
   TaskTemplate,
   User,
   Vendor,
@@ -700,6 +701,11 @@ interface StoreValue {
   deleteTask: (id: string) => void;
   addRemark: (taskId: string, text: string) => void;
 
+  /** 3D task groups (0022). */
+  createTaskGroup: (projectId: string, name: string) => TaskGroup;
+  renameTaskGroup: (id: string, name: string) => void;
+  deleteTaskGroup: (id: string) => void;
+
   startTimer: (taskId: string) => void;
   pauseTimer: (taskId: string, note?: string) => void;
   switchTimer: (fromTaskId: string, toTaskId: string) => void;
@@ -837,6 +843,17 @@ interface StoreValue {
 const StoreContext = createContext<StoreValue | null>(null);
 
 /**
+ * A task's links, once the tasks they join exist (0021). The database works out
+ * the dates from them, so this always follows the task rows.
+ */
+async function insertTaskLinks(c: SupabaseClient, tasks: Task[]) {
+  const rows = tasks.flatMap((t) =>
+    (t.dependsOnTaskIds ?? []).map((id) => ({ task_id: t.id, depends_on_task_id: id })),
+  );
+  if (rows.length) await run(c.from("task_dependencies").insert(rows));
+}
+
+/**
  * The opening tasks of a project being created, with every date clamped to the
  * project window here rather than at each call site — a form that laid a task
  * out against an older deadline can never push one outside it. A task waiting
@@ -862,7 +879,7 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
       kind: input.kind ?? "standard",
       contentCount: input.kind === "content" ? (input.contentCount ?? 0) : 0,
       contentTypes: input.kind === "content" ? (input.contentTypes ?? []) : [],
-      dependsOnTaskId,
+      dependsOnTaskIds: dependsOnTaskId ? [dependsOnTaskId] : [],
       durationDays: dependsOnTaskId ? (input.durationDays ?? 0) : null,
       id: ids[i],
       projectId: project.id,
@@ -971,6 +988,7 @@ const actions = {
         await insertProject(c, created);
         if (rows.length) {
           await run(c.from("tasks").insert(rows.map((t) => ({ ...taskRow(t), created_by: me() }))));
+          await insertTaskLinks(c, rows);
         }
         // A blueprint whose first date is today is copied now, not at 00:05.
         if (blueprint) await run(c.rpc("run_due_recurrences"));
@@ -1030,11 +1048,21 @@ const actions = {
   /* ----------------------------------------------------------- tasks */
 
   createTask(input: NewTaskInput): Task {
+    // Shown straight away; the database hands out the real number (0022).
+    const group = state.db.taskGroups.find((g) => g.id === input.groupId);
+    const groupNumber = group
+      ? Math.max(
+          0,
+          ...state.db.tasks.filter((t) => t.groupId === group.id).map((t) => t.groupNumber ?? 0),
+        ) + 1
+      : null;
     const task: Task = {
       kind: "standard",
       contentCount: 0,
       contentTypes: [],
       ...input,
+      groupNumber,
+      code: group ? `T${group.number}.${groupNumber}` : undefined,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
       id: newId(),
@@ -1058,6 +1086,7 @@ const actions = {
             ...seriesColumns(task.recurrence),
           }),
         );
+        await insertTaskLinks(c, [task]);
         // A repeating task whose first date is today is copied now.
         if (blueprint) await run(c.rpc("run_due_recurrences"));
       },
@@ -1087,10 +1116,31 @@ const actions = {
       assigneeMoved &&
       state.db.contentEntries.some((e) => e.allottedTaskId === id || e.motionAllottedTaskId === id);
 
+    // Filed into a group now: shown straight away, numbered by the database (0022).
+    const filedIn =
+      patch.groupId && !before.groupId
+        ? state.db.taskGroups.find((g) => g.id === patch.groupId)
+        : undefined;
+    const filed = filedIn
+      ? (() => {
+          const groupNumber =
+            Math.max(
+              0,
+              ...state.db.tasks.filter((t) => t.groupId === filedIn.id).map((t) => t.groupNumber ?? 0),
+            ) + 1;
+          return { groupNumber, code: `T${filedIn.number}.${groupNumber}` };
+        })()
+      : {};
+    // Only the links that change: writing one again would reset a task's dates.
+    const links = patch.dependsOnTaskIds;
+    const had = before.dependsOnTaskIds ?? [];
+    const linksGone = links ? had.filter((x) => !links.includes(x)) : [];
+    const linksNew = links ? links.filter((x) => !had.includes(x)) : [];
+
     void commit(
       withSlots(["tasks"], slotsMove || allotmentMoves),
       (db) => {
-        const next = mapTask(db, id, (t) => ({ ...t, ...effective }));
+        const next = mapTask(db, id, (t) => ({ ...t, ...effective, ...filed }));
         if (!allotmentMoves) return next;
         return {
           ...next,
@@ -1107,12 +1157,24 @@ const actions = {
           ),
         };
       },
-      (c) => {
+      async (c) => {
         const columns: Record<string, unknown> = patchColumns(effective, TASK_COLUMNS);
         if ("recurrence" in patch) {
           Object.assign(columns, seriesColumns(isIndividual ? patch.recurrence : null));
         }
-        return run(c.from("tasks").update(columns).eq("id", id));
+        // Gone first and new last, so the row always has its days to complete
+        // while it has a link, which the database insists on (0021).
+        if (linksGone.length) {
+          await run(
+            c
+              .from("task_dependencies")
+              .delete()
+              .eq("task_id", id)
+              .in("depends_on_task_id", linksGone),
+          );
+        }
+        await run(c.from("tasks").update(columns).eq("id", id));
+        await insertTaskLinks(c, linksNew.length ? [{ ...before, dependsOnTaskIds: linksNew }] : []);
       },
     );
   },
@@ -1145,6 +1207,58 @@ const actions = {
           ],
         })),
       (c) => run(c.rpc("assign_task", { p_task_id: taskId, p_assignee: assigneeId })),
+    );
+  },
+
+  /* ----------------------------------------------------- 3D task groups */
+
+  createTaskGroup(projectId: string, name: string): TaskGroup {
+    const group: TaskGroup = {
+      id: newId(),
+      projectId,
+      // Shown straight away; the database hands out the real number (0022).
+      number:
+        Math.max(
+          0,
+          ...state.db.taskGroups.filter((g) => g.projectId === projectId).map((g) => g.number),
+        ) + 1,
+      name,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, taskGroups: [...db.taskGroups, group] }),
+      (c) =>
+        run(
+          c.from("task_groups").insert({
+            id: group.id,
+            project_id: projectId,
+            name,
+            created_by: group.createdBy,
+          }),
+        ),
+    );
+    return group;
+  },
+
+  renameTaskGroup(id: string, name: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        taskGroups: db.taskGroups.map((g) => (g.id === id ? { ...g, name } : g)),
+      }),
+      (c) => run(c.from("task_groups").update({ name }).eq("id", id)),
+    );
+  },
+
+  /** Refused by the database while it still has tasks; the page only offers it when empty. */
+  deleteTaskGroup(id: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, taskGroups: db.taskGroups.filter((g) => g.id !== id) }),
+      (c) => run(c.from("task_groups").delete().eq("id", id)),
     );
   },
 
@@ -2528,6 +2642,7 @@ const crmActions = {
         await insertProject(c, created);
         if (rows.length) {
           await run(c.from("tasks").insert(rows.map((t) => ({ ...taskRow(t), created_by: me() }))));
+          await insertTaskLinks(c, rows);
         }
         if (taking.size) {
           await run(

@@ -39,7 +39,7 @@ import {
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
-import { contentLabel, type Client, type Review, type Submission } from "@/lib/types";
+import { contentLabel, isTaskWaiting, taskLabel, type Client, type Review, type Submission } from "@/lib/types";
 import { AssignContentTaskBox } from "@/components/content/content-task-sharing";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
@@ -116,9 +116,10 @@ export function TaskDetailDrawer({
   const mayRemark = canAddRemark(currentUser, task, project ?? null);
   const assignee = userById(task.assigneeId);
   const creator = userById(task.createdBy);
-  // The task this one waits on, and whether the chain has run past the
-  // project's deadline - flagged, never squeezed (0014).
-  const waitsOn = task.dependsOnTaskId ? taskById(task.dependsOnTaskId) : undefined;
+  // The tasks this one waits on, and whether the chain has run past the
+  // project's deadline - flagged, never squeezed (0014, 0021).
+  const waitsOn = (task.dependsOnTaskIds ?? []).map((x) => taskById(x)).filter((t) => !!t);
+  const waiting = isTaskWaiting(task);
   const pastDeadline = !!project && task.dueDate > project.deadline;
   // A Team Leader may hand any task of the project on, without editing it (0016).
   const mayAssign = canAssignTask(currentUser, task, project ?? null);
@@ -140,7 +141,7 @@ export function TaskDetailDrawer({
       <Drawer
         open
         onClose={onClose}
-        title={task.title}
+        title={taskLabel(task)}
         subtitle={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <ProjectChip
@@ -208,10 +209,10 @@ export function TaskDetailDrawer({
                 <span className="text-ink-faint italic">Unassigned</span>
               )}
             </Fact>
-            <Fact label={task.waitingOnTaskId ? "Start (projected)" : "Start date"}>
+            <Fact label={waiting ? "Start (projected)" : "Start date"}>
               {formatDate(task.startDate)}
             </Fact>
-            <Fact label={task.waitingOnTaskId ? "Due (projected)" : "Due date"}>
+            <Fact label={waiting ? "Due (projected)" : "Due date"}>
               <span className={cx(pastDeadline && "text-st-rejected")}>
                 {formatDate(task.dueDate)}
               </span>
@@ -265,18 +266,23 @@ export function TaskDetailDrawer({
             </Section>
           ) : null}
 
-          {waitsOn || pastDeadline ? (
+          {waitsOn.length || pastDeadline ? (
             <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
-              {waitsOn ? (
+              {waitsOn.length ? (
                 <p>
-                  {task.waitingOnTaskId ? "Starts" : "Started"} the day{" "}
-                  <span className="font-medium text-ink-muted">“{waitsOn.title}”</span>{" "}
-                  {task.waitingOnTaskId ? `is approved (now ${waitsOn.status})` : "was approved"},
-                  and is due {task.durationDays ?? 0} working day
+                  {waiting ? "Starts" : "Started"} the day{" "}
+                  {waitsOn.length > 1 ? "the last of " : ""}
+                  <span className="font-medium text-ink-muted">
+                    {waitsOn
+                      .map((t) =>
+                        waiting ? `“${taskLabel(t)}” (${t.status})` : `“${taskLabel(t)}”`,
+                      )
+                      .join(", ")}
+                  </span>{" "}
+                  {waiting ? "is approved" : "was approved"}, and is due{" "}
+                  {task.durationDays ?? 0} working day
                   {task.durationDays === 1 ? "" : "s"} after that.
-                  {task.waitingOnTaskId
-                    ? " Dates are projected from its due date and move with it."
-                    : ""}
+                  {waiting ? " Dates are projected and move with what it waits on." : ""}
                 </p>
               ) : null}
               {pastDeadline && project ? (

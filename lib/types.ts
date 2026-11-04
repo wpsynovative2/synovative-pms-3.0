@@ -138,6 +138,11 @@ export interface Project {
    */
   stepByStep?: boolean;
   /**
+   * A 3D project (0022): its tasks are filed in numbered groups, T1.1, T1.2, and
+   * it shows in the 3D module. Never repeats. False when not given.
+   */
+  is3d?: boolean;
+  /**
    * Its Drive folder and the two areas inside it, for a project selling a 3D
    * walkthrough (0015). Empty until "Create Drive folder" is pressed.
    */
@@ -282,18 +287,25 @@ export interface Task {
    */
   contentTypes: ContentType[];
   /**
-   * A standard project task can wait on another task in its project (0014): it
-   * starts the day that task is approved and is due `durationDays` working days
-   * later. Until then its dates are projected and it cannot be started.
+   * A standard project task can wait on other tasks in its project (0014, 0021):
+   * it starts the day the last of them is approved and is due `durationDays`
+   * working days later. Until then its dates are projected and it cannot be
+   * started.
    */
-  dependsOnTaskId?: string | null;
-  /** Working days from start to due; set whenever `dependsOnTaskId` is. */
+  dependsOnTaskIds?: string[];
+  /** Working days from start to due; set whenever `dependsOnTaskIds` has any. */
   durationDays?: number | null;
   /**
-   * `dependsOnTaskId` while that task is not yet approved, else null. Derived
-   * by the store from what is on screen, never stored (see markWaiting).
+   * Those of `dependsOnTaskIds` not yet approved. Derived by the store from what
+   * is on screen, never stored (see markWaiting).
    */
-  waitingOnTaskId?: string | null;
+  waitingOnTaskIds?: string[];
+  /** The group this task is filed in, in a 3D project (0022). */
+  groupId?: string | null;
+  /** Its number within the group: the 3 of T1.3. Set by the database. */
+  groupNumber?: number | null;
+  /** "T1.3". Derived when loaded, never stored. */
+  code?: string;
   createdBy: string;
   createdAt: string;
   sessions: TimeSession[];
@@ -306,6 +318,28 @@ export interface Task {
   recurrence?: RecurrenceSeries | null;
   /** Set on an individual task generated from a repeating source. */
   series?: SeriesLink | null;
+}
+
+/** Still waiting on another task's approval (0014, 0021). */
+export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds">) =>
+  (t.waitingOnTaskIds?.length ?? 0) > 0;
+
+/** "T1.3 Sample flat interior" for a task filed in a group; the title otherwise. */
+export const taskLabel = (t: Pick<Task, "code" | "title">) =>
+  t.code ? `${t.code} ${t.title}` : t.title;
+
+/**
+ * A group of tasks in a 3D project (0022): T1 of T1.1, T1.2. It has a name and a
+ * number and nothing else; its progress is worked out from its tasks.
+ */
+export interface TaskGroup {
+  id: string;
+  projectId: string;
+  /** The 1 of T1. Set by the database, and never reused. */
+  number: number;
+  name: string;
+  createdBy: string;
+  createdAt: string;
 }
 
 /* ------------------------------------------------------------- Expenses */
@@ -1271,6 +1305,7 @@ export interface Database {
   users: User[];
   projects: Project[];
   tasks: Task[];
+  taskGroups: TaskGroup[];
   expenses: Expense[];
   vendors: Vendor[];
   projectTemplates: ProjectTemplate[];

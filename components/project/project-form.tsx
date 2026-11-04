@@ -19,6 +19,7 @@ import {
   PROJECT_STATUSES,
   SMM_SERVICE,
   WORKDAY_HOURS,
+  THREE_D_SERVICE,
 } from "@/lib/master-data";
 import { canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
@@ -178,6 +179,11 @@ interface FormState {
   titleMonth: TitleMonth;
   /** SBS: standard tasks run one after another (0014). */
   stepByStep: boolean;
+  /**
+   * The 3D module's tick-box (0022). Null until someone sets it: until then it
+   * follows whether the project sells the 3D walkthrough.
+   */
+  is3d: boolean | null;
 }
 
 export function ProjectFormModal({
@@ -186,11 +192,14 @@ export function ProjectFormModal({
   project,
   onCreated,
   recurring = false,
+  threeD = false,
 }: {
   open: boolean;
   onClose: () => void;
   project?: Project;
   onCreated?: (p: Project) => void;
+  /** Opened from the 3D module: always a 3D project, so the tick-box is not offered. */
+  threeD?: boolean;
   /**
    * Opened from the Recurrence page: this is a repeating blueprint, and the
    * repeat rule is required. Everywhere else a project does not repeat.
@@ -221,6 +230,7 @@ export function ProjectFormModal({
     clientIds: project?.clientIds ?? [],
     titleMonth: project?.titleMonth ?? "current",
     stepByStep: project?.stepByStep ?? false,
+    is3d: project ? !!project.is3d : threeD ? true : null,
     // Older projects only carry the typed name; match it to a company if one exists.
     companyId:
       project?.companyId ??
@@ -241,6 +251,10 @@ export function ProjectFormModal({
   const seriesSource = project?.series ? projectById(project.series.sourceId) : undefined;
   // A Social Media retainer chooses which month its repeats are named for.
   const askTitleMonth = mayRepeat && form.services.includes(SMM_SERVICE);
+  // A repeating project cannot be 3D: its copies would lose their groups (0022).
+  const is3d = !mayRepeat && (form.is3d ?? form.services.includes(THREE_D_SERVICE));
+  // Its groups would be left behind, so a project with any stays 3D.
+  const has3dGroups = !!project && db.taskGroups.some((g) => g.projectId === project.id);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -441,20 +455,25 @@ export function ProjectFormModal({
    * moving the project start moves them with it - the behaviour the read-only
    * list had - while a row whose dates were set by hand keeps them.
    */
+  // A 3D project has no content tasks (0023). Rows held back here come back if the
+  // switch is turned off again.
+  const openingDrafts = is3d ? drafts.filter((d) => d.kind === "standard") : drafts;
   const resolvedTemplateDrafts = useMemo(
     () =>
-      templateDrafts.map((d) =>
-        d.datesPinned
-          ? d
-          : { ...d, ...templateDates(d, form.startDate, form.deadline, db.calendar) },
-      ),
-    [templateDrafts, form.startDate, form.deadline, db.calendar],
+      templateDrafts
+        .filter((d) => !is3d || d.kind === "standard")
+        .map((d) =>
+          d.datesPinned
+            ? d
+            : { ...d, ...templateDates(d, form.startDate, form.deadline, db.calendar) },
+        ),
+    [is3d, templateDrafts, form.startDate, form.deadline, db.calendar],
   );
 
   /** The standard tasks in the order listed, template rows first. */
   const standardDrafts = useMemo(
-    () => [...resolvedTemplateDrafts, ...drafts].filter((d) => d.kind === "standard"),
-    [resolvedTemplateDrafts, drafts],
+    () => [...resolvedTemplateDrafts, ...openingDrafts].filter((d) => d.kind === "standard"),
+    [resolvedTemplateDrafts, openingDrafts],
   );
 
   /*
@@ -548,13 +567,15 @@ export function ProjectFormModal({
         ? ruleError(repeat, form.startDate)
         : "Pick how often it repeats."
       : undefined,
-    tasks: drafts.some(
+    tasks: openingDrafts.some(
       (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
     )
       ? "Every task needs a title and a department, and a content task at least one piece."
       : undefined,
     templateTasks: templateDrafts.some(
-      (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+      (d) =>
+        !(is3d && d.kind === "content") &&
+        (!d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1)),
     )
       ? "Every task needs a title and a department, and a content task at least one piece."
       : undefined,
@@ -578,6 +599,7 @@ export function ProjectFormModal({
       leaderId: form.leaderId || null,
       memberIds: form.memberIds,
       stepByStep: form.stepByStep,
+      is3d,
       ...(chainFromObc ? {} : chainFor(form.propertyId)),
       ...(mayRepeat
         ? {
@@ -600,7 +622,7 @@ export function ProjectFormModal({
       project: payload,
       tasks: [
         ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags, chain.get(d.key))),
-        ...drafts.map((d) => toTaskInput(d, [], chain.get(d.key))),
+        ...openingDrafts.map((d) => toTaskInput(d, [], chain.get(d.key))),
       ],
     });
 
@@ -806,6 +828,24 @@ export function ProjectFormModal({
               : "Tasks run one after another: the first has its own dates, and each after it starts the day the one before is approved and takes the days you give it. Content tasks keep their own dates."}
           </p>
         </div>
+
+        {mayRepeat || threeD ? null : (
+          <div className="flex flex-col gap-1.5">
+            <Switch
+              on={is3d}
+              onChange={(v) => {
+                if (!has3dGroups) set("is3d", v);
+              }}
+              label="3D project"
+              className="self-start"
+            />
+            <p className="text-[11px] leading-relaxed text-ink-faint">
+              {has3dGroups
+                ? "This project has task groups, so it stays a 3D project."
+                : "Shows in the 3D module, with its tasks in numbered groups. Already on when the project sells the 3D walkthrough."}
+            </p>
+          </div>
+        )}
 
         {mayRepeat ? (
           <Field
@@ -1181,7 +1221,7 @@ export function ProjectFormModal({
             error={touched ? errors.tasks : undefined}
           >
             <div className="flex flex-col gap-2.5">
-              {drafts.map((d, i) => (
+              {openingDrafts.map((d, i) => (
                 <div
                   key={d.key}
                   className="rounded-xl border border-line bg-surface-2 p-3"
@@ -1204,7 +1244,7 @@ export function ProjectFormModal({
                   </div>
 
                   <div className="flex flex-col gap-2.5">
-                    <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div className={is3d ? "hidden" : "grid gap-2.5 sm:grid-cols-2"}>
                       <Select
                         value={d.kind}
                         onChange={(e) => {
@@ -1365,9 +1405,11 @@ export function ProjectFormModal({
                 <Button onClick={() => addDraft()}>
                   <IconPlus size={14} /> Add task
                 </Button>
-                <Button onClick={() => addDraft("content")}>
-                  <IconPlus size={14} /> Add content task
-                </Button>
+                {is3d ? null : (
+                  <Button onClick={() => addDraft("content")}>
+                    <IconPlus size={14} /> Add content task
+                  </Button>
+                )}
               </div>
             </div>
           </Field>

@@ -29,6 +29,7 @@ import type {
   Submission,
   TaskAssignment,
   Task,
+  TaskGroup,
   TaskTemplate,
   TaskTemplateItem,
   Website,
@@ -92,6 +93,7 @@ export const EMPTY_DB: Database = {
   users: [],
   projects: [],
   tasks: [],
+  taskGroups: [],
   expenses: [],
   vendors: [],
   projectTemplates: [],
@@ -267,6 +269,7 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       series: readLink(r),
       titleMonth: (r.title_month === "upcoming" ? "upcoming" : "current") as Project["titleMonth"],
       stepByStep: r.step_by_step === true,
+      is3d: r.is_3d === true,
       driveFolderId: str(r.drive_folder_id),
       driveCsfFolderId: str(r.drive_csf_folder_id),
       driveTeam3dFolderId: str(r.drive_team3d_folder_id),
@@ -286,7 +289,7 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
 }
 
 async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, sessions, submissions, reviews, remarks, assignments] = await Promise.all([
+  const [rows, sessions, submissions, reviews, remarks, assignments, groupRows, linkRows] = await Promise.all([
     fetchAll(sb, "tasks", "created_at", "id"),
     fetchAll(sb, "time_sessions", "started_at", "id"),
     fetchAll(sb, "submissions", "submitted_at", "id"),
@@ -295,7 +298,21 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     // History only (0016): a database that has not run the migration yet still
     // loads its tasks, just without it.
     fetchAll(sb, "task_assignments", "at", "id").catch(() => []),
+    // As above (0021, 0022): tasks still load on a database behind the code.
+    fetchAll(sb, "task_groups", "project_id", "number").catch(() => []),
+    fetchAll(sb, "task_dependencies", "task_id", "depends_on_task_id").catch(() => []),
   ]);
+
+  const taskGroups: TaskGroup[] = groupRows.map((r) => ({
+    id: str(r.id),
+    projectId: str(r.project_id),
+    number: num(r.number),
+    name: str(r.name),
+    createdBy: str(r.created_by),
+    createdAt: str(r.created_at),
+  }));
+  const groupNumber = new Map(taskGroups.map((g) => [g.id, g.number]));
+  const links = groupBy<string>(linkRows, "task_id", (r) => str(r.depends_on_task_id));
 
   const ses = groupBy<TimeSession>(sessions, "task_id", (r) => ({
     id: str(r.id),
@@ -357,7 +374,13 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       kind: (r.kind as Task["kind"]) ?? "standard",
       contentCount: num(r.content_count),
       contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
-      dependsOnTaskId: nullable(r.depends_on_task_id),
+      dependsOnTaskIds: links.get(id) ?? [],
+      groupId: nullable(r.group_id),
+      groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
+      code:
+        r.group_id && groupNumber.has(str(r.group_id))
+          ? `T${groupNumber.get(str(r.group_id))}.${num(r.group_number)}`
+          : undefined,
       durationDays: r.duration_days === null || r.duration_days === undefined ? null : num(r.duration_days),
       startDate: dateOnly(r.start_date),
       dueDate: dateOnly(r.due_date),
@@ -374,7 +397,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       series: readLink(r),
     };
   });
-  return { tasks };
+  return { tasks, taskGroups };
 }
 
 async function loadExpenses(sb: SupabaseClient): Promise<Partial<Database>> {
@@ -952,6 +975,7 @@ export function projectRow(p: Omit<Project, "services" | "memberIds" | "recurren
     leader_id: p.leaderId,
     title_month: p.titleMonth ?? "current",
     step_by_step: p.stepByStep ?? false,
+    is_3d: p.is3d ?? false,
     company_id: p.companyId,
     client_id: p.clientId,
     client_ids: p.clientIds,
@@ -978,7 +1002,8 @@ export function taskRow(
     | "kind"
     | "contentCount"
     | "contentTypes"
-    | "dependsOnTaskId"
+    | "dependsOnTaskIds"
+    | "groupId"
     | "durationDays"
     | "companyId"
     | "propertyId"
@@ -997,8 +1022,10 @@ export function taskRow(
     kind: t.kind,
     content_count: t.contentCount,
     content_types: t.contentTypes,
-    depends_on_task_id: t.dependsOnTaskId ?? null,
-    duration_days: t.dependsOnTaskId ? (t.durationDays ?? 0) : null,
+    // Its links go in task_dependencies once the row exists; the database
+    // gives a grouped task its number (0021, 0022).
+    group_id: t.groupId ?? null,
+    duration_days: t.dependsOnTaskIds?.length ? (t.durationDays ?? 0) : null,
     assignee_id: t.assigneeId,
     status: t.status,
     priority: t.priority,
@@ -1031,6 +1058,7 @@ export const PROJECT_COLUMNS: Record<string, string> = {
   leaderId: "leader_id",
   titleMonth: "title_month",
   stepByStep: "step_by_step",
+  is3d: "is_3d",
   companyId: "company_id",
   clientId: "client_id",
   clientIds: "client_ids",
@@ -1052,7 +1080,7 @@ export const TASK_COLUMNS: Record<string, string> = {
   tags: "tags",
   contentCount: "content_count",
   contentTypes: "content_types",
-  dependsOnTaskId: "depends_on_task_id",
+  groupId: "group_id",
   durationDays: "duration_days",
   companyId: "company_id",
   propertyId: "property_id",

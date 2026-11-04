@@ -13,7 +13,7 @@ import {
   isTimerRunning,
   taskElapsedMs,
 } from "@/lib/time";
-import type { Task } from "@/lib/types";
+import { taskLabel, type Task } from "@/lib/types";
 import { PauseDialog, SubmitDialog } from "./task-dialogs";
 
 /**
@@ -54,9 +54,9 @@ export function TimerControls({
     task.status === "Submitted" ||
     task.status === "Waiting for Client Response";
   // Nor before the task it waits on is approved (0014).
-  const waitingOn = task.waitingOnTaskId
-    ? db.tasks.find((t) => t.id === task.waitingOnTaskId)
-    : undefined;
+  const waitingOn = (task.waitingOnTaskIds ?? [])
+    .map((id) => db.tasks.find((t) => t.id === id))
+    .filter((t) => !!t);
 
   const tryStart = () => {
     const other = findRunningTaskForUser(db.tasks, currentUser.id);
@@ -96,9 +96,10 @@ export function TimerControls({
 
       {!mine ? (
         <span className="text-[11px] text-ink-faint">Assignee only</span>
-      ) : waitingOn && !running ? (
+      ) : waitingOn.length && !running ? (
         <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
-          Starts once “{waitingOn.title}” is approved
+          Starts once {waitingOn.map((t) => `“${taskLabel(t)}”`).join(", ")}{" "}
+          {waitingOn.length === 1 ? "is" : "are"} approved
         </span>
       ) : finished ? (
         <span className="text-[11px] text-ink-faint">

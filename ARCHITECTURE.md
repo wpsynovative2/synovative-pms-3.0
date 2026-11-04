@@ -92,7 +92,7 @@ components/
                         date-picker, rich-text, recurrence-picker, loader, icons
   task/                 task list, detail, form, dialogs, timer controls
   project/project-form.tsx
-  expense/, content/, collab/
+  expense/, content/, collab/, three-d/
 lib/
   types.ts              the whole domain model — start here
   store.tsx             client state + every mutation (the big one, ~2k lines)
@@ -174,7 +174,7 @@ SQL leaves the UI hiding something the user is now allowed to do.
 
 ### Rights that come from the *department*, not the role
 
-Four of these, all modelled the same way — a `u.departments.includes(...)`
+Five of these, all modelled the same way — a `u.departments.includes(...)`
 helper on the client and an `is_*()` SQL function on the server:
 
 | Department | Right | Client | SQL |
@@ -183,6 +183,7 @@ helper on the client and an `is_*()` SQL function on the server:
 | Business Development Executives | keep CRM records, raise OBCs | `isBusinessExec` | `is_business_exec()` |
 | Content Writers / Copywriters / Brand Strategists | write Content Bank | `isContentWriter` | `is_content_writer()` |
 | Social Media Marketing | write Content Bank | `isSocialMediaMarketer` | `is_smm()` |
+| 3D Artists | the 3D module ([Archi-3d.md](Archi-3d.md)) | `isThreeDArtist` | `is_3d_artist()` |
 
 The last two are combined into `canWriteContent()` / `can_write_content()`.
 No role overrides a department right — a Super Admin who is not in Accounts &
@@ -314,17 +315,27 @@ Pausing skips the dates it covers rather than banking them. Deleting a blueprint
 ends the series and keeps everything it created. Only Super Admin / Admin /
 Manager may set a rule (`canSetRecurrence`).
 
-**Dependencies and step-by-step projects (`0014`).** A standard project task
-can wait on another task in its project: it starts the day that task is
+**Dependencies and step-by-step projects (`0014`, `0021`).** A standard project
+task can wait on others in its project: it starts the day the last of them is
 approved and is due `durationDays` working days later. Until then its dates are
-a projection from the predecessor's due date, maintained by triggers down the
-whole chain, and it cannot be timed or submitted. The store derives
-`waitingOnTaskId` (`markWaiting`) from the statuses on screen, which is what
+a projection from the latest due date among those still open, maintained by
+triggers down the whole chain, and it cannot be timed or submitted. The store
+derives `waitingOnTaskIds` (`markWaiting`) from the statuses on screen, which is what
 the timer, the Waiting badge and `isOverdue` read. An SBS project is the same
 mechanism laid out by the project form: its standard tasks wait on each other
 in the order listed (content tasks stay outside), and a new task added later
 defaults to waiting on the last one. Dependent dates may run past the project
 deadline; that is flagged, not clamped.
+
+**3D projects ([Archi-3d.md](Archi-3d.md)).** A project marked `is3d` files its
+tasks in numbered groups: T1, then T1.1, T1.2. A task stays an ordinary task, so its
+timer, review and dependencies are unchanged; only the group is new, and its
+progress is worked out from its tasks. Numbers come from counters in the database
+and are never reused. A task can wait on several (`task_dependencies`, `0021`) and
+starts the day the last is approved. In a step-by-step 3D project the chain follows
+number order rather than creation order: triggers re-point the next task when one
+is added to an earlier group, and close the gap when one is deleted. The module
+shows only to the 3D Artists department, global managers and Business Development.
 
 **Templates → project (§13).** Applying a template on the create-project form
 pre-fills the project *and* seeds an editable list of task rows. Rows follow
@@ -435,6 +446,9 @@ Since the current baseline:
 | `0018_cb_type_festival_static.sql` | `cb_type` gains `Festival Static`: one piece, allotted once. Mirrors `ContentType` / `CONTENT_TYPES` |
 | `0019_task_crm.sql` | `tasks.company_id` / `property_id` / `client_ids` for individual tasks; a project task leaves them empty and shows its project's (`taskCrm`). Repeats copy them |
 | `0020_client_privacy.sql` | `clients_read`: only `can_see_clients()` (global managers, Business Development, Accounts & Finance) get rows, so anything naming a client shows nothing to anyone else. `crm_phone_numbers()` gives a client's numbers to `can_see_client_details()` (the same less Managers), who also get the Clients module. Email, designation and role share the row a Manager reads, so for Managers that limit is on screen. The Drive tree for a property reads the name through the service role. Mirrors `canSeeClients` / `canSeeClientDetails` |
+| `0021_task_dependency_links.sql` | `task_dependencies` replaces `tasks.depends_on_task_id`, so a task can wait on several: projected from the latest due date among those open, released the day the last is approved. Links are copied across and no dates move. `task_is_waiting`, `schedule_dependent_task`, `follow_task_dependency`, `guard_waiting_task` and `generate_recurring_occurrences` read the table. Applies to every project; only a 3D project's form offers more than one. Mirrors `lib/dependencies.ts` |
+| `0022_3d_task_groups.sql` | The 3D module ([Archi-3d.md](Archi-3d.md)): `projects.is_3d`, `task_groups`, `tasks.group_id` / `group_number`, numbering and step-by-step chain triggers. The 3D Artists' Team Leader and Business Development see every 3D project (`can_see_project`, `my_project_ids`), and that Team Leader may create them. Mirrors `canViewThreeD` / `canCreateThreeDProjects` / `canManageTaskGroups` / `canViewProject` |
+| `0023_3d_no_content_tasks.sql` | `guard_3d_content_task`: a 3D project refuses a new content task. An older project marked 3D keeps the ones it has, but cannot split them. Mirrors `TaskFormModal` / `ProjectFormModal` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
