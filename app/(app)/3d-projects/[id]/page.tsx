@@ -11,7 +11,6 @@ import { IconArrowLeft, IconCube, IconPlus } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { Badge, Button, Card, EmptyState, PageHeader } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/calendar";
-import { THREE_D_DEPARTMENT } from "@/lib/master-data";
 import {
   canCreateTaskInProject,
   canManageTaskGroups,
@@ -33,7 +32,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
-  const [renaming, setRenaming] = useState<TaskGroup | null>(null);
+  const [editing, setEditing] = useState<TaskGroup | null>(null);
   const [deleting, setDeleting] = useState<TaskGroup | null>(null);
   /** Undefined: adding is closed. Null: adding a task outside any group. */
   const [addingTaskTo, setAddingTaskTo] = useState<string | null | undefined>(undefined);
@@ -129,7 +128,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
             allTasks={projectTasks}
             onOpenTask={setOpenTaskId}
             onAddTask={mayAddTask ? () => setAddingTaskTo(g.id) : undefined}
-            onRename={mayManage ? () => setRenaming(g) : undefined}
+            onEdit={mayManage ? () => setEditing(g) : undefined}
             onDelete={mayManage ? () => setDeleting(g) : undefined}
           />
         ))}
@@ -151,11 +150,11 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
           onClose={() => setAddingGroup(false)}
         />
       ) : null}
-      {renaming ? (
+      {editing ? (
         <GroupFormModal
           projectId={project.id}
-          group={renaming}
-          onClose={() => setRenaming(null)}
+          group={editing}
+          onClose={() => setEditing(null)}
         />
       ) : null}
 
@@ -164,7 +163,6 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
           open
           mode="project"
           project={project}
-          defaultDepartment={THREE_D_DEPARTMENT}
           defaultGroupId={addingTaskTo ?? undefined}
           onClose={() => setAddingTaskTo(undefined)}
         />

@@ -308,6 +308,9 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     projectId: str(r.project_id),
     number: num(r.number),
     name: str(r.name),
+    clientSupeNotes: str(r.client_supe_notes),
+    leadNote: str(r.lead_note),
+    generalNotes: str(r.general_notes),
     createdBy: str(r.created_by),
     createdAt: str(r.created_at),
   }));
@@ -381,6 +384,11 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
         r.group_id && groupNumber.has(str(r.group_id))
           ? `T${groupNumber.get(str(r.group_id))}.${num(r.group_number)}`
           : undefined,
+      threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
+      threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
+      clientSupeNotes: str(r.client_supe_notes),
+      leadNote: str(r.lead_note),
+      generalNotes: str(r.general_notes),
       durationDays: r.duration_days === null || r.duration_days === undefined ? null : num(r.duration_days),
       startDate: dateOnly(r.start_date),
       dueDate: dateOnly(r.due_date),
@@ -1004,6 +1012,11 @@ export function taskRow(
     | "contentTypes"
     | "dependsOnTaskIds"
     | "groupId"
+    | "threeDCategory"
+    | "threeDSoftware"
+    | "clientSupeNotes"
+    | "leadNote"
+    | "generalNotes"
     | "durationDays"
     | "companyId"
     | "propertyId"
@@ -1025,6 +1038,11 @@ export function taskRow(
     // Its links go in task_dependencies once the row exists; the database
     // gives a grouped task its number (0021, 0022).
     group_id: t.groupId ?? null,
+    three_d_category: t.threeDCategory ?? null,
+    three_d_software: t.threeDSoftware ?? null,
+    client_supe_notes: t.clientSupeNotes ?? "",
+    lead_note: t.leadNote ?? "",
+    general_notes: t.generalNotes ?? "",
     duration_days: t.dependsOnTaskIds?.length ? (t.durationDays ?? 0) : null,
     assignee_id: t.assigneeId,
     status: t.status,
@@ -1081,6 +1099,11 @@ export const TASK_COLUMNS: Record<string, string> = {
   contentCount: "content_count",
   contentTypes: "content_types",
   groupId: "group_id",
+  threeDCategory: "three_d_category",
+  threeDSoftware: "three_d_software",
+  clientSupeNotes: "client_supe_notes",
+  leadNote: "lead_note",
+  generalNotes: "general_notes",
   durationDays: "duration_days",
   companyId: "company_id",
   propertyId: "property_id",

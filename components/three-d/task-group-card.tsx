@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { DueDate, OverdueBadge, StatusBadge } from "@/components/task/task-bits";
+import { ThreeDNotesView } from "@/components/three-d/notes";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -33,7 +34,7 @@ export function TaskGroupCard({
   allTasks,
   onOpenTask,
   onAddTask,
-  onRename,
+  onEdit,
   onDelete,
 }: {
   group: TaskGroup | null;
@@ -42,7 +43,7 @@ export function TaskGroupCard({
   allTasks: Task[];
   onOpenTask: (id: string) => void;
   onAddTask?: () => void;
-  onRename?: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 }) {
   const { userById } = useStore();
@@ -118,8 +119,8 @@ export function TaskGroupCard({
           </>
         ) : null}
 
-        {onRename ? (
-          <IconButton label={`Rename T${group?.number}`} onClick={onRename}>
+        {onEdit ? (
+          <IconButton label={`Edit T${group?.number}`} onClick={onEdit}>
             <IconEdit size={14} />
           </IconButton>
         ) : null}
@@ -133,6 +134,11 @@ export function TaskGroupCard({
 
       {open ? (
         <div className="flex flex-col gap-1 border-t border-line-soft px-3 py-2.5">
+          {group ? (
+            <div className="px-2 pb-1 empty:hidden">
+              <ThreeDNotesView notes={group} />
+            </div>
+          ) : null}
           {tasks.map((t) => {
             const assignee = userById(t.assigneeId);
             return (
@@ -147,7 +153,14 @@ export function TaskGroupCard({
                     {t.code}
                   </span>
                 ) : null}
-                <span className="min-w-40 flex-1 truncate text-[13px] text-ink">{t.title}</span>
+                <span className="flex min-w-40 flex-1 flex-col">
+                  <span className="truncate text-[13px] text-ink">{t.title}</span>
+                  {t.threeDCategory || t.threeDSoftware ? (
+                    <span className="truncate text-[11px] text-ink-faint">
+                      {[t.threeDCategory, t.threeDSoftware].filter(Boolean).join(" · ")}
+                    </span>
+                  ) : null}
+                </span>
                 {assignee ? (
                   <span className="flex items-center gap-1.5 text-[12px] text-ink-muted">
                     <Avatar name={assignee.fullName} size={20} />

@@ -6,7 +6,8 @@ A project can run step by step (SBS), and any task can take its start date and
 deadline from one or more other tasks.
 
 **Status:** built. Migrations `0021_task_dependency_links.sql`,
-`0022_3d_task_groups.sql` and `0023_3d_no_content_tasks.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
+`0022_3d_task_groups.sql`, `0023_3d_no_content_tasks.sql` and
+`0024_3d_task_details.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
 records the decisions behind it, and section 8 what is left for later.
 
 The module is shown only to the **3D Artists department, Super Admin, Admin,
@@ -76,6 +77,19 @@ starts or submits "T1" itself.
 content tasks, it has no Content Bank tab, and the database refuses a new one
 (`0023`). An older project marked 3D keeps any it already has. They stay untouched
 on its ordinary project page, and do not appear in the module.
+
+**What a 3D task and group ask for (`0024`).**
+
+| Field | On | Rule |
+| --- | --- | --- |
+| Department | Task | Not asked. Always 3D Artists, and the database refuses another on a new task |
+| Task category | Task | Required by the forms: Modeling, Texture or Lighting |
+| Software | Task | Required by the forms: Blender or Unreal |
+| Client Supe Notes, 3D Lead Note, General Notes | Group and task | Optional free text. When a project is created, its opening tasks skip these; they are added from the task form |
+
+A 3D task's description is labelled "Brief description". A task from before its
+project was marked 3D keeps its department, and is asked for its category and
+software the next time it is edited.
 
 ---
 
@@ -489,7 +503,7 @@ change it if you may fully edit that task. The rows marked *new* are in both
 | See the 3D Projects page and sidebar link | 3D Artists department, global managers, Business Development | *New:* `canViewThreeD` |
 | See a 3D project | Global managers, the 3D Artists' Team Leader and Business Development see all of them. An artist sees the ones they hold a task in | *New* lines in `canViewProject`, `can_see_project` and `my_project_ids`, on top of the existing rules |
 | Create a 3D project | Global managers, the 3D Artists' Team Leader | *New:* `canCreateThreeDProjects`, and the `projects`, `project_services` and `project_members` policies |
-| Add, rename or delete a group | Global managers, the project's Leader, the 3D Artists' Team Leader | *New:* `canManageTaskGroups` / `can_manage_task_groups()` |
+| Add, edit or delete a group | Global managers, the project's Leader, the 3D Artists' Team Leader | *New:* `canManageTaskGroups` / `can_manage_task_groups()` |
 | Add a task to a group | Global managers, the project's Leader, any Team Leader who can see the project | Existing `canCreateTaskInProject` |
 | Turn SBS on or off | Whoever may edit the project | Existing |
 | Set what a task waits on, and its days to complete | Whoever may fully edit the task | Existing `canEditTaskFully`, and new policies on `task_dependencies` |
@@ -566,3 +580,6 @@ it has run.
 | 10 | Should other departments' projects also get the several-task picker? | **Not yet**, 3D projects only. It can be opened up later without another database change |
 | 11 | Who sees the module? | **3D Artists, Super Admin, Admin, Manager and Business Development Executives** |
 | 12 | Can a 3D project have content tasks? | **No**. An older project marked 3D keeps any it already has, outside the module |
+| 13 | Which department does a 3D task belong to? | **Always 3D Artists**; the forms do not ask. An older project marked 3D keeps the departments its tasks already have |
+| 14 | What else does a 3D task ask for? | **Task category** (Modeling, Texture, Lighting) and **software** (Blender, Unreal), one of each, both required |
+| 15 | What notes do groups and tasks carry? | **Client Supe Notes, 3D Lead Note and General Notes**, optional, and editable by whoever may edit that group or task |

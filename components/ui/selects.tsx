@@ -310,7 +310,7 @@ export function SearchSelect({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{o.label}</span>
                     {o.hint ? (
-                      <span className="block truncate text-[11px] text-ink-faint">{o.hint}</span>
+                      <span className="block text-[11px] break-words text-ink-faint">{o.hint}</span>
                     ) : null}
                   </span>
                 </button>

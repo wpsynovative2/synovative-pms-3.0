@@ -6,6 +6,7 @@ import {
   PieceTypesPicker,
   pieceTypes,
 } from "@/components/content/piece-types";
+import { ThreeDNotesFields } from "@/components/three-d/notes";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
@@ -27,6 +28,9 @@ import {
   PRIORITIES,
   REVIEWER_ONLY_STATUSES,
   TASK_STATUSES,
+  THREE_D_CATEGORIES,
+  THREE_D_DEPARTMENT,
+  THREE_D_SOFTWARE,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
 import { canReviewTask, canSeeClients, canSetRecurrence } from "@/lib/permissions";
@@ -41,6 +45,8 @@ import {
   type TaskKind,
   type TaskStatus,
   type TaskTemplate,
+  type ThreeDCategory,
+  type ThreeDSoftware,
   taskLabel,
 } from "@/lib/types";
 
@@ -59,6 +65,12 @@ interface FormState {
   companyId: string;
   propertyId: string;
   clientIds: string[];
+  /** 3D projects only (0024). */
+  threeDCategory: ThreeDCategory | "";
+  threeDSoftware: ThreeDSoftware | "";
+  clientSupeNotes: string;
+  leadNote: string;
+  generalNotes: string;
 }
 
 export function TaskFormModal({
@@ -135,8 +147,11 @@ export function TaskFormModal({
   );
   const [durationDays, setDurationDays] = useState(String(task?.durationDays ?? 1));
 
+  // A 3D project's work is the 3D Artists' (0024). A task from before the project
+  // was marked 3D keeps the department it has.
   const initialDepartment =
-    task?.department ?? defaultDepartment ?? db.departments[0] ?? "";
+    task?.department ??
+    (is3d ? THREE_D_DEPARTMENT : (defaultDepartment ?? db.departments[0] ?? ""));
   const firstStart =
     task?.startDate ??
     nextWorkingDay(
@@ -158,6 +173,11 @@ export function TaskFormModal({
     companyId: task?.companyId ?? "",
     propertyId: task?.propertyId ?? "",
     clientIds: task?.clientIds ?? [],
+    threeDCategory: task?.threeDCategory ?? "",
+    threeDSoftware: task?.threeDSoftware ?? "",
+    clientSupeNotes: task?.clientSupeNotes ?? "",
+    leadNote: task?.leadNote ?? "",
+    generalNotes: task?.generalNotes ?? "",
   });
   const [templateId, setTemplateId] = useState("");
   /*
@@ -189,6 +209,7 @@ export function TaskFormModal({
   // project marked 3D, still opens as what it is.
   const mayBeContentTask = mode === "project" && (!is3d || task?.kind === "content");
   const isContent = mayBeContentTask && kind === "content";
+  const asks3dDetails = is3d && !isContent;
   const pieces = Number(contentCount);
   const pieceCount = isContent && Number.isFinite(pieces) ? Math.max(Math.trunc(pieces), 0) : 0;
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
@@ -304,6 +325,20 @@ export function TaskFormModal({
     () => dependencyCandidates(task?.id ?? null, projectTasks),
     [task?.id, projectTasks],
   );
+  /** Enough to tell one task from another when picking what this waits on. */
+  const waitsOnDetail = (t: Task) => {
+    const group = groups.find((g) => g.id === t.groupId);
+    return [
+      group ? `T${group.number} ${group.name}` : "Ungrouped",
+      t.threeDCategory,
+      t.threeDSoftware,
+      db.users.find((u) => u.id === t.assigneeId)?.fullName ?? "Nobody yet",
+      t.status,
+      `due ${formatDate(t.dueDate)}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
   const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
   const days = Number(durationDays);
   const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
@@ -341,6 +376,9 @@ export function TaskFormModal({
   const hours = Number(form.estimatedHours);
   const errors = {
     title: !form.title.trim() ? "A title is required." : undefined,
+    threeDCategory:
+      asks3dDetails && !form.threeDCategory ? "Pick the task category." : undefined,
+    threeDSoftware: asks3dDetails && !form.threeDSoftware ? "Pick the software." : undefined,
     estimatedHours:
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
@@ -380,7 +418,7 @@ export function TaskFormModal({
       ...f,
       title: t.title,
       description: t.description,
-      department: t.department,
+      department: is3d ? f.department : t.department,
       assigneeId: "",
       priority: t.priority,
       estimatedHours: String(t.estimatedHours),
@@ -410,6 +448,15 @@ export function TaskFormModal({
       durationDays: dependent ? days : null,
       // Content tasks stay outside the groups, and so does anything not in 3D.
       groupId: is3d && !isContent && groupId ? groupId : null,
+      ...(asks3dDetails
+        ? {
+            threeDCategory: form.threeDCategory || null,
+            threeDSoftware: form.threeDSoftware || null,
+            clientSupeNotes: form.clientSupeNotes,
+            leadNote: form.leadNote,
+            generalNotes: form.generalNotes,
+          }
+        : {}),
       ...(mode === "individual"
         ? {
             companyId: form.companyId || null,
@@ -555,13 +602,52 @@ export function TaskFormModal({
           />
         </Field>
 
-        <Field label="Description">
+        <Field label={is3d ? "Brief description" : "Description"}>
           <RichTextEditor
             value={form.description}
             onChange={(v) => set("description", v)}
             placeholder="Brief, references, deliverable format…"
           />
         </Field>
+
+        {asks3dDetails ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Task category"
+              required
+              error={touched ? errors.threeDCategory : undefined}
+            >
+              <Select
+                value={form.threeDCategory}
+                onChange={(e) => set("threeDCategory", e.target.value as ThreeDCategory | "")}
+              >
+                <option value="">Choose…</option>
+                {THREE_D_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Software"
+              required
+              error={touched ? errors.threeDSoftware : undefined}
+            >
+              <Select
+                value={form.threeDSoftware}
+                onChange={(e) => set("threeDSoftware", e.target.value as ThreeDSoftware | "")}
+              >
+                <option value="">Choose…</option>
+                {THREE_D_SOFTWARE.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        ) : null}
 
         {mode === "individual" ? (
           <div className="grid gap-4 sm:grid-cols-2">
@@ -609,17 +695,19 @@ export function TaskFormModal({
           </div>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Department" required>
-            <SearchSelect
-              options={db.departments.map((d) => ({ value: d, label: d }))}
-              value={form.department}
-              onChange={(v) => {
-                set("department", v);
-                set("assigneeId", "");
-              }}
-            />
-          </Field>
+        <div className={is3d ? "grid gap-4" : "grid gap-4 sm:grid-cols-2"}>
+          {is3d ? null : (
+            <Field label="Department" required>
+              <SearchSelect
+                options={db.departments.map((d) => ({ value: d, label: d }))}
+                value={form.department}
+                onChange={(v) => {
+                  set("department", v);
+                  set("assigneeId", "");
+                }}
+              />
+            </Field>
+          )}
 
           <Field
             label="Assigned to"
@@ -753,7 +841,7 @@ export function TaskFormModal({
                   options={candidates.map((t) => ({
                     value: t.id,
                     label: taskLabel(t),
-                    hint: `${t.status} · due ${formatDate(t.dueDate)}`,
+                    hint: waitsOnDetail(t),
                   }))}
                   value={waitsOnIds}
                   onChange={setWaitsOnIds}
@@ -901,6 +989,13 @@ export function TaskFormModal({
         <Field label="Tags" hint="Comma separated — stored as a list.">
           <TagsInput value={form.tags} onChange={(v) => set("tags", v)} />
         </Field>
+
+        {asks3dDetails ? (
+          <ThreeDNotesFields
+            value={form}
+            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          />
+        ) : null}
 
         {mode === "project" && project && !dependent ? (
           <p

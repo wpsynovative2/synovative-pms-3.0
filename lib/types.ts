@@ -306,6 +306,13 @@ export interface Task {
   groupNumber?: number | null;
   /** "T1.3". Derived when loaded, never stored. */
   code?: string;
+  /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */
+  threeDCategory?: ThreeDCategory | null;
+  threeDSoftware?: ThreeDSoftware | null;
+  /** 3D projects only (0024). */
+  clientSupeNotes?: string;
+  leadNote?: string;
+  generalNotes?: string;
   createdBy: string;
   createdAt: string;
   sessions: TimeSession[];
@@ -328,11 +335,21 @@ export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds">) =>
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>
   t.code ? `${t.code} ${t.title}` : t.title;
 
+export type ThreeDCategory = "Modeling" | "Texture" | "Lighting";
+export type ThreeDSoftware = "Blender" | "Unreal";
+
+/** The notes a 3D group and a 3D task both carry (0024). */
+export interface ThreeDNotes {
+  clientSupeNotes: string;
+  leadNote: string;
+  generalNotes: string;
+}
+
 /**
- * A group of tasks in a 3D project (0022): T1 of T1.1, T1.2. It has a name and a
- * number and nothing else; its progress is worked out from its tasks.
+ * A group of tasks in a 3D project (0022): T1 of T1.1, T1.2. It has a name, a
+ * number and its notes; its progress is worked out from its tasks.
  */
-export interface TaskGroup {
+export interface TaskGroup extends ThreeDNotes {
   id: string;
   projectId: string;
   /** The 1 of T1. Set by the database, and never reused. */

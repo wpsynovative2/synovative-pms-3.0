@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { taskCrm } from "@/components/crm/crm-chain";
+import { ThreeDNotesView } from "@/components/three-d/notes";
 import {
   IconCheck,
   IconClose,
@@ -217,6 +218,12 @@ export function TaskDetailDrawer({
                 {formatDate(task.dueDate)}
               </span>
             </Fact>
+            {project?.is3d && task.threeDCategory ? (
+              <Fact label="Task category">{task.threeDCategory}</Fact>
+            ) : null}
+            {project?.is3d && task.threeDSoftware ? (
+              <Fact label="Software">{task.threeDSoftware}</Fact>
+            ) : null}
             <Fact label="Estimated">{task.estimatedHours}h</Fact>
             <Fact label="Time spent">{formatDuration(taskElapsedMs(task))}</Fact>
             <Fact label="Created by">{creator?.fullName ?? "—"}</Fact>
@@ -311,10 +318,12 @@ export function TaskDetailDrawer({
           ) : null}
 
           {!isRichTextEmpty(task.description) ? (
-            <Section title="Description">
+            <Section title={project?.is3d ? "Brief description" : "Description"}>
               <RichText html={task.description} />
             </Section>
           ) : null}
+
+          {project?.is3d ? <ThreeDNotesView notes={task} /> : null}
 
           {/* Content Bank — the writer's interface, and everyone else's link */}
           <TaskContentSection task={task} project={project ?? null} />

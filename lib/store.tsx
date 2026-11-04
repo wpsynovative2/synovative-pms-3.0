@@ -517,7 +517,12 @@ export type NewProjectTaskInput = Pick<
 > &
   // As with NewTaskInput: a plain task says nothing and gets one, and only a
   // content task fills these in.
-  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes" | "durationDays">> & {
+  Partial<
+    Pick<
+      Task,
+      "kind" | "contentCount" | "contentTypes" | "durationDays" | "threeDCategory" | "threeDSoftware"
+    >
+  > & {
     /**
      * Rows of one project wait on each other before any of them has an id, so
      * a row names the one it waits on by the caller's key (0014). The row
@@ -532,6 +537,18 @@ export interface ProjectWithTasksInput {
   /** Empty creates the project on its own. */
   tasks: NewProjectTaskInput[];
 }
+
+export type TaskGroupInput = Pick<
+  TaskGroup,
+  "name" | "clientSupeNotes" | "leadNote" | "generalNotes"
+>;
+
+const taskGroupColumns = (g: TaskGroupInput) => ({
+  name: g.name,
+  client_supe_notes: g.clientSupeNotes,
+  lead_note: g.leadNote,
+  general_notes: g.generalNotes,
+});
 
 export type NewTaskInput = Omit<
   Task,
@@ -702,8 +719,8 @@ interface StoreValue {
   addRemark: (taskId: string, text: string) => void;
 
   /** 3D task groups (0022). */
-  createTaskGroup: (projectId: string, name: string) => TaskGroup;
-  renameTaskGroup: (id: string, name: string) => void;
+  createTaskGroup: (projectId: string, input: TaskGroupInput) => TaskGroup;
+  updateTaskGroup: (id: string, input: TaskGroupInput) => void;
   deleteTaskGroup: (id: string) => void;
 
   startTimer: (taskId: string) => void;
@@ -1212,7 +1229,7 @@ const actions = {
 
   /* ----------------------------------------------------- 3D task groups */
 
-  createTaskGroup(projectId: string, name: string): TaskGroup {
+  createTaskGroup(projectId: string, input: TaskGroupInput): TaskGroup {
     const group: TaskGroup = {
       id: newId(),
       projectId,
@@ -1222,7 +1239,7 @@ const actions = {
           0,
           ...state.db.taskGroups.filter((g) => g.projectId === projectId).map((g) => g.number),
         ) + 1,
-      name,
+      ...input,
       createdBy: me(),
       createdAt: now(),
     };
@@ -1234,7 +1251,7 @@ const actions = {
           c.from("task_groups").insert({
             id: group.id,
             project_id: projectId,
-            name,
+            ...taskGroupColumns(input),
             created_by: group.createdBy,
           }),
         ),
@@ -1242,14 +1259,14 @@ const actions = {
     return group;
   },
 
-  renameTaskGroup(id: string, name: string) {
+  updateTaskGroup(id: string, input: TaskGroupInput) {
     void commit(
       ["tasks"],
       (db) => ({
         ...db,
-        taskGroups: db.taskGroups.map((g) => (g.id === id ? { ...g, name } : g)),
+        taskGroups: db.taskGroups.map((g) => (g.id === id ? { ...g, ...input } : g)),
       }),
-      (c) => run(c.from("task_groups").update({ name }).eq("id", id)),
+      (c) => run(c.from("task_groups").update(taskGroupColumns(input)).eq("id", id)),
     );
   },
 

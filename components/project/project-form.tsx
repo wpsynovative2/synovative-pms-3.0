@@ -19,7 +19,10 @@ import {
   PROJECT_STATUSES,
   SMM_SERVICE,
   WORKDAY_HOURS,
+  THREE_D_CATEGORIES,
+  THREE_D_DEPARTMENT,
   THREE_D_SERVICE,
+  THREE_D_SOFTWARE,
 } from "@/lib/master-data";
 import { canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
@@ -32,7 +35,10 @@ import type {
   ProjectStatus,
   RecurrenceRule,
   TaskKind,
+  ThreeDCategory,
+  ThreeDSoftware,
   TitleMonth,
+  User,
 } from "@/lib/types";
 
 /**
@@ -46,6 +52,9 @@ interface TaskDraft {
   description: string;
   department: string;
   assigneeId: string;
+  /** 3D projects only (0024). */
+  threeDCategory?: ThreeDCategory | "";
+  threeDSoftware?: ThreeDSoftware | "";
   priority: Priority;
   estimatedHours: number;
   startDate: string;
@@ -119,11 +128,15 @@ const toTaskInput = (
   d: TaskDraft,
   tags: string[] = [],
   link?: ChainLink,
+  is3d = false,
 ): NewProjectTaskInput => ({
   title: d.title.trim(),
   description: d.description,
   department: d.department,
   assigneeId: d.assigneeId || null,
+  // Rows keep these if the 3D switch is turned off, so they are not sent then.
+  threeDCategory: (is3d && d.threeDCategory) || null,
+  threeDSoftware: (is3d && d.threeDSoftware) || null,
   priority: d.priority,
   estimatedHours: d.estimatedHours,
   startDate: link?.startDate ?? d.startDate,
@@ -136,6 +149,19 @@ const toTaskInput = (
   dependsOnKey: link?.after.key,
   durationDays: link ? d.durationDays : undefined,
 });
+
+/**
+ * Every row of a 3D project belongs to the 3D Artists (0024). Someone already picked
+ * from another department comes off the row.
+ */
+function as3dRow<D extends TaskDraft>(d: D, users: User[]): D {
+  const assignee = users.find((u) => u.id === d.assigneeId);
+  return {
+    ...d,
+    department: THREE_D_DEPARTMENT,
+    assigneeId: assignee?.departments.includes(THREE_D_DEPARTMENT) ? d.assigneeId : "",
+  };
+}
 
 /** Whole working days, never negative, from what was typed. */
 const toDays = (value: string) => Math.max(0, Math.trunc(Number(value)) || 0);
@@ -457,17 +483,20 @@ export function ProjectFormModal({
    */
   // A 3D project has no content tasks (0023). Rows held back here come back if the
   // switch is turned off again.
-  const openingDrafts = is3d ? drafts.filter((d) => d.kind === "standard") : drafts;
+  const openingDrafts = is3d
+    ? drafts.filter((d) => d.kind === "standard").map((d) => as3dRow(d, db.users))
+    : drafts;
   const resolvedTemplateDrafts = useMemo(
     () =>
       templateDrafts
         .filter((d) => !is3d || d.kind === "standard")
+        .map((d) => (is3d ? as3dRow(d, db.users) : d))
         .map((d) =>
           d.datesPinned
             ? d
             : { ...d, ...templateDates(d, form.startDate, form.deadline, db.calendar) },
         ),
-    [is3d, templateDrafts, form.startDate, form.deadline, db.calendar],
+    [is3d, templateDrafts, form.startDate, form.deadline, db.calendar, db.users],
   );
 
   /** The standard tasks in the order listed, template rows first. */
@@ -501,6 +530,45 @@ export function ProjectFormModal({
    * The "Waits on another task" switch and picker for a standard task with
    * one listed above it. Under SBS the order decides, so it isn't offered.
    */
+  const rowIncomplete = (d: TaskDraft) =>
+    !d.title.trim() ||
+    !d.department ||
+    (d.kind === "content" && d.contentCount < 1) ||
+    (is3d && (!d.threeDCategory || !d.threeDSoftware));
+  const rowError = is3d
+    ? "Every task needs a title, a task category and a software."
+    : "Every task needs a title and a department, and a content task at least one piece.";
+
+  /** What a 3D project asks of each row (0024). */
+  const threeDControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => (
+    <div className="grid gap-2.5 sm:grid-cols-2">
+      <Select
+        value={d.threeDCategory ?? ""}
+        onChange={(e) => update({ threeDCategory: e.target.value as ThreeDCategory | "" })}
+        aria-label="Task category"
+      >
+        <option value="">Task category…</option>
+        {THREE_D_CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
+      <Select
+        value={d.threeDSoftware ?? ""}
+        onChange={(e) => update({ threeDSoftware: e.target.value as ThreeDSoftware | "" })}
+        aria-label="Software"
+      >
+        <option value="">Software…</option>
+        {THREE_D_SOFTWARE.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
+
   const waitsOnControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => {
     const earlier = standardDrafts.slice(
       0,
@@ -567,18 +635,8 @@ export function ProjectFormModal({
         ? ruleError(repeat, form.startDate)
         : "Pick how often it repeats."
       : undefined,
-    tasks: openingDrafts.some(
-      (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
-    )
-      ? "Every task needs a title and a department, and a content task at least one piece."
-      : undefined,
-    templateTasks: templateDrafts.some(
-      (d) =>
-        !(is3d && d.kind === "content") &&
-        (!d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1)),
-    )
-      ? "Every task needs a title and a department, and a content task at least one piece."
-      : undefined,
+    tasks: openingDrafts.some(rowIncomplete) ? rowError : undefined,
+    templateTasks: resolvedTemplateDrafts.some(rowIncomplete) ? rowError : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -621,8 +679,8 @@ export function ProjectFormModal({
     const created = createProjectWithTasks({
       project: payload,
       tasks: [
-        ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags, chain.get(d.key))),
-        ...openingDrafts.map((d) => toTaskInput(d, [], chain.get(d.key))),
+        ...resolvedTemplateDrafts.map((d) => toTaskInput(d, d.tags, chain.get(d.key), is3d)),
+        ...openingDrafts.map((d) => toTaskInput(d, [], chain.get(d.key), is3d)),
       ],
     });
 
@@ -1062,6 +1120,13 @@ export function ProjectFormModal({
                         </div>
                       </div>
 
+                      {/* Required, so outside the part that opens and closes. */}
+                      {is3d ? (
+                        <div className="mt-2.5">
+                          {threeDControls(d, (patch) => setTemplateDraft(d.key, patch))}
+                        </div>
+                      ) : null}
+
                       {open ? (
                         <div className="mt-3 flex flex-col gap-2.5 border-t border-line-soft pt-3">
                           <Input
@@ -1110,16 +1175,18 @@ export function ProjectFormModal({
                           />
 
                           <div className="grid gap-2.5 sm:grid-cols-2">
-                            <SearchSelect
-                              options={db.departments.map((x) => ({ value: x, label: x }))}
-                              value={d.department}
-                              onChange={(v) =>
-                                // The assignee comes from the department, so it
-                                // can't survive the department changing under it.
-                                setTemplateDraft(d.key, { department: v, assigneeId: "" })
-                              }
-                              placeholder="Department"
-                            />
+                            {is3d ? null : (
+                              <SearchSelect
+                                options={db.departments.map((x) => ({ value: x, label: x }))}
+                                value={d.department}
+                                onChange={(v) =>
+                                  // The assignee comes from the department, so it
+                                  // can't survive the department changing under it.
+                                  setTemplateDraft(d.key, { department: v, assigneeId: "" })
+                                }
+                                placeholder="Department"
+                              />
+                            )}
                             <Select
                               value={d.priority}
                               onChange={(e) =>
@@ -1310,17 +1377,21 @@ export function ProjectFormModal({
                       placeholder="Brief, references, deliverable format…"
                     />
 
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      <SearchSelect
-                        options={db.departments.map((x) => ({ value: x, label: x }))}
-                        value={d.department}
-                        onChange={(v) =>
-                          // The assignee comes from the department, so it can't
-                          // survive the department changing under it.
-                          setDraft(d.key, { department: v, assigneeId: "" })
-                        }
-                        placeholder="Department"
-                      />
+                    {is3d ? threeDControls(d, (patch) => setDraft(d.key, patch)) : null}
+
+                    <div className={is3d ? "grid gap-2.5" : "grid gap-2.5 sm:grid-cols-2"}>
+                      {is3d ? null : (
+                        <SearchSelect
+                          options={db.departments.map((x) => ({ value: x, label: x }))}
+                          value={d.department}
+                          onChange={(v) =>
+                            // The assignee comes from the department, so it can't
+                            // survive the department changing under it.
+                            setDraft(d.key, { department: v, assigneeId: "" })
+                          }
+                          placeholder="Department"
+                        />
+                      )}
                       <SearchSelect
                         options={db.users
                           .filter((u) => u.active && u.departments.includes(d.department))

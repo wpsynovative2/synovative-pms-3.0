@@ -6,6 +6,8 @@ import type {
   Priority,
   ProjectStatus,
   TaskStatus,
+  ThreeDCategory,
+  ThreeDSoftware,
 } from "./types";
 
 /** PRD §5.1 */
@@ -48,6 +50,9 @@ export const WEBSITE_DEV_DEPARTMENT = "Website Developers";
 export const THREE_D_SERVICE = "3D Walkthrough Animation";
 export const THREE_D_DEPARTMENT = "3D Artists";
 export const CLIENT_SERVICING_DEPARTMENT = "Project Managers";
+/** What a 3D project's task asks for. The database holds the same lists (0024). */
+export const THREE_D_CATEGORIES: ThreeDCategory[] = ["Modeling", "Texture", "Lighting"];
+export const THREE_D_SOFTWARE: ThreeDSoftware[] = ["Blender", "Unreal"];
 export const PROJECT_DRIVE_AREAS = {
   csf: "CSF",
   team3d: "3D Team",
