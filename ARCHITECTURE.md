@@ -450,6 +450,9 @@ Since the current baseline:
 | `0022_3d_task_groups.sql` | The 3D module ([Archi-3d.md](Archi-3d.md)): `projects.is_3d`, `task_groups`, `tasks.group_id` / `group_number`, numbering and step-by-step chain triggers. The 3D Artists' Team Leader and Business Development see every 3D project (`can_see_project`, `my_project_ids`), and that Team Leader may create them. Mirrors `canViewThreeD` / `canCreateThreeDProjects` / `canManageTaskGroups` / `canViewProject` |
 | `0023_3d_no_content_tasks.sql` | `guard_3d_content_task`: a 3D project refuses a new content task. An older project marked 3D keeps the ones it has, but cannot split them. Mirrors `TaskFormModal` / `ProjectFormModal` |
 | `0024_3d_task_details.sql` | A 3D task's category and software (`tasks.three_d_category`, `three_d_software`, checked lists), three notes on both `tasks` and `task_groups`, and `guard_3d_task_department`: a new task in a 3D project must be in 3D Artists, while an older project marked 3D keeps what it has. Mirrors `THREE_D_CATEGORIES` / `THREE_D_SOFTWARE` and `TaskFormModal` / `ProjectFormModal` |
+| `0025_3d_cam_shots.sql` | A fourth 3D category, Cam shots, and the two fields it asks for: `tasks.shots_brief` (rich text) and `camera_angles`. Mirrors `THREE_D_CATEGORIES` / `CAM_SHOTS_CATEGORY` |
+| `0026_3d_task_thumbnail.sql` | `tasks.thumbnail_file_id` / `thumbnail_url`: a 3D task's image, in one master Drive folder. Served by `/api/drive/thumbnails/[id]`, which treats both columns as untrusted |
+| `0027_3d_thumbnail_name.sql` | `tasks.thumbnail_name`: what someone called a task's thumbnail, which also names its file on Drive (`PATCH /api/drive/thumbnails/[id]`) |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
@@ -556,7 +559,7 @@ All three are optional — the app degrades rather than breaking.
 | --- | --- | --- |
 | Cloudinary | expense bill uploads | everything works except attaching bills |
 | Google Drive (service account) | a property's media folder tree | "Create Directory" is disabled |
-| Google Drive (agency account) | a 3D project's folder, its CSF / 3D Team areas, media uploads | "Create Drive folder" is refused |
+| Google Drive (agency account) | a 3D project's folder, its CSF / 3D Team areas, media uploads, 3D task thumbnails | "Create Drive folder" is refused |
 | Zoho CRM | pulling quote lines onto an OBC | OBC lines are typed by hand |
 
 Each has a server route that checks the caller first
@@ -574,6 +577,13 @@ to a resumable session the server opened — media never passes through Vercel.
 `lib/google/project-drive.ts` checks, for every listing and upload, that the
 caller can see the project, may use that area, and that the folder really sits
 under 3D Operation Work.
+
+3D task thumbnails use the same account, in one folder, 3D Thumbnails, inside 3D
+Operation Work. The browser compresses each image to a JPEG first. The files stay
+private, and `/api/drive/thumbnails/[id]` serves them to anyone who can read a task
+naming the file. That route reads with the agency account, so it also checks the file
+is a JPEG directly in that folder: `thumbnail_file_id` is written by people, and must
+not become a way to read the rest of the account.
 
 The **service-role key** is used in exactly two places: the `/api/admin/users`
 routes (after `requireCaller` has checked the caller's role and seniority) and

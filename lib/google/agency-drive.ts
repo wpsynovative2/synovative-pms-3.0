@@ -151,6 +151,70 @@ export async function startUpload(
   return location;
 }
 
+/** Inside 3D Operation Work: one folder for every project's task thumbnails (0026). */
+const THUMBNAILS_FOLDER = "3D Thumbnails";
+let thumbnailsFolder: string | null = null;
+
+/** Made the first time a thumbnail is uploaded. */
+export async function thumbnailsFolderId(token: string, config: AgencyDriveConfig) {
+  thumbnailsFolder ??= (await findOrCreate(token, config.threeDFolderId, THUMBNAILS_FOLDER)).folderId;
+  return thumbnailsFolder;
+}
+
+/**
+ * What a thumbnail is called on Drive, from a name someone typed. Empty if there is
+ * nothing usable in it.
+ */
+export function thumbnailFileName(typed: unknown) {
+  if (typeof typed !== "string") return "";
+  const name = typed
+    .replace(/[\u0000-\u001f]/g, "")
+    .trim()
+    .replace(/\.jpe?g$/i, "")
+    .trim();
+  return name ? `${name.slice(0, 200)}.jpg` : "";
+}
+
+/** The ids reaching these come from people, so only a JPEG directly in that folder counts. */
+async function isThumbnail(token: string, fileId: string, folderId: string) {
+  const res = await fetch(
+    `${DRIVE_URL}/${encodeURIComponent(fileId)}?fields=mimeType,parents&supportsAllDrives=true`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(await driveError(res));
+  const { mimeType, parents } = (await res.json()) as { mimeType?: string; parents?: string[] };
+  return mimeType === "image/jpeg" && !!parents?.includes(folderId);
+}
+
+/** A thumbnail's bytes, or null if it isn't one. */
+export async function thumbnailMedia(token: string, fileId: string, folderId: string) {
+  if (!(await isThumbnail(token, fileId, folderId))) return null;
+  const media = await fetch(
+    `${DRIVE_URL}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  if (!media.ok) throw new Error(await driveError(media));
+  return media.body;
+}
+
+/** False if it isn't a thumbnail. */
+export async function renameThumbnail(
+  token: string,
+  fileId: string,
+  folderId: string,
+  name: string,
+) {
+  if (!(await isThumbnail(token, fileId, folderId))) return false;
+  const res = await fetch(`${DRIVE_URL}/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await driveError(res));
+  return true;
+}
+
 export interface DriveItem {
   id: string;
   name: string;

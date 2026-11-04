@@ -51,7 +51,13 @@ export const THREE_D_SERVICE = "3D Walkthrough Animation";
 export const THREE_D_DEPARTMENT = "3D Artists";
 export const CLIENT_SERVICING_DEPARTMENT = "Project Managers";
 /** What a 3D project's task asks for. The database holds the same lists (0024). */
-export const THREE_D_CATEGORIES: ThreeDCategory[] = ["Modeling", "Texture", "Lighting"];
+export const CAM_SHOTS_CATEGORY: ThreeDCategory = "Cam shots";
+export const THREE_D_CATEGORIES: ThreeDCategory[] = [
+  "Modeling",
+  "Texture",
+  "Lighting",
+  CAM_SHOTS_CATEGORY,
+];
 export const THREE_D_SOFTWARE: ThreeDSoftware[] = ["Blender", "Unreal"];
 export const PROJECT_DRIVE_AREAS = {
   csf: "CSF",

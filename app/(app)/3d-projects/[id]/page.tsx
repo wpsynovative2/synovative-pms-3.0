@@ -5,6 +5,12 @@ import { use, useMemo, useState } from "react";
 import { ProjectDriveControls } from "@/components/project/project-drive";
 import { GroupFormModal } from "@/components/three-d/group-form";
 import { TaskGroupCard } from "@/components/three-d/task-group-card";
+import {
+  ThreeDTaskFilters,
+  applyThreeDFilters,
+  emptyThreeDFilters,
+  isFilteringThreeD,
+} from "@/components/three-d/task-filters";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskFormModal } from "@/components/task/task-form";
 import { IconArrowLeft, IconCube, IconPlus } from "@/components/ui/icons";
@@ -36,6 +42,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   const [deleting, setDeleting] = useState<TaskGroup | null>(null);
   /** Undefined: adding is closed. Null: adding a task outside any group. */
   const [addingTaskTo, setAddingTaskTo] = useState<string | null | undefined>(undefined);
+  const [filters, setFilters] = useState(emptyThreeDFilters);
 
   const groups = useMemo(
     () =>
@@ -49,6 +56,11 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
     [db.tasks, id],
   );
   const ungrouped = useMemo(() => projectTasks.filter((t) => !t.groupId), [projectTasks]);
+  const shownTasks = useMemo(
+    () => applyThreeDFilters(projectTasks, filters),
+    [projectTasks, filters],
+  );
+  const shownTaskIds = useMemo(() => new Set(shownTasks.map((t) => t.id)), [shownTasks]);
 
   const user = currentUser!;
   const allowed =
@@ -75,6 +87,12 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
 
   const mayManage = canManageTaskGroups(user, project);
   const mayAddTask = canCreateTaskInProject(user, project);
+  // While filtering, a group with nothing left to show gets out of the way.
+  const filtering = isFilteringThreeD(filters);
+  const shownGroups = filtering
+    ? groups.filter((g) => shownTasks.some((t) => t.groupId === g.id))
+    : groups;
+  const showUngrouped = filtering ? shownTasks.some((t) => !t.groupId) : ungrouped.length > 0;
 
   return (
     <div className="flex flex-col gap-5">
@@ -105,6 +123,26 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
         }
       />
 
+      {projectTasks.length > 0 ? (
+        <ThreeDTaskFilters
+          value={filters}
+          onChange={setFilters}
+          tasks={projectTasks}
+          groups={groups}
+          shown={shownTasks.length}
+        />
+      ) : null}
+
+      {filtering && shownTasks.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<IconCube size={30} />}
+            title="No tasks match these filters"
+            action={<Button onClick={() => setFilters(emptyThreeDFilters)}>Clear filters</Button>}
+          />
+        </Card>
+      ) : null}
+
       {groups.length === 0 && ungrouped.length === 0 ? (
         <Card>
           <EmptyState
@@ -120,23 +158,25 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
       ) : null}
 
       <div className="flex flex-col gap-3">
-        {groups.map((g) => (
+        {shownGroups.map((g) => (
           <TaskGroupCard
             key={g.id}
             group={g}
             project={project}
             allTasks={projectTasks}
+            shownTaskIds={filtering ? shownTaskIds : undefined}
             onOpenTask={setOpenTaskId}
             onAddTask={mayAddTask ? () => setAddingTaskTo(g.id) : undefined}
             onEdit={mayManage ? () => setEditing(g) : undefined}
             onDelete={mayManage ? () => setDeleting(g) : undefined}
           />
         ))}
-        {ungrouped.length > 0 ? (
+        {showUngrouped ? (
           <TaskGroupCard
             group={null}
             project={project}
             allTasks={projectTasks}
+            shownTaskIds={filtering ? shownTaskIds : undefined}
             onOpenTask={setOpenTaskId}
             onAddTask={mayAddTask ? () => setAddingTaskTo(null) : undefined}
           />

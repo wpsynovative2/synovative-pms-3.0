@@ -7,7 +7,7 @@ deadline from one or more other tasks.
 
 **Status:** built. Migrations `0021_task_dependency_links.sql`,
 `0022_3d_task_groups.sql`, `0023_3d_no_content_tasks.sql` and
-`0024_3d_task_details.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
+`0024_3d_task_details.sql`, `0025_3d_cam_shots.sql`, `0026_3d_task_thumbnail.sql` and `0027_3d_thumbnail_name.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
 records the decisions behind it, and section 8 what is left for later.
 
 The module is shown only to the **3D Artists department, Super Admin, Admin,
@@ -83,9 +83,21 @@ on its ordinary project page, and do not appear in the module.
 | Field | On | Rule |
 | --- | --- | --- |
 | Department | Task | Not asked. Always 3D Artists, and the database refuses another on a new task |
-| Task category | Task | Required by the forms: Modeling, Texture or Lighting |
+| Task category | Task | Required by the forms: Modeling, Texture, Lighting or Cam shots |
+| Shots brief (rich text), Camera angles | Task | Cam shots only (`0025`), and then required by the forms. Cleared if the category changes to another |
 | Software | Task | Required by the forms: Blender or Unreal |
-| Client Supe Notes, 3D Lead Note, General Notes | Group and task | Optional free text. When a project is created, its opening tasks skip these; they are added from the task form |
+| Thumbnail | Task | Optional, in every category (`0026`). The browser compresses it to a JPEG, at most 1600 px on its longest side, before it goes to Drive |
+| Thumbnail name | Task | Optional (`0027`). Shown under the image, and names the file on Drive |
+| Client Supe Notes, 3D Lead Note, General Notes | Group and task | Optional rich text. When a project is created, its opening tasks skip these; they are added from the task form |
+
+Thumbnails all go in one Drive folder, **3D Thumbnails**, inside 3D Operation Work,
+made the first time one is uploaded. The task stores the file's id and link. The
+files stay private, so the app serves them itself (`/api/drive/thumbnails/[id]`) to
+anyone who can read the task. A thumbnail that is replaced or removed stays on Drive.
+
+A 3D project's page filters its tasks by search, task category, software, status,
+priority, group and assignee. Nothing is saved, a group with no match is hidden, and
+a group's progress still counts all its tasks.
 
 A 3D task's description is labelled "Brief description". A task from before its
 project was marked 3D keeps its department, and is asked for its category and
@@ -581,5 +593,7 @@ it has run.
 | 11 | Who sees the module? | **3D Artists, Super Admin, Admin, Manager and Business Development Executives** |
 | 12 | Can a 3D project have content tasks? | **No**. An older project marked 3D keeps any it already has, outside the module |
 | 13 | Which department does a 3D task belong to? | **Always 3D Artists**; the forms do not ask. An older project marked 3D keeps the departments its tasks already have |
-| 14 | What else does a 3D task ask for? | **Task category** (Modeling, Texture, Lighting) and **software** (Blender, Unreal), one of each, both required |
-| 15 | What notes do groups and tasks carry? | **Client Supe Notes, 3D Lead Note and General Notes**, optional, and editable by whoever may edit that group or task |
+| 14 | What else does a 3D task ask for? | **Task category** (Modeling, Texture, Lighting, Cam shots) and **software** (Blender, Unreal), one of each, both required |
+| 15 | What notes do groups and tasks carry? | **Client Supe Notes, 3D Lead Note and General Notes**, optional rich text, and editable by whoever may edit that group or task |
+| 16 | What does a Cam shots task ask for? | **A shots brief (rich text) and camera angles**, both required, on top of what every 3D task asks |
+| 17 | Can a 3D task have a thumbnail? | **Yes, optional, in any category.** Compressed in the browser and kept privately in one master Drive folder, with the link on the task |

@@ -6,13 +6,23 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconEdit, IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Avatar, Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
+import {
+  Avatar,
+  Button,
+  Field,
+  Input,
+  Select,
+  Switch,
+  Textarea,
+  cx,
+} from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
-import { RichTextEditor } from "@/components/ui/rich-text";
+import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import { projectedAfter } from "@/lib/dependencies";
 import {
+  CAM_SHOTS_CATEGORY,
   CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
   PROJECT_COLORS,
@@ -55,6 +65,9 @@ interface TaskDraft {
   /** 3D projects only (0024). */
   threeDCategory?: ThreeDCategory | "";
   threeDSoftware?: ThreeDSoftware | "";
+  /** Cam shots rows only (0025). */
+  shotsBrief?: string;
+  cameraAngles?: string;
   priority: Priority;
   estimatedHours: number;
   startDate: string;
@@ -137,6 +150,10 @@ const toTaskInput = (
   // Rows keep these if the 3D switch is turned off, so they are not sent then.
   threeDCategory: (is3d && d.threeDCategory) || null,
   threeDSoftware: (is3d && d.threeDSoftware) || null,
+  // Left behind if the category changes, so a Modeling task carries none.
+  shotsBrief: is3d && d.threeDCategory === CAM_SHOTS_CATEGORY ? (d.shotsBrief ?? "") : "",
+  cameraAngles:
+    is3d && d.threeDCategory === CAM_SHOTS_CATEGORY ? (d.cameraAngles ?? "").trim() : "",
   priority: d.priority,
   estimatedHours: d.estimatedHours,
   startDate: link?.startDate ?? d.startDate,
@@ -534,38 +551,60 @@ export function ProjectFormModal({
     !d.title.trim() ||
     !d.department ||
     (d.kind === "content" && d.contentCount < 1) ||
-    (is3d && (!d.threeDCategory || !d.threeDSoftware));
+    (is3d && (!d.threeDCategory || !d.threeDSoftware)) ||
+    (is3d &&
+      d.threeDCategory === CAM_SHOTS_CATEGORY &&
+      (isRichTextEmpty(d.shotsBrief ?? "") || !d.cameraAngles?.trim()));
   const rowError = is3d
-    ? "Every task needs a title, a task category and a software."
+    ? "Every task needs a title, a task category and a software, and a Cam shots task its shots brief and camera angles."
     : "Every task needs a title and a department, and a content task at least one piece.";
 
   /** What a 3D project asks of each row (0024). */
   const threeDControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => (
-    <div className="grid gap-2.5 sm:grid-cols-2">
-      <Select
-        value={d.threeDCategory ?? ""}
-        onChange={(e) => update({ threeDCategory: e.target.value as ThreeDCategory | "" })}
-        aria-label="Task category"
-      >
-        <option value="">Task category…</option>
-        {THREE_D_CATEGORIES.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </Select>
-      <Select
-        value={d.threeDSoftware ?? ""}
-        onChange={(e) => update({ threeDSoftware: e.target.value as ThreeDSoftware | "" })}
-        aria-label="Software"
-      >
-        <option value="">Software…</option>
-        {THREE_D_SOFTWARE.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </Select>
+    <div className="flex flex-col gap-2.5">
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <Select
+          value={d.threeDCategory ?? ""}
+          onChange={(e) => update({ threeDCategory: e.target.value as ThreeDCategory | "" })}
+          aria-label="Task category"
+        >
+          <option value="">Task category…</option>
+          {THREE_D_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={d.threeDSoftware ?? ""}
+          onChange={(e) => update({ threeDSoftware: e.target.value as ThreeDSoftware | "" })}
+          aria-label="Software"
+        >
+          <option value="">Software…</option>
+          {THREE_D_SOFTWARE.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {d.threeDCategory === CAM_SHOTS_CATEGORY ? (
+        <>
+          <RichTextEditor
+            value={d.shotsBrief ?? ""}
+            onChange={(v) => update({ shotsBrief: v })}
+            minHeight={72}
+            placeholder="Shots brief: what each shot should show, and how long it runs…"
+          />
+          <Textarea
+            rows={2}
+            value={d.cameraAngles ?? ""}
+            onChange={(e) => update({ cameraAngles: e.target.value })}
+            placeholder="Camera angles: e.g. Drone wide of the tower, eye-level walkthrough of the lobby"
+            aria-label="Camera angles"
+          />
+        </>
+      ) : null}
     </div>
   );
 

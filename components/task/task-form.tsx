@@ -7,15 +7,17 @@ import {
   pieceTypes,
 } from "@/components/content/piece-types";
 import { ThreeDNotesFields } from "@/components/three-d/notes";
+import { ThreeDThumbnailField } from "@/components/three-d/thumbnail";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
+import { Button, Field, Input, Select, Switch, Textarea, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
-import { RichTextEditor } from "@/components/ui/rich-text";
+import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
+import { renameThumbnail } from "@/lib/thumbnail";
 import {
   chainPredecessor,
   chainTail,
@@ -24,6 +26,7 @@ import {
   workingDaysOn,
 } from "@/lib/dependencies";
 import {
+  CAM_SHOTS_CATEGORY,
   CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
   REVIEWER_ONLY_STATUSES,
@@ -68,6 +71,13 @@ interface FormState {
   /** 3D projects only (0024). */
   threeDCategory: ThreeDCategory | "";
   threeDSoftware: ThreeDSoftware | "";
+  /** Cam shots tasks only (0025). */
+  shotsBrief: string;
+  cameraAngles: string;
+  /** 3D projects only (0026). Empty when there is no thumbnail. */
+  thumbnailFileId: string;
+  thumbnailUrl: string;
+  thumbnailName: string;
   clientSupeNotes: string;
   leadNote: string;
   generalNotes: string;
@@ -108,7 +118,7 @@ export function TaskFormModal({
   /** Opened from the Recurrence page: a repeating blueprint, rule required. */
   recurring?: boolean;
 }) {
-  const { db, blueprints, currentUser, createTask, updateTask } = useStore();
+  const { db, blueprints, currentUser, createTask, updateTask, showToast } = useStore();
   const calendar = db.calendar;
 
   // The project's other tasks, which this one may wait on (0014). A
@@ -175,11 +185,18 @@ export function TaskFormModal({
     clientIds: task?.clientIds ?? [],
     threeDCategory: task?.threeDCategory ?? "",
     threeDSoftware: task?.threeDSoftware ?? "",
+    shotsBrief: task?.shotsBrief ?? "",
+    cameraAngles: task?.cameraAngles ?? "",
+    thumbnailFileId: task?.thumbnailFileId ?? "",
+    thumbnailUrl: task?.thumbnailUrl ?? "",
+    thumbnailName: task?.thumbnailName ?? "",
     clientSupeNotes: task?.clientSupeNotes ?? "",
     leadNote: task?.leadNote ?? "",
     generalNotes: task?.generalNotes ?? "",
   });
   const [templateId, setTemplateId] = useState("");
+  // Saving mid-upload would lose the image, so the button waits for it.
+  const [thumbnailBusy, setThumbnailBusy] = useState(false);
   /*
    * A content task is a batch: "five reels" is one task carrying five pieces,
    * each written and given a status on its own. The kind is fixed once
@@ -210,6 +227,7 @@ export function TaskFormModal({
   const mayBeContentTask = mode === "project" && (!is3d || task?.kind === "content");
   const isContent = mayBeContentTask && kind === "content";
   const asks3dDetails = is3d && !isContent;
+  const isCamShots = asks3dDetails && form.threeDCategory === CAM_SHOTS_CATEGORY;
   const pieces = Number(contentCount);
   const pieceCount = isContent && Number.isFinite(pieces) ? Math.max(Math.trunc(pieces), 0) : 0;
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
@@ -379,6 +397,10 @@ export function TaskFormModal({
     threeDCategory:
       asks3dDetails && !form.threeDCategory ? "Pick the task category." : undefined,
     threeDSoftware: asks3dDetails && !form.threeDSoftware ? "Pick the software." : undefined,
+    shotsBrief:
+      isCamShots && isRichTextEmpty(form.shotsBrief) ? "Write the shots brief." : undefined,
+    cameraAngles:
+      isCamShots && !form.cameraAngles.trim() ? "List the camera angles." : undefined,
     estimatedHours:
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
@@ -428,7 +450,9 @@ export function TaskFormModal({
 
   const save = () => {
     setTouched(true);
-    if (!valid) return;
+    if (!valid || thumbnailBusy) return;
+    // A name means nothing without its image.
+    const thumbnailName = form.thumbnailFileId ? form.thumbnailName.trim() : "";
     const payload = {
       projectId: mode === "project" ? (project?.id ?? null) : null,
       title: form.title.trim(),
@@ -452,6 +476,12 @@ export function TaskFormModal({
         ? {
             threeDCategory: form.threeDCategory || null,
             threeDSoftware: form.threeDSoftware || null,
+            // Left behind if the category changes, so a Modeling task carries none.
+            shotsBrief: isCamShots ? form.shotsBrief : "",
+            cameraAngles: isCamShots ? form.cameraAngles.trim() : "",
+            thumbnailFileId: form.thumbnailFileId || null,
+            thumbnailUrl: form.thumbnailUrl || null,
+            thumbnailName,
             clientSupeNotes: form.clientSupeNotes,
             leadNote: form.leadNote,
             generalNotes: form.generalNotes,
@@ -476,6 +506,17 @@ export function TaskFormModal({
       // that do not pass onCreated, which is nearly all of them.
       const created = createTask(payload);
       onCreated?.(created);
+    }
+    // The name may have been typed after the upload. The task is saved either way, so
+    // a file that keeps its old name on Drive only needs saying.
+    if (
+      project &&
+      thumbnailName &&
+      (thumbnailName !== task?.thumbnailName || form.thumbnailFileId !== task?.thumbnailFileId)
+    ) {
+      renameThumbnail(form.thumbnailFileId, project.id, thumbnailName).catch((err: Error) =>
+        showToast(err.message),
+      );
     }
     onClose();
   };
@@ -507,7 +548,7 @@ export function TaskFormModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={save}>
+          <Button variant="primary" disabled={thumbnailBusy} onClick={save}>
             {task ? "Save changes" : "Create task"}
           </Button>
         </>
@@ -649,6 +690,32 @@ export function TaskFormModal({
           </div>
         ) : null}
 
+        {isCamShots ? (
+          <>
+            <Field label="Shots brief" required error={touched ? errors.shotsBrief : undefined}>
+              <RichTextEditor
+                value={form.shotsBrief}
+                onChange={(v) => set("shotsBrief", v)}
+                placeholder="What each shot should show, and how long it runs…"
+              />
+            </Field>
+            <Field
+              label="Camera angles"
+              required
+              htmlFor="task-camera-angles"
+              error={touched ? errors.cameraAngles : undefined}
+            >
+              <Textarea
+                id="task-camera-angles"
+                rows={3}
+                value={form.cameraAngles}
+                onChange={(e) => set("cameraAngles", e.target.value)}
+                placeholder="e.g. Drone wide of the tower, eye-level walkthrough of the lobby"
+              />
+            </Field>
+          </>
+        ) : null}
+
         {mode === "individual" ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Company" hint="Optional — leave empty for internal work.">
@@ -693,6 +760,20 @@ export function TaskFormModal({
               </Field>
             ) : null}
           </div>
+        ) : null}
+
+        {asks3dDetails && project ? (
+          <ThreeDThumbnailField
+            projectId={project.id}
+            taskTitle={form.title}
+            fileId={form.thumbnailFileId}
+            name={form.thumbnailName}
+            onNameChange={(name) => set("thumbnailName", name)}
+            onChange={({ fileId, url }) =>
+              setForm((f) => ({ ...f, thumbnailFileId: fileId, thumbnailUrl: url }))
+            }
+            onBusyChange={setThumbnailBusy}
+          />
         ) : null}
 
         <div className={is3d ? "grid gap-4" : "grid gap-4 sm:grid-cols-2"}>

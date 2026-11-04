@@ -520,7 +520,14 @@ export type NewProjectTaskInput = Pick<
   Partial<
     Pick<
       Task,
-      "kind" | "contentCount" | "contentTypes" | "durationDays" | "threeDCategory" | "threeDSoftware"
+      | "kind"
+      | "contentCount"
+      | "contentTypes"
+      | "durationDays"
+      | "threeDCategory"
+      | "threeDSoftware"
+      | "shotsBrief"
+      | "cameraAngles"
     >
   > & {
     /**

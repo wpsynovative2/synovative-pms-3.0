@@ -232,6 +232,16 @@ export function canCreateTaskInProject(u: User, p: Project): boolean {
 }
 
 /**
+ * Who can add a task thumbnail (0026): whoever can open the form it is on, which
+ * canCreateTaskInProject and canEditTaskFully between them allow. Takes the two
+ * fields a server route has to hand.
+ */
+export const canUploadThreeDThumbnail = (
+  u: Pick<User, "id" | "role">,
+  p: Pick<Project, "leaderId">,
+) => GLOBAL_MANAGERS.includes(u.role) || u.role === "team_leader" || p.leaderId === u.id;
+
+/**
  * Repeating projects and individual tasks are set up by Super Admin, Admin and
  * Manager only — a Project Leader or Team Leader can edit the work but not the
  * repeat rule.

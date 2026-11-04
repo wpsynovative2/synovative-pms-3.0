@@ -309,6 +309,14 @@ export interface Task {
   /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */
   threeDCategory?: ThreeDCategory | null;
   threeDSoftware?: ThreeDSoftware | null;
+  /** Cam shots tasks only (0025). The brief is rich text, like `description`. */
+  shotsBrief?: string;
+  cameraAngles?: string;
+  /** 3D projects only (0026). The image is private on Drive; see ThreeDThumbnail. */
+  thumbnailFileId?: string | null;
+  thumbnailUrl?: string | null;
+  /** What someone called it (0027). Empty if they didn't. */
+  thumbnailName?: string;
   /** 3D projects only (0024). */
   clientSupeNotes?: string;
   leadNote?: string;
@@ -335,7 +343,7 @@ export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds">) =>
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>
   t.code ? `${t.code} ${t.title}` : t.title;
 
-export type ThreeDCategory = "Modeling" | "Texture" | "Lighting";
+export type ThreeDCategory = "Modeling" | "Texture" | "Lighting" | "Cam shots";
 export type ThreeDSoftware = "Blender" | "Unreal";
 
 /** The notes a 3D group and a 3D task both carry (0024). */

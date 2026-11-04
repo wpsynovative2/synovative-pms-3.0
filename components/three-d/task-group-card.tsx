@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { DueDate, OverdueBadge, StatusBadge } from "@/components/task/task-bits";
 import { ThreeDNotesView } from "@/components/three-d/notes";
+import { ThreeDThumbnail } from "@/components/three-d/thumbnail";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -32,6 +33,7 @@ export function TaskGroupCard({
   group,
   project,
   allTasks,
+  shownTaskIds,
   onOpenTask,
   onAddTask,
   onEdit,
@@ -41,6 +43,8 @@ export function TaskGroupCard({
   project: Project;
   /** Every task of the project, so a waiting task can name what it waits on. */
   allTasks: Task[];
+  /** What the page's filters leave. The progress still counts the whole group. */
+  shownTaskIds?: Set<string>;
   onOpenTask: (id: string) => void;
   onAddTask?: () => void;
   onEdit?: () => void;
@@ -56,6 +60,10 @@ export function TaskGroupCard({
         // Grouped tasks by number; ungrouped ones have none and keep creation order.
         .sort((a, b) => (a.groupNumber ?? 0) - (b.groupNumber ?? 0)),
     [allTasks, group?.id],
+  );
+  const rows = useMemo(
+    () => (shownTaskIds ? tasks.filter((t) => shownTaskIds.has(t.id)) : tasks),
+    [tasks, shownTaskIds],
   );
   const progress = useMemo(() => groupProgress(tasks), [tasks]);
   const pastDeadline = progress.dueDate > project.deadline;
@@ -139,7 +147,7 @@ export function TaskGroupCard({
               <ThreeDNotesView notes={group} />
             </div>
           ) : null}
-          {tasks.map((t) => {
+          {rows.map((t) => {
             const assignee = userById(t.assigneeId);
             return (
               <button
@@ -152,6 +160,14 @@ export function TaskGroupCard({
                   <span className="w-11 shrink-0 text-[12px] font-medium text-ink-muted">
                     {t.code}
                   </span>
+                ) : null}
+                {t.thumbnailFileId ? (
+                  <ThreeDThumbnail
+                    key={t.thumbnailFileId}
+                    fileId={t.thumbnailFileId}
+                    alt=""
+                    className="h-8 w-12 shrink-0 rounded border border-line object-cover"
+                  />
                 ) : null}
                 <span className="flex min-w-40 flex-1 flex-col">
                   <span className="truncate text-[13px] text-ink">{t.title}</span>

@@ -386,6 +386,11 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
           : undefined,
       threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
       threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
+      shotsBrief: str(r.shots_brief),
+      cameraAngles: str(r.camera_angles),
+      thumbnailFileId: nullable(r.thumbnail_file_id),
+      thumbnailUrl: nullable(r.thumbnail_url),
+      thumbnailName: str(r.thumbnail_name),
       clientSupeNotes: str(r.client_supe_notes),
       leadNote: str(r.lead_note),
       generalNotes: str(r.general_notes),
@@ -1014,6 +1019,11 @@ export function taskRow(
     | "groupId"
     | "threeDCategory"
     | "threeDSoftware"
+    | "shotsBrief"
+    | "cameraAngles"
+    | "thumbnailFileId"
+    | "thumbnailUrl"
+    | "thumbnailName"
     | "clientSupeNotes"
     | "leadNote"
     | "generalNotes"
@@ -1040,6 +1050,11 @@ export function taskRow(
     group_id: t.groupId ?? null,
     three_d_category: t.threeDCategory ?? null,
     three_d_software: t.threeDSoftware ?? null,
+    shots_brief: t.shotsBrief ?? "",
+    camera_angles: t.cameraAngles ?? "",
+    thumbnail_file_id: t.thumbnailFileId ?? null,
+    thumbnail_url: t.thumbnailUrl ?? null,
+    thumbnail_name: t.thumbnailName ?? "",
     client_supe_notes: t.clientSupeNotes ?? "",
     lead_note: t.leadNote ?? "",
     general_notes: t.generalNotes ?? "",
@@ -1101,6 +1116,11 @@ export const TASK_COLUMNS: Record<string, string> = {
   groupId: "group_id",
   threeDCategory: "three_d_category",
   threeDSoftware: "three_d_software",
+  shotsBrief: "shots_brief",
+  cameraAngles: "camera_angles",
+  thumbnailFileId: "thumbnail_file_id",
+  thumbnailUrl: "thumbnail_url",
+  thumbnailName: "thumbnail_name",
   clientSupeNotes: "client_supe_notes",
   leadNote: "lead_note",
   generalNotes: "general_notes",

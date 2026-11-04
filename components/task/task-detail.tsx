@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { taskCrm } from "@/components/crm/crm-chain";
 import { ThreeDNotesView } from "@/components/three-d/notes";
+import { ThreeDThumbnail } from "@/components/three-d/thumbnail";
 import {
   IconCheck,
   IconClose,
@@ -320,6 +321,44 @@ export function TaskDetailDrawer({
           {!isRichTextEmpty(task.description) ? (
             <Section title={project?.is3d ? "Brief description" : "Description"}>
               <RichText html={task.description} />
+            </Section>
+          ) : null}
+
+          {project?.is3d && task.thumbnailFileId ? (
+            <Section title="Thumbnail">
+              <ThreeDThumbnail
+                key={task.thumbnailFileId}
+                fileId={task.thumbnailFileId}
+                alt={task.thumbnailName || `Thumbnail for ${task.title}`}
+                className="max-h-64 w-full rounded-lg border border-line object-contain"
+              />
+              {task.thumbnailName ? (
+                <p className="mt-1.5 text-[13px] break-words text-ink">{task.thumbnailName}</p>
+              ) : null}
+              {task.thumbnailUrl ? (
+                <a
+                  href={task.thumbnailUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1.5 inline-block text-[12px] text-brand-ink hover:underline"
+                >
+                  Open in Drive
+                </a>
+              ) : null}
+            </Section>
+          ) : null}
+
+          {project?.is3d && task.shotsBrief && !isRichTextEmpty(task.shotsBrief) ? (
+            <Section title="Shots brief">
+              <RichText html={task.shotsBrief} />
+            </Section>
+          ) : null}
+
+          {project?.is3d && task.cameraAngles?.trim() ? (
+            <Section title="Camera angles">
+              <p className="text-[13px] break-words whitespace-pre-wrap text-ink">
+                {task.cameraAngles}
+              </p>
             </Section>
           ) : null}
 
