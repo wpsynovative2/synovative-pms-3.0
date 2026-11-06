@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ButtonLoader } from "@/components/ui/loader";
 import { Button, Field, Input, cx } from "@/components/ui/primitives";
 import {
@@ -45,6 +46,81 @@ export function ThreeDThumbnail({
         else setFailed(true);
       }}
     />
+  );
+}
+
+const PREVIEW_W = 420;
+const PREVIEW_H = 315;
+const PREVIEW_GAP = 12;
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * A small thumbnail that shows the image large beside it while hovered. The
+ * preview goes into `document.body` so the card around a row can't clip it, and
+ * it ignores the pointer so it never steals the hover or a click on the row.
+ */
+export function ThreeDThumbnailHover({
+  fileId,
+  alt,
+  className,
+}: {
+  fileId: string;
+  alt: string;
+  className?: string;
+}) {
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (!at) return;
+    // It is placed once on entering, so any scroll would leave it behind.
+    const close = () => setAt(null);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [at]);
+
+  const show = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // To the right of the thumbnail, or to its left when the right has no room.
+    let left = rect.right + PREVIEW_GAP;
+    if (left + PREVIEW_W > vw - VIEWPORT_MARGIN) left = rect.left - PREVIEW_GAP - PREVIEW_W;
+    left = Math.max(VIEWPORT_MARGIN, left);
+    const top = Math.min(
+      Math.max(VIEWPORT_MARGIN, rect.top + rect.height / 2 - PREVIEW_H / 2),
+      vh - PREVIEW_H - VIEWPORT_MARGIN,
+    );
+    setAt({ left, top });
+  };
+
+  return (
+    <span
+      className="shrink-0"
+      onMouseEnter={(e) => show(e.currentTarget)}
+      onMouseLeave={() => setAt(null)}
+    >
+      <ThreeDThumbnail fileId={fileId} alt={alt} className={className} />
+      {at && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              aria-hidden
+              style={{ left: at.left, top: at.top, width: PREVIEW_W, height: PREVIEW_H }}
+              className="animate-fade-up pointer-events-none fixed z-[90] overflow-hidden rounded-lg border border-line bg-surface-2 p-1 shadow-pop"
+            >
+              <ThreeDThumbnail
+                fileId={fileId}
+                alt=""
+                className="h-full w-full rounded object-contain"
+              />
+            </div>,
+            document.body,
+          )
+        : null}
+    </span>
   );
 }
 

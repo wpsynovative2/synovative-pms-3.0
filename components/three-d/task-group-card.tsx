@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { DueDate, OverdueBadge, StatusBadge } from "@/components/task/task-bits";
 import { ThreeDNotesView } from "@/components/three-d/notes";
-import { ThreeDThumbnail } from "@/components/three-d/thumbnail";
+import { ThreeDThumbnailHover } from "@/components/three-d/thumbnail";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -162,11 +162,11 @@ export function TaskGroupCard({
                   </span>
                 ) : null}
                 {t.thumbnailFileId ? (
-                  <ThreeDThumbnail
+                  <ThreeDThumbnailHover
                     key={t.thumbnailFileId}
                     fileId={t.thumbnailFileId}
                     alt=""
-                    className="h-8 w-12 shrink-0 rounded border border-line object-cover"
+                    className="block h-8 w-12 rounded border border-line object-cover"
                   />
                 ) : null}
                 <span className="flex min-w-40 flex-1 flex-col">
