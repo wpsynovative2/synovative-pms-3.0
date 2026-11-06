@@ -38,6 +38,7 @@ import type {
   Workstation,
   InventoryItem,
   InventoryEvent,
+  TaskOpen,
   TimeSession,
   User,
   Vendor,
@@ -907,6 +908,30 @@ export async function loadInventoryEvents(
     fromLabel: nullable(r.from_label),
     toLabel: nullable(r.to_label),
     note: str(r.note),
+  }));
+}
+
+/** One person's task opens in a time range, newest first (0028). */
+export async function loadTaskOpens(
+  sb: SupabaseClient,
+  profileId: string,
+  fromISO: string,
+  toISO: string,
+): Promise<TaskOpen[]> {
+  const { data, error } = await sb
+    .from("task_opens")
+    .select("id, profile_id, task_id, opened_at")
+    .eq("profile_id", profileId)
+    .gte("opened_at", fromISO)
+    .lt("opened_at", toISO)
+    .order("opened_at", { ascending: false })
+    .limit(1000);
+  if (error) throw new Error(`task_opens: ${error.message}`);
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: str(r.id),
+    userId: str(r.profile_id),
+    taskId: str(r.task_id),
+    at: str(r.opened_at),
   }));
 }
 

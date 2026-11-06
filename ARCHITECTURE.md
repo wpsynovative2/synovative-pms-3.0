@@ -453,6 +453,7 @@ Since the current baseline:
 | `0025_3d_cam_shots.sql` | A fourth 3D category, Cam shots, and the two fields it asks for: `tasks.shots_brief` (rich text) and `camera_angles`. Mirrors `THREE_D_CATEGORIES` / `CAM_SHOTS_CATEGORY` |
 | `0026_3d_task_thumbnail.sql` | `tasks.thumbnail_file_id` / `thumbnail_url`: a 3D task's image, in one master Drive folder. Served by `/api/drive/thumbnails/[id]`, which treats both columns as untrusted |
 | `0027_3d_thumbnail_name.sql` | `tasks.thumbnail_name`: what someone called a task's thumbnail, which also names its file on Drive (`PATCH /api/drive/thumbnails/[id]`) |
+| `0028_task_opens.sql` | `task_opens`: who opened which task when, written only by `log_task_open()` (as the caller, for a task they can see, at most once per task per ten minutes) from `TaskDetailDrawer`, read by `can_view_user_activity()` (global managers and HR Admin) for the Activity tab on a person's page, which puts opens beside the sessions, submissions, reviews, remarks and assignments already on each task (`lib/activity.ts`). Pruned after 90 days. Mirrors `canViewUserActivity` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 
@@ -496,6 +497,7 @@ as a fresh one.
 | `due-and-overdue-0900-ist` | 09:00 | `30 3 * * *` |
 | `generate-recurring-occurrences-0005-ist` | 00:05 | `35 18 * * *` |
 | `prune-old-notifications` | weekly | `0 20 * * 0` |
+| `prune-old-task-opens` | weekly | `10 20 * * 0` |
 
 **Triggers** fire notifications server-side (`notify_task_assignment`,
 `notify_remark`, `notify_expense_added`, `notify_content_allotment`) and guard

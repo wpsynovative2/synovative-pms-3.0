@@ -11,6 +11,7 @@ import {
 import { ProjectCard } from "@/components/project/project-card";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskRow, TaskTableHeader } from "@/components/task/task-list";
+import { UserActivity } from "@/components/user/user-activity";
 import {
   IconArrowLeft,
   IconContent,
@@ -36,7 +37,12 @@ import {
 import { SearchSelect } from "@/components/ui/selects";
 import { formatDate } from "@/lib/calendar";
 import { PROJECT_STATUSES } from "@/lib/master-data";
-import { canAddUsers, canEditTaskFully, isGlobalManager } from "@/lib/permissions";
+import {
+  canAddUsers,
+  canEditTaskFully,
+  canViewUserActivity,
+  isGlobalManager,
+} from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import {
   CONTENT_STAGES,
@@ -52,7 +58,7 @@ import {
 /** Finished work stays with whoever did it; everything else can be handed on. */
 const isOpen = (t: Task) => t.status !== "Approved";
 
-type View = "projects" | "tasks" | "content" | "individual";
+type View = "projects" | "tasks" | "content" | "individual" | "activity";
 type TaskStatusFilter = "all" | "open" | "approved";
 /** A piece is theirs when they wrote it, or it is allotted to them to design. */
 type ContentRole = "all" | "written" | "allotted";
@@ -60,10 +66,10 @@ type ContentRole = "all" | "written" | "allotted";
 const byDue = (a: Task, b: Task) => a.dueDate.localeCompare(b.dueDate);
 
 /**
- * One person's work, opened from a row on the Users page, in four views: the
+ * One person's work, opened from a row on the Users page, in five views: the
  * projects they are on (as cards, like the Projects page), their project
- * tasks, the Content Bank pieces they wrote or have been allotted, and their
- * individual tasks.
+ * tasks, the Content Bank pieces they wrote or have been allotted, their
+ * individual tasks, and their activity day by day (0028).
  *
  * When the account is deactivated, their open tasks can be picked and handed
  * to someone active in the same department - the task's own department, the
@@ -265,110 +271,115 @@ export default function UserWorkPage({ params }: { params: Promise<{ id: string 
           { id: "tasks", label: "Tasks", count: projectTasks.length },
           { id: "content", label: "Pieces of content", count: theirContent.length },
           { id: "individual", label: "Individual tasks", count: individualTasks.length },
+          ...(canViewUserActivity(viewer) ? [{ id: "activity" as const, label: "Activity" }] : []),
         ]}
       />
 
-      <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
-        <SearchInput
-          className="min-w-52 flex-1"
-          placeholder={
-            view === "projects"
-              ? "Search projects or companies…"
-              : view === "content"
-                ? "Search pieces, CB types or projects…"
-                : "Search by task, project, department or tag…"
-          }
-          value={query}
-          active={!!query.trim()}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {view === "projects" ? (
-          <Select
-            className="w-auto min-w-36"
-            value={projectStatus}
-            active={projectStatus !== "all"}
-            onChange={(e) => setProjectStatus(e.target.value)}
-            aria-label="Project status"
-          >
-            <option value="all">All statuses</option>
-            {PROJECT_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-        ) : null}
-        {taskView ? (
-          <Select
-            className="w-auto min-w-36"
-            value={taskStatus}
-            active={taskStatus !== "all"}
-            onChange={(e) => setTaskStatus(e.target.value as TaskStatusFilter)}
-            aria-label="Task status"
-          >
-            <option value="all">All tasks</option>
-            <option value="open">Open</option>
-            <option value="approved">Approved</option>
-          </Select>
-        ) : null}
-        {view === "content" ? (
-          <>
-            <Select
-              className="w-auto min-w-44"
-              value={contentRole}
-              active={contentRole !== "all"}
-              onChange={(e) => setContentRole(e.target.value as ContentRole)}
-              aria-label="Their part"
-            >
-              <option value="all">Written or allotted</option>
-              <option value="written">Written by {person.fullName.split(" ")[0]}</option>
-              <option value="allotted">Allotted to {person.fullName.split(" ")[0]}</option>
-            </Select>
+      {view === "activity" ? <UserActivity person={person} onOpenTask={setOpenTaskId} /> : null}
+
+      {view !== "activity" ? (
+        <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
+          <SearchInput
+            className="min-w-52 flex-1"
+            placeholder={
+              view === "projects"
+                ? "Search projects or companies…"
+                : view === "content"
+                  ? "Search pieces, CB types or projects…"
+                  : "Search by task, project, department or tag…"
+            }
+            value={query}
+            active={!!query.trim()}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {view === "projects" ? (
             <Select
               className="w-auto min-w-36"
-              value={contentStage}
-              active={contentStage !== "all"}
-              onChange={(e) => setContentStage(e.target.value)}
-              aria-label="Status"
+              value={projectStatus}
+              active={projectStatus !== "all"}
+              onChange={(e) => setProjectStatus(e.target.value)}
+              aria-label="Project status"
             >
-              <option value="all">Any status</option>
-              <option value="none">Not set</option>
-              {CONTENT_STAGES.map((s) => (
+              <option value="all">All statuses</option>
+              {PROJECT_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
               ))}
             </Select>
-            <PipelineSwitch on={showPipeline} onChange={setShowPipeline} />
-          </>
-        ) : null}
-        {taskView && handable.length ? (
-          <Button
-            onClick={() =>
-              toggle(
-                handable.map((t) => t.id),
-                !handable.every((t) => picked.includes(t.id)),
-              )
-            }
-          >
-            {handable.every((t) => picked.includes(t.id)) ? "Clear selection" : "Select all open"}
-          </Button>
-        ) : null}
-        {dirty ? (
-          <button
-            onClick={() => {
-              setQuery("");
-              setProjectStatus("all");
-              setTaskStatus("all");
-              setContentRole("all");
-              setContentStage("all");
-            }}
-            className="inline-flex h-9.5 items-center gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[12px] text-ink-muted hover:text-ink"
-          >
-            <IconFilter size={13} /> Clear
-          </button>
-        ) : null}
-      </Card>
+          ) : null}
+          {taskView ? (
+            <Select
+              className="w-auto min-w-36"
+              value={taskStatus}
+              active={taskStatus !== "all"}
+              onChange={(e) => setTaskStatus(e.target.value as TaskStatusFilter)}
+              aria-label="Task status"
+            >
+              <option value="all">All tasks</option>
+              <option value="open">Open</option>
+              <option value="approved">Approved</option>
+            </Select>
+          ) : null}
+          {view === "content" ? (
+            <>
+              <Select
+                className="w-auto min-w-44"
+                value={contentRole}
+                active={contentRole !== "all"}
+                onChange={(e) => setContentRole(e.target.value as ContentRole)}
+                aria-label="Their part"
+              >
+                <option value="all">Written or allotted</option>
+                <option value="written">Written by {person.fullName.split(" ")[0]}</option>
+                <option value="allotted">Allotted to {person.fullName.split(" ")[0]}</option>
+              </Select>
+              <Select
+                className="w-auto min-w-36"
+                value={contentStage}
+                active={contentStage !== "all"}
+                onChange={(e) => setContentStage(e.target.value)}
+                aria-label="Status"
+              >
+                <option value="all">Any status</option>
+                <option value="none">Not set</option>
+                {CONTENT_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+              <PipelineSwitch on={showPipeline} onChange={setShowPipeline} />
+            </>
+          ) : null}
+          {taskView && handable.length ? (
+            <Button
+              onClick={() =>
+                toggle(
+                  handable.map((t) => t.id),
+                  !handable.every((t) => picked.includes(t.id)),
+                )
+              }
+            >
+              {handable.every((t) => picked.includes(t.id)) ? "Clear selection" : "Select all open"}
+            </Button>
+          ) : null}
+          {dirty ? (
+            <button
+              onClick={() => {
+                setQuery("");
+                setProjectStatus("all");
+                setTaskStatus("all");
+                setContentRole("all");
+                setContentStage("all");
+              }}
+              className="inline-flex h-9.5 items-center gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[12px] text-ink-muted hover:text-ink"
+            >
+              <IconFilter size={13} /> Clear
+            </button>
+          ) : null}
+        </Card>
+      ) : null}
 
       {view === "projects" ? (
         shownProjects.length === 0 ? (

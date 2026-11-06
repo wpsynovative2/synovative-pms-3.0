@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { taskCrm } from "@/components/crm/crm-chain";
 import { ThreeDNotesView } from "@/components/three-d/notes";
 import { ThreeDThumbnail } from "@/components/three-d/thumbnail";
@@ -72,6 +72,7 @@ export function TaskDetailDrawer({
     addRemark,
     deleteTask,
     assignTask,
+    logTaskOpen,
   } = useStore();
   const [remark, setRemark] = useState("");
   const [editOpen, setEditOpen] = useState(false);
@@ -80,6 +81,13 @@ export function TaskDetailDrawer({
 
   const task = taskId ? taskById(taskId) : undefined;
   const project = task?.projectId ? projectById(task.projectId) : null;
+
+  // For the Activity tab on a person's page (0028). The database checks the
+  // task is visible and skips a repeat open within ten minutes.
+  const openedId = task?.id;
+  useEffect(() => {
+    if (openedId) logTaskOpen(openedId);
+  }, [openedId, logTaskOpen]);
 
   if (!task || !currentUser) return null;
 

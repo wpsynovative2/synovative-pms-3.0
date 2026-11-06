@@ -1232,6 +1232,14 @@ export interface InventoryItem {
   createdAt: string;
 }
 
+/** Someone opened a task (0028). Repeat opens within ten minutes aren't recorded. */
+export interface TaskOpen {
+  id: string;
+  userId: string;
+  taskId: string;
+  at: string;
+}
+
 /** One line of history, written only by the database. */
 export interface InventoryEvent {
   id: string;

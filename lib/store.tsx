@@ -28,6 +28,7 @@ import {
   WORKSTATION_COLUMNS,
   INVENTORY_ITEM_COLUMNS,
   loadInventoryEvents,
+  loadTaskOpens,
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
   loadScopes,
@@ -49,6 +50,7 @@ import type {
   Workstation,
   InventoryItem,
   InventoryEvent,
+  TaskOpen,
   CalendarConfig,
   Client,
   CollabEntity,
@@ -773,6 +775,11 @@ interface StoreValue {
   inventoryHistory: (
     target: { itemId: string } | { workstationId: string },
   ) => Promise<InventoryEvent[]>;
+
+  /** Records that the signed-in user opened a task (0028). Fire and forget. */
+  logTaskOpen: (taskId: string) => void;
+  /** One person's task opens between two instants, read when the Activity tab asks. */
+  taskOpensFor: (profileId: string, fromISO: string, toISO: string) => Promise<TaskOpen[]>;
 
   saveProjectTemplate: (t: ProjectTemplate) => void;
   deleteProjectTemplate: (id: string) => void;
@@ -2119,6 +2126,27 @@ const inventoryActions = {
   },
 };
 
+/**
+ * Task opens are a log, not something on screen, so they skip commit(): there is
+ * nothing to show optimistically, nothing to refetch, and a failure (say, 0028 not
+ * yet run) should never toast at someone who only opened a task.
+ */
+const activityActions = {
+  logTaskOpen(taskId: string) {
+    if (!state.userId) return;
+    void sb()
+      .rpc("log_task_open", { p_task_id: taskId })
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+  },
+
+  async taskOpensFor(profileId: string, fromISO: string, toISO: string): Promise<TaskOpen[]> {
+    return loadTaskOpens(sb(), profileId, fromISO, toISO);
+  },
+};
+
 const websiteActions = {
   createWebsite(input: WebsiteInput): Website {
     const site: Website = { ...input, id: newId(), createdBy: me(), createdAt: now() };
@@ -3128,6 +3156,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...crmActions,
       ...websiteActions,
       ...inventoryActions,
+      ...activityActions,
     }),
     [
       db,
