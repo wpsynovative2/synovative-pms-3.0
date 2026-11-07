@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { formatShortDate, todayISO } from "@/lib/calendar";
+import { isOverdue } from "@/lib/analytics";
+import { formatShortDate } from "@/lib/calendar";
 import { PRIORITY_STYLE, TASK_STATUS_STYLE } from "@/lib/master-data";
 import { describeRule, shortRuleLabel } from "@/lib/recurrence";
 import { isTimerPaused, isTimerRunning } from "@/lib/time";
@@ -105,14 +106,16 @@ export function RecurrenceBadge({
 }
 
 /**
- * Red overdue flag — due date passed and not yet Approved (§5.3). A task still
- * waiting on another one's approval reads as waiting instead (0014).
+ * Red overdue flag (§5.3), by the rule in isOverdue (0029): work handed in on
+ * time isn't flagged while it is reviewed, and late work stays flagged once
+ * approved. A task still waiting on another one's approval reads as waiting
+ * instead (0014).
  */
 export function OverdueBadge({ task }: { task: Task }) {
   if (isTaskWaiting(task)) {
     return <Badge className="border-line bg-surface-2 text-ink-faint">Waiting</Badge>;
   }
-  if (task.status === "Approved" || task.dueDate >= todayISO()) return null;
+  if (!isOverdue(task)) return null;
   return (
     <Badge className="border-st-rejected/40 bg-st-rejected/20 text-st-rejected">
       Overdue
@@ -154,8 +157,7 @@ export function ProjectChip({
 }
 
 export function DueDate({ task }: { task: Task }) {
-  const overdue =
-    task.status !== "Approved" && !isTaskWaiting(task) && task.dueDate < todayISO();
+  const overdue = isOverdue(task);
   return (
     <span
       className={cx("text-[11px]", overdue ? "text-st-rejected" : "text-ink-muted")}

@@ -454,6 +454,7 @@ Since the current baseline:
 | `0026_3d_task_thumbnail.sql` | `tasks.thumbnail_file_id` / `thumbnail_url`: a 3D task's image, in one master Drive folder. Served by `/api/drive/thumbnails/[id]`, which treats both columns as untrusted |
 | `0027_3d_thumbnail_name.sql` | `tasks.thumbnail_name`: what someone called a task's thumbnail, which also names its file on Drive (`PATCH /api/drive/thumbnails/[id]`) |
 | `0028_task_opens.sql` | `task_opens`: who opened which task when, written only by `log_task_open()` (as the caller, for a task they can see, at most once per task per ten minutes) from `TaskDetailDrawer`, read by `can_view_user_activity()` (global managers and HR Admin) for the Activity tab on a person's page, which puts opens beside the sessions, submissions, reviews, remarks and assignments already on each task (`lib/activity.ts`). Pruned after 90 days. Mirrors `canViewUserActivity` |
+| `0029_overdue_rule.sql` | `task_is_overdue`: Submitted, Waiting for Client Response and Approved are judged by the latest submission (IST day) against the due date, so on-time work isn't late while reviewed or with the client, and work resubmitted after the due date stays late through approval. A rejection's new due date moves the date it is judged by. `notify_due_and_overdue` skips Approved. Mirrors `isOverdue` |
 
 Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
 

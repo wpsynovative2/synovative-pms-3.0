@@ -1,4 +1,4 @@
-import { todayISO, workingDaysInRange } from "./calendar";
+import { toISODate, todayISO, workingDaysInRange } from "./calendar";
 import { hoursFromMs, taskElapsedMs } from "./time";
 import type {
   CalendarConfig,
@@ -13,21 +13,39 @@ import { isTaskWaiting } from "./types";
 /** Derived figures for the project header, workload and reports (§7.2, §14, §16). */
 
 /**
- * A task is late only while the delay is still ours. Approved work is done,
- * work parked with the client is waiting on them, work still waiting on
- * another task's approval cannot have started (0014), and work submitted on or
- * before its due date is waiting on a reviewer — none of those are the
- * assignee's to answer for. Mirrors task_is_overdue() in the database.
+ * Whether a task is late, and so the assignee's to answer for (0029).
+ *
+ * Submitted, Waiting for Client Response and Approved work is judged by its
+ * latest submission: late only if that came after the due date. Work handed in
+ * on time is not late while a reviewer or the client sits on it, and stays on
+ * time once approved. Work sent back (Changes Required, or Rejected, which
+ * resets it to Not Started) is judged by the due date again, so a resubmission
+ * after it stays late through review and approval; a rejection that sets a new
+ * due date moves the date it is judged by. A task still waiting on another
+ * task's approval cannot have started (0014). Approved work can therefore be
+ * overdue: `isOpen` separates what is still to do. Mirrors task_is_overdue().
  */
 export function isOverdue(t: Task): boolean {
-  if (t.status === "Approved" || t.status === "Waiting for Client Response") return false;
-  if (t.dueDate >= todayISO()) return false;
   if (isTaskWaiting(t)) return false;
-  if (t.status === "Submitted") {
-    const latest = t.submissions.reduce((at, s) => (s.at > at ? s.at : at), "");
-    if (latest && latest.slice(0, 10) <= t.dueDate) return false;
+  if (
+    t.status === "Submitted" ||
+    t.status === "Waiting for Client Response" ||
+    t.status === "Approved"
+  ) {
+    const latest = latestSubmissionDay(t);
+    if (latest) return latest > t.dueDate;
+    if (t.status === "Approved") return false;
   }
-  return true;
+  return t.dueDate < todayISO();
+}
+
+/** The day of the latest submission, in local (IST) time, or "" if none. */
+function latestSubmissionDay(t: Task): string {
+  const latest = t.submissions.reduce(
+    (max, s) => Math.max(max, new Date(s.at).getTime()),
+    Number.NEGATIVE_INFINITY,
+  );
+  return Number.isFinite(latest) ? toISODate(new Date(latest)) : "";
 }
 
 export const isOpen = (t: Task) => t.status !== "Approved";
@@ -317,7 +335,7 @@ export function completionStats(tasks: Task[]): CompletionStats {
   return {
     onTime,
     late,
-    openOverdue: tasks.filter(isOverdue).length,
+    openOverdue: tasks.filter((t) => isOpen(t) && isOverdue(t)).length,
     completionRate: tasks.length === 0 ? 0 : Math.round((done / tasks.length) * 100),
   };
 }
