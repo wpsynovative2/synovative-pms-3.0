@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   IconChart,
   IconCheck,
   IconClock,
+  IconUser,
   IconWallet,
   IconWarning,
 } from "@/components/ui/icons";
@@ -22,6 +24,8 @@ import {
   Tabs,
   cx,
 } from "@/components/ui/primitives";
+import { SearchSelect } from "@/components/ui/selects";
+import { UserActivity } from "@/components/user/user-activity";
 import {
   completionStats,
   estimateAccuracy,
@@ -39,11 +43,11 @@ import {
 } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/calendar";
 
-import { canViewReports, scopedDepartments } from "@/lib/permissions";
+import { canViewReports, canViewUserActivity, scopedDepartments } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatHours } from "@/lib/time";
 
-type TabId = "time" | "delivery" | "rework" | "spend";
+type TabId = "time" | "delivery" | "rework" | "spend" | "activity";
 
 export default function ReportsPage() {
   const { db, currentUser, userById } = useStore();
@@ -56,6 +60,9 @@ export default function ReportsPage() {
   const [projectId, setProjectId] = useState("all");
   const [department, setDepartment] = useState("all");
   const [userId, setUserId] = useState("all");
+  /** The person whose day the Activity tab shows (0030). */
+  const [activityUserId, setActivityUserId] = useState("");
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const baseTasks = useMemo(
     () => (allowed ? db.tasks.filter((t) => allowed.includes(t.department)) : db.tasks),
@@ -77,6 +84,20 @@ export default function ReportsPage() {
       ),
     [db.expenses, from, to, projectId],
   );
+
+  const activityPeople = useMemo(
+    () =>
+      [...db.users]
+        .sort((a, b) => Number(b.active) - Number(a.active) || a.fullName.localeCompare(b.fullName))
+        .map((u) => ({
+          value: u.id,
+          label: u.fullName,
+          hint: u.active ? u.departments.join(", ") : "Deactivated",
+          avatarName: u.fullName,
+        })),
+    [db.users],
+  );
+  const activityPerson = activityUserId ? userById(activityUserId) : undefined;
 
   const accuracy = useMemo(() => estimateAccuracy(tasks), [tasks]);
   const completion = useMemo(() => completionStats(tasks), [tasks]);
@@ -111,110 +132,6 @@ export default function ReportsPage() {
         }
       />
 
-      {/* Filters (§18) */}
-      <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
-        <div className="w-40">
-          <label className="mb-1 block text-[10px] tracking-wide text-ink-faint uppercase">
-            From
-          </label>
-          <DatePicker
-            value={from}
-            onChange={setFrom}
-            config={db.calendar}
-            ignoreWorkingRules
-            allowPast
-          />
-        </div>
-        <div className="w-40">
-          <label className="mb-1 block text-[10px] tracking-wide text-ink-faint uppercase">
-            To
-          </label>
-          <DatePicker
-            value={to}
-            onChange={setTo}
-            config={db.calendar}
-            ignoreWorkingRules
-            allowPast
-            min={from}
-          />
-        </div>
-        <Select
-          className="w-auto min-w-44"
-          value={projectId}
-          active={projectId !== "all"}
-          onChange={(e) => setProjectId(e.target.value)}
-          aria-label="Project"
-        >
-          <option value="all">All projects</option>
-          {db.projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          className="w-auto min-w-40"
-          value={department}
-          active={department !== "all"}
-          onChange={(e) => setDepartment(e.target.value)}
-          aria-label="Department"
-        >
-          <option value="all">All departments</option>
-          {(allowed ?? db.departments).map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </Select>
-        <Select
-          className="w-auto min-w-36"
-          value={userId}
-          active={userId !== "all"}
-          onChange={(e) => setUserId(e.target.value)}
-          aria-label="User"
-        >
-          <option value="all">Everyone</option>
-          {db.users.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.fullName}
-            </option>
-          ))}
-        </Select>
-      </Card>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatTile
-          icon={<IconClock size={17} />}
-          label="Hours logged"
-          value={formatHours(totalHours)}
-          hint={`${tasks.length} tasks in range`}
-          tone="brand"
-        />
-        <StatTile
-          icon={<IconCheck size={17} />}
-          label="On-time completion"
-          value={`${completion.onTime + completion.late === 0 ? 0 : Math.round((completion.onTime / (completion.onTime + completion.late)) * 100)}%`}
-          hint={`${completion.onTime} on time · ${completion.late} late`}
-          tone={completion.late > completion.onTime ? "red" : "green"}
-        />
-        <StatTile
-          icon={<IconWarning size={17} />}
-          label="Estimate variance"
-          value={`${accuracy.variance > 0 ? "+" : ""}${accuracy.variance}%`}
-          hint={`${formatHours(accuracy.actual)} actual vs ${formatHours(accuracy.estimated)} est.`}
-          tone={accuracy.variance > 15 ? "red" : accuracy.variance < -15 ? "amber" : "green"}
-        />
-        <StatTile
-          icon={<IconWallet size={17} />}
-          label="Approved spend"
-          value={formatINR(
-            expenses.filter((e) => e.status === "Approved").reduce((s, e) => s + e.amount, 0),
-          )}
-          hint={`${expenses.length} entries`}
-          tone="neutral"
-        />
-      </div>
-
       <Tabs<TabId>
         active={tab}
         onChange={setTab}
@@ -223,8 +140,145 @@ export default function ReportsPage() {
           { id: "delivery", label: "Delivery" },
           { id: "rework", label: "Rework" },
           { id: "spend", label: "Spend" },
+          ...(canViewUserActivity(user) ? [{ id: "activity" as const, label: "Activity" }] : []),
         ]}
       />
+
+      {tab === "activity" ? (
+        <>
+          <Card className="flex flex-wrap items-center gap-3 p-3.5">
+            <span className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+              <IconUser size={14} className="text-ink-faint" /> Person
+            </span>
+            <div className="min-w-64 flex-1 sm:max-w-sm">
+              <SearchSelect
+                options={activityPeople}
+                value={activityUserId}
+                onChange={setActivityUserId}
+                placeholder="Select a person"
+                active={!!activityUserId}
+              />
+            </div>
+          </Card>
+          {activityPerson ? (
+            <UserActivity person={activityPerson} onOpenTask={setOpenTaskId} />
+          ) : (
+            <Card>
+              <EmptyState
+                icon={<IconUser size={30} />}
+                title="Pick a person to see their day"
+                body="The tasks they opened, when they started, switched and stopped their timer, and what they submitted, reviewed or were handed."
+              />
+            </Card>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Filters (§18) */}
+          <Card className="flex flex-wrap items-end gap-2.5 p-3.5">
+            <div className="w-40">
+              <label className="mb-1 block text-[10px] tracking-wide text-ink-faint uppercase">
+                From
+              </label>
+              <DatePicker
+                value={from}
+                onChange={setFrom}
+                config={db.calendar}
+                ignoreWorkingRules
+                allowPast
+              />
+            </div>
+            <div className="w-40">
+              <label className="mb-1 block text-[10px] tracking-wide text-ink-faint uppercase">
+                To
+              </label>
+              <DatePicker
+                value={to}
+                onChange={setTo}
+                config={db.calendar}
+                ignoreWorkingRules
+                allowPast
+                min={from}
+              />
+            </div>
+            <Select
+              className="w-auto min-w-44"
+              value={projectId}
+              active={projectId !== "all"}
+              onChange={(e) => setProjectId(e.target.value)}
+              aria-label="Project"
+            >
+              <option value="all">All projects</option>
+              {db.projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              className="w-auto min-w-40"
+              value={department}
+              active={department !== "all"}
+              onChange={(e) => setDepartment(e.target.value)}
+              aria-label="Department"
+            >
+              <option value="all">All departments</option>
+              {(allowed ?? db.departments).map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </Select>
+            <Select
+              className="w-auto min-w-36"
+              value={userId}
+              active={userId !== "all"}
+              onChange={(e) => setUserId(e.target.value)}
+              aria-label="User"
+            >
+              <option value="all">Everyone</option>
+              {db.users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.fullName}
+                </option>
+              ))}
+            </Select>
+          </Card>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatTile
+              icon={<IconClock size={17} />}
+              label="Hours logged"
+              value={formatHours(totalHours)}
+              hint={`${tasks.length} tasks in range`}
+              tone="brand"
+            />
+            <StatTile
+              icon={<IconCheck size={17} />}
+              label="On-time completion"
+              value={`${completion.onTime + completion.late === 0 ? 0 : Math.round((completion.onTime / (completion.onTime + completion.late)) * 100)}%`}
+              hint={`${completion.onTime} on time · ${completion.late} late`}
+              tone={completion.late > completion.onTime ? "red" : "green"}
+            />
+            <StatTile
+              icon={<IconWarning size={17} />}
+              label="Estimate variance"
+              value={`${accuracy.variance > 0 ? "+" : ""}${accuracy.variance}%`}
+              hint={`${formatHours(accuracy.actual)} actual vs ${formatHours(accuracy.estimated)} est.`}
+              tone={accuracy.variance > 15 ? "red" : accuracy.variance < -15 ? "amber" : "green"}
+            />
+            <StatTile
+              icon={<IconWallet size={17} />}
+              label="Approved spend"
+              value={formatINR(
+                expenses.filter((e) => e.status === "Approved").reduce((s, e) => s + e.amount, 0),
+              )}
+              hint={`${expenses.length} entries`}
+              tone="neutral"
+            />
+          </div>
+        </>
+      )}
 
       {tab === "time" ? (
         <div className="grid gap-4 lg:grid-cols-3">
@@ -496,6 +550,10 @@ export default function ReportsPage() {
           <ExpenseCard title="By vendor" buckets={expensesByVendor(expenses, db)} />
           <ExpenseCard title="By month" buckets={expensesByMonth(expenses)} />
         </div>
+      ) : null}
+
+      {openTaskId ? (
+        <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
       ) : null}
     </div>
   );

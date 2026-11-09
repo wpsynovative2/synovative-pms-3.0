@@ -75,9 +75,8 @@ export const canAddUsers = (u: User) =>
 
 export const canEditUsers = canAddUsers;
 
-/** Who may open someone's page and see their Activity tab. Mirrors can_view_user_activity() (0028). */
-export const canViewUserActivity = (u: User) =>
-  ["super_admin", "admin", "manager", "hr_admin"].includes(u.role);
+/** Who sees the Activity tab on Reports. Mirrors can_view_user_activity() (0030). */
+export const canViewUserActivity = (u: User) => ["super_admin", "admin"].includes(u.role);
 
 export const canDeleteUsers = (u: User) => isSuperAdmin(u);
 
