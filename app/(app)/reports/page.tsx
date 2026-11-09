@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { StatusBadge } from "@/components/task/task-bits";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
+import { Modal } from "@/components/ui/modal";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   IconChart,
@@ -45,7 +47,7 @@ import { addDays, todayISO } from "@/lib/calendar";
 
 import { canViewReports, canViewUserActivity, scopedDepartments } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import { formatHours } from "@/lib/time";
+import { formatDuration, formatHoursMinutes, hoursFromMs, taskElapsedMs } from "@/lib/time";
 
 type TabId = "time" | "delivery" | "rework" | "spend" | "activity";
 
@@ -63,6 +65,8 @@ export default function ReportsPage() {
   /** The person whose day the Activity tab shows (0030). */
   const [activityUserId, setActivityUserId] = useState("");
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  /** A bar on the Time tab, opened onto the tasks behind it. */
+  const [openBucket, setOpenBucket] = useState<{ title: string; bucket: Bucket } | null>(null);
 
   const baseTasks = useMemo(
     () => (allowed ? db.tasks.filter((t) => allowed.includes(t.department)) : db.tasks),
@@ -249,7 +253,7 @@ export default function ReportsPage() {
             <StatTile
               icon={<IconClock size={17} />}
               label="Hours logged"
-              value={formatHours(totalHours)}
+              value={formatHoursMinutes(totalHours)}
               hint={`${tasks.length} tasks in range`}
               tone="brand"
             />
@@ -264,7 +268,7 @@ export default function ReportsPage() {
               icon={<IconWarning size={17} />}
               label="Estimate variance"
               value={`${accuracy.variance > 0 ? "+" : ""}${accuracy.variance}%`}
-              hint={`${formatHours(accuracy.actual)} actual vs ${formatHours(accuracy.estimated)} est.`}
+              hint={`${formatHoursMinutes(accuracy.actual)} actual vs ${formatHoursMinutes(accuracy.estimated)} est.`}
               tone={accuracy.variance > 15 ? "red" : accuracy.variance < -15 ? "amber" : "green"}
             />
             <StatTile
@@ -284,17 +288,20 @@ export default function ReportsPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <BarCard
             title="Time by project"
+            onSelect={(bucket) => setOpenBucket({ title: "Time by project", bucket })}
             subtitle="Hours logged per project"
             buckets={timeByProject(tasks, db.projects)}
           />
           <BarCard
             title="Time by user"
+            onSelect={(bucket) => setOpenBucket({ title: "Time by user", bucket })}
             subtitle="Hours logged per person"
             buckets={timeByUser(tasks, db.users)}
             avatars
           />
           <BarCard
             title="Time by department"
+            onSelect={(bucket) => setOpenBucket({ title: "Time by department", bucket })}
             subtitle="Hours logged per department"
             buckets={timeByDepartment(tasks)}
           />
@@ -310,8 +317,8 @@ export default function ReportsPage() {
             />
             <div className="px-5 py-4">
               <div className="grid grid-cols-3 gap-4">
-                <Metric label="Estimated" value={formatHours(accuracy.estimated)} />
-                <Metric label="Actual" value={formatHours(accuracy.actual)} />
+                <Metric label="Estimated" value={formatHoursMinutes(accuracy.estimated)} />
+                <Metric label="Actual" value={formatHoursMinutes(accuracy.actual)} />
                 <Metric
                   label="Overrun tasks"
                   value={String(accuracy.overrunTasks)}
@@ -341,7 +348,7 @@ export default function ReportsPage() {
                               pct > 110 ? "text-st-rejected" : "text-ink",
                             )}
                           >
-                            {formatHours(actual)} / {task.estimatedHours}h
+                            {formatHoursMinutes(actual)} / {formatHoursMinutes(task.estimatedHours)}
                           </span>
                         </div>
                         <ProgressBar
@@ -552,6 +559,17 @@ export default function ReportsPage() {
         </div>
       ) : null}
 
+      {/* Drawers sit under modals, so the list steps aside while a task is open
+          and comes back when it closes. */}
+      {openBucket && !openTaskId ? (
+        <BucketTasks
+          title={openBucket.title}
+          bucket={openBucket.bucket}
+          onClose={() => setOpenBucket(null)}
+          onOpenTask={setOpenTaskId}
+        />
+      ) : null}
+
       {openTaskId ? (
         <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
       ) : null}
@@ -586,11 +604,14 @@ function BarCard({
   subtitle,
   buckets,
   avatars,
+  onSelect,
 }: {
   title: string;
   subtitle: string;
   buckets: Bucket[];
   avatars?: boolean;
+  /** Opens the tasks behind a bar. */
+  onSelect: (bucket: Bucket) => void;
 }) {
   const max = Math.max(1, ...buckets.map((b) => b.hours));
   return (
@@ -599,21 +620,104 @@ function BarCard({
       {buckets.length === 0 ? (
         <EmptyState icon={<IconClock size={24} />} title="No time logged in this range" />
       ) : (
-        <ul className="space-y-3 px-5 py-4">
+        <ul className="space-y-1 px-3 py-3">
           {buckets.slice(0, 10).map((b) => (
             <li key={b.key}>
-              <div className="mb-1 flex items-baseline gap-2 text-[11px]">
-                {avatars ? <Avatar name={b.label} size={18} /> : null}
-                <span className="min-w-0 flex-1 truncate text-ink-muted">{b.label}</span>
-                <span className="shrink-0 font-mono text-ink">{formatHours(b.hours)}</span>
-                <span className="shrink-0 text-ink-faint">({b.count})</span>
-              </div>
-              <ProgressBar value={(b.hours / max) * 100} />
+              <button
+                type="button"
+                onClick={() => onSelect(b)}
+                title={`See the ${b.count} task${b.count === 1 ? "" : "s"} behind this`}
+                className="w-full rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
+              >
+                <div className="mb-1 flex items-baseline gap-2 text-[11px]">
+                  {avatars ? <Avatar name={b.label} size={18} /> : null}
+                  <span className="min-w-0 flex-1 truncate text-ink-muted">{b.label}</span>
+                  <span className="shrink-0 font-mono text-ink">{formatHoursMinutes(b.hours)}</span>
+                  <span className="shrink-0 text-ink-faint">({b.count})</span>
+                </div>
+                <ProgressBar value={(b.hours / max) * 100} />
+              </button>
             </li>
           ))}
         </ul>
       )}
     </Card>
+  );
+}
+
+/**
+ * The tasks behind one bar of the Time tab, most time first. Each opens in the
+ * task drawer; under "Individual tasks" these are the individual tasks.
+ */
+function BucketTasks({
+  title,
+  bucket,
+  onClose,
+  onOpenTask,
+}: {
+  title: string;
+  bucket: Bucket;
+  onClose: () => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const { taskById, projectById, userById } = useStore();
+  const rows = bucket.taskIds
+    .map((id) => taskById(id))
+    .filter((t) => !!t)
+    .map((task) => ({ task, ms: taskElapsedMs(task) }))
+    .sort((a, b) => b.ms - a.ms);
+  const total = rows.reduce((sum, r) => sum + r.ms, 0);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={bucket.label}
+      subtitle={`${title} · ${rows.length} task${rows.length === 1 ? "" : "s"} · ${formatHoursMinutes(hoursFromMs(total))} logged`}
+    >
+      {rows.length === 0 ? (
+        <EmptyState icon={<IconClock size={24} />} title="No tasks to show" />
+      ) : (
+        <ul className="-mx-2 flex flex-col">
+          {rows.map(({ task, ms }) => {
+            const project = task.projectId ? projectById(task.projectId) : null;
+            const assignee = task.assigneeId ? userById(task.assigneeId) : undefined;
+            return (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenTask(task.id)}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-2"
+                >
+                  <span className="flex min-w-48 flex-1 flex-col">
+                    <span className="truncate text-[13px] text-ink">
+                      {task.code ? `${task.code} ` : ""}
+                      {task.title}
+                    </span>
+                    <span className="truncate text-[11px] text-ink-faint">
+                      {project ? project.name : "Individual task"} · {task.department}
+                    </span>
+                  </span>
+                  {assignee ? (
+                    <span className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+                      <Avatar name={assignee.fullName} size={20} />
+                      {assignee.fullName}
+                    </span>
+                  ) : (
+                    <span className="text-[12px] text-ink-faint">Unassigned</span>
+                  )}
+                  <StatusBadge status={task.status} task={task} />
+                  <span className="w-20 shrink-0 text-right font-mono text-[12px] text-ink">
+                    {formatDuration(ms)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Modal>
   );
 }
 

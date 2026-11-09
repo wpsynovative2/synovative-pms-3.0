@@ -26,7 +26,7 @@ import {
   type ActivityFilter,
   type ActivityKind,
 } from "@/lib/activity";
-import { addDays, formatDate, fromISODate, todayISO } from "@/lib/calendar";
+import { addDays, daysBetween, formatDate, fromISODate, toISODate, todayISO } from "@/lib/calendar";
 import { useStore } from "@/lib/store";
 import { formatDuration } from "@/lib/time";
 import type { Task, TaskOpen, User } from "@/lib/types";
@@ -48,12 +48,41 @@ const clock = (at: string) =>
 
 type Loaded = { key: string; rows: TaskOpen[]; error?: string };
 
+type Preset = "today" | "yesterday" | "last7" | "week" | "month" | "custom";
+
+/** Monday of the week `iso` falls in. */
+const weekStart = (iso: string) => addDays(iso, -((fromISODate(iso).getDay() + 6) % 7));
+
+function presetRange(preset: Exclude<Preset, "custom">, today: string): { from: string; to: string } {
+  switch (preset) {
+    case "today":
+      return { from: today, to: today };
+    case "yesterday":
+      return { from: addDays(today, -1), to: addDays(today, -1) };
+    case "last7":
+      return { from: addDays(today, -6), to: today };
+    case "week":
+      return { from: weekStart(today), to: today };
+    case "month":
+      return { from: `${today.slice(0, 7)}-01`, to: today };
+  }
+}
+
+const PRESETS: { id: Preset; label: string }[] = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "last7", label: "Last 7 days" },
+  { id: "week", label: "This week" },
+  { id: "month", label: "This month" },
+  { id: "custom", label: "Custom range" },
+];
+
 /**
- * What someone did on one day: the tasks they opened, when their timer started,
- * switched and stopped, and what they submitted, reviewed, remarked on or were
- * handed. Opens are read from the database when the day is picked (0028); the
- * rest is already in the store with each task, so it covers the tasks the viewer
- * can see.
+ * What someone did over a day or a range of days: the tasks they opened, when
+ * their timer started, switched and stopped, and what they submitted, reviewed,
+ * remarked on or were handed. Opens are read from the database when the range is
+ * picked (0028); the rest is already in the store with each task, so it covers
+ * the tasks the viewer can see.
  */
 export function UserActivity({
   person,
@@ -64,14 +93,31 @@ export function UserActivity({
 }) {
   const { db, taskById, projectById, userById, taskOpensFor } = useStore();
   const today = todayISO();
-  const [day, setDay] = useState(today);
+  const [range, setRange] = useState({ from: today, to: today });
+  const { from, to } = range;
   const [filter, setFilter] = useState<ActivityFilter>("all");
   const [reload, setReload] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
-  const dayStart = useMemo(() => fromISODate(day), [day]);
-  const dayEnd = useMemo(() => fromISODate(addDays(day, 1)), [day]);
-  const key = `${person.id}|${day}|${reload}`;
+  const days = daysBetween(from, to) + 1;
+  const singleDay = days === 1;
+  const preset: Preset =
+    PRESETS.find((p) => {
+      if (p.id === "custom") return false;
+      const r = presetRange(p.id, today);
+      return r.from === from && r.to === to;
+    })?.id ?? "custom";
+
+  /** Moves the range by its own length, never past today. */
+  const shift = (direction: -1 | 1) => {
+    let next = { from: addDays(from, direction * days), to: addDays(to, direction * days) };
+    if (next.to > today) next = { from: addDays(today, -(days - 1)), to: today };
+    setRange(next);
+  };
+
+  const dayStart = useMemo(() => fromISODate(from), [from]);
+  const dayEnd = useMemo(() => fromISODate(addDays(to, 1)), [to]);
+  const key = `${person.id}|${from}|${to}|${reload}`;
 
   useEffect(() => {
     let live = true;
@@ -100,11 +146,28 @@ export function UserActivity({
     () => buildDayActivity(person.id, db.tasks, opens, dayStart, dayEnd),
     [person.id, db.tasks, opens, dayStart, dayEnd],
   );
-  const shown = activity.events.filter((e) => matchesActivityFilter(e.kind, filter));
+  const shown = useMemo(
+    () => activity.events.filter((e) => matchesActivityFilter(e.kind, filter)),
+    [activity.events, filter],
+  );
   const openedCount = new Set(opens.map((o) => o.taskId)).size;
   const switchCount = activity.events.filter((e) => e.kind === "switch").length;
-  const running = day === today && activity.runningTaskId ? taskById(activity.runningTaskId) : undefined;
+  const running = to === today && activity.runningTaskId ? taskById(activity.runningTaskId) : undefined;
   const first = person.fullName.split(" ")[0];
+  const dayLabel = (iso: string) => (iso === today ? "Today" : formatDate(iso));
+  const rangeLabel = singleDay ? dayLabel(from) : `${formatDate(from)} – ${dayLabel(to)}`;
+  const period = singleDay ? "this day" : "these days";
+
+  // Over a range, the timeline is split by day.
+  const byDay = useMemo(() => {
+    const out: { day: string; events: ActivityEvent[] }[] = [];
+    for (const e of shown) {
+      const day = toISODate(new Date(e.at));
+      if (out.at(-1)?.day !== day) out.push({ day, events: [] });
+      out.at(-1)!.events.push(e);
+    }
+    return out;
+  }, [shown]);
 
   const taskName = (id: string | undefined) => {
     const t = id ? taskById(id) : undefined;
@@ -116,32 +179,62 @@ export function UserActivity({
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-wrap items-center gap-2.5 p-3.5">
-        <Button size="sm" aria-label="Previous day" onClick={() => setDay((d) => addDays(d, -1))}>
+        <Select
+          className="w-auto min-w-36"
+          value={preset}
+          active={preset !== "today"}
+          onChange={(e) => {
+            const next = e.target.value as Preset;
+            if (next !== "custom") setRange(presetRange(next, today));
+          }}
+          aria-label="Period"
+        >
+          {PRESETS.map((p) => (
+            <option key={p.id} value={p.id} disabled={p.id === "custom"}>
+              {p.label}
+            </option>
+          ))}
+        </Select>
+        <Button
+          size="sm"
+          aria-label={singleDay ? "Previous day" : "Previous period"}
+          onClick={() => shift(-1)}
+        >
           <IconChevronLeft size={14} />
         </Button>
-        <div className="w-44">
-          <DatePicker
-            value={day}
-            onChange={(v) => setDay(v || today)}
-            config={db.calendar}
-            ignoreWorkingRules
-            allowPast
-            max={today}
-          />
+        <div className="flex items-center gap-1.5">
+          <div className="w-40">
+            <DatePicker
+              value={from}
+              // Picking a start after the end moves the end along with it.
+              onChange={(v) => setRange((r) => ({ from: v || today, to: (v || today) > r.to ? v || today : r.to }))}
+              config={db.calendar}
+              ignoreWorkingRules
+              allowPast
+              max={today}
+            />
+          </div>
+          <span className="text-[12px] text-ink-faint">to</span>
+          <div className="w-40">
+            <DatePicker
+              value={to}
+              onChange={(v) => setRange((r) => ({ from: r.from, to: v || today }))}
+              config={db.calendar}
+              ignoreWorkingRules
+              allowPast
+              min={from}
+              max={today}
+            />
+          </div>
         </div>
         <Button
           size="sm"
-          aria-label="Next day"
-          disabled={day >= today}
-          onClick={() => setDay((d) => addDays(d, 1))}
+          aria-label={singleDay ? "Next day" : "Next period"}
+          disabled={to >= today}
+          onClick={() => shift(1)}
         >
           <IconChevronRight size={14} />
         </Button>
-        {day !== today ? (
-          <Button size="sm" onClick={() => setDay(today)}>
-            Today
-          </Button>
-        ) : null}
         <Select
           className="ml-auto w-auto min-w-52"
           value={filter}
@@ -198,9 +291,7 @@ export function UserActivity({
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <Card className="overflow-hidden">
           <div className="flex items-baseline justify-between gap-2 border-b border-line-soft px-4 py-3">
-            <h2 className="text-sm font-medium text-ink">
-              {day === today ? "Today" : formatDate(day)}
-            </h2>
+            <h2 className="text-sm font-medium text-ink">{rangeLabel}</h2>
             <span className="text-[11px] text-ink-faint">
               {shown.length} event{shown.length === 1 ? "" : "s"}
             </span>
@@ -212,23 +303,37 @@ export function UserActivity({
                 loading
                   ? "Loading…"
                   : activity.events.length
-                    ? "Nothing of that kind on this day"
-                    : `No activity from ${first} on this day`
+                    ? `Nothing of that kind on ${period}`
+                    : `No activity from ${first} on ${period}`
               }
             />
           ) : (
-            <ol className="flex flex-col py-1.5">
-              {shown.map((e) => (
-                <EventRow
-                  key={e.id}
-                  event={e}
-                  taskName={taskName}
-                  projectName={(id) => projectName(id ? taskById(id) : undefined)}
-                  userName={(id) => (id ? (userById(id)?.fullName ?? "someone") : "the system")}
-                  onOpenTask={onOpenTask}
-                />
+            <div className={cx("flex flex-col", singleDay && "py-1.5")}>
+              {byDay.map(({ day, events }) => (
+                <section key={day} className="border-t border-line-soft first:border-t-0">
+                  {singleDay ? null : (
+                    <h3 className="flex items-baseline justify-between gap-2 border-b border-line-soft bg-surface-2 px-4 py-1.5 text-[12px] font-medium text-ink-muted">
+                      {dayLabel(day)}
+                      <span className="text-[11px] font-normal text-ink-faint">
+                        {events.length} event{events.length === 1 ? "" : "s"}
+                      </span>
+                    </h3>
+                  )}
+                  <ol className="flex flex-col">
+                    {events.map((e) => (
+                      <EventRow
+                        key={e.id}
+                        event={e}
+                        taskName={taskName}
+                        projectName={(id) => projectName(id ? taskById(id) : undefined)}
+                        userName={(id) => (id ? (userById(id)?.fullName ?? "someone") : "the system")}
+                        onOpenTask={onOpenTask}
+                      />
+                    ))}
+                  </ol>
+                </section>
               ))}
-            </ol>
+            </div>
           )}
         </Card>
 

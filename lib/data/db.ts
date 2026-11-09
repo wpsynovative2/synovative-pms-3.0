@@ -1078,16 +1078,23 @@ export async function loadTaskOpens(
   fromISO: string,
   toISO: string,
 ): Promise<TaskOpen[]> {
-  const { data, error } = await sb
-    .from("task_opens")
-    .select("id, profile_id, task_id, opened_at")
-    .eq("profile_id", profileId)
-    .gte("opened_at", fromISO)
-    .lt("opened_at", toISO)
-    .order("opened_at", { ascending: false })
-    .limit(1000);
-  if (error) throw new Error(`task_opens: ${error.message}`);
-  return ((data ?? []) as Row[]).map((r) => ({
+  // A range of days can run past one page, so read page by page.
+  const rows: Row[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from("task_opens")
+      .select("id, profile_id, task_id, opened_at")
+      .eq("profile_id", profileId)
+      .gte("opened_at", fromISO)
+      .lt("opened_at", toISO)
+      .order("opened_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`task_opens: ${error.message}`);
+    rows.push(...((data ?? []) as Row[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows.map((r) => ({
     id: str(r.id),
     userId: str(r.profile_id),
     taskId: str(r.task_id),

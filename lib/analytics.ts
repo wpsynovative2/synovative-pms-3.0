@@ -242,6 +242,8 @@ export interface Bucket {
   label: string;
   hours: number;
   count: number;
+  /** The tasks behind the bar, so the report can list them. */
+  taskIds: string[];
 }
 
 export function timeByProject(
@@ -253,9 +255,10 @@ export function timeByProject(
     const key = t.projectId ?? "individual";
     const label =
       projects.find((p) => p.id === t.projectId)?.name ?? "Individual tasks";
-    const b = map.get(key) ?? { key, label, hours: 0, count: 0 };
+    const b = map.get(key) ?? { key, label, hours: 0, count: 0, taskIds: [] };
     b.hours += hoursFromMs(taskElapsedMs(t));
     b.count += 1;
+    b.taskIds.push(t.id);
     map.set(key, b);
   }
   return [...map.values()].sort((a, b) => b.hours - a.hours);
@@ -269,9 +272,10 @@ export function timeByUser(tasks: Task[], users: User[]): Bucket[] {
     const label = t.assigneeId
       ? (users.find((u) => u.id === t.assigneeId)?.fullName ?? "Unknown")
       : "Unassigned";
-    const b = map.get(key) ?? { key, label, hours: 0, count: 0 };
+    const b = map.get(key) ?? { key, label, hours: 0, count: 0, taskIds: [] };
     b.hours += hoursFromMs(taskElapsedMs(t));
     b.count += 1;
+    b.taskIds.push(t.id);
     map.set(key, b);
   }
   return [...map.values()].sort((a, b) => b.hours - a.hours);
@@ -285,9 +289,11 @@ export function timeByDepartment(tasks: Task[]): Bucket[] {
       label: t.department,
       hours: 0,
       count: 0,
+      taskIds: [],
     };
     b.hours += hoursFromMs(taskElapsedMs(t));
     b.count += 1;
+    b.taskIds.push(t.id);
     map.set(t.department, b);
   }
   return [...map.values()].sort((a, b) => b.hours - a.hours);

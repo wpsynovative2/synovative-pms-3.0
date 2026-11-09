@@ -55,6 +55,12 @@ export function formatClock(ms: number): string {
 
 export const hoursFromMs = (ms: number) => ms / 3_600_000;
 
+/** `84h 30m` from a number of hours: formatDuration for figures kept in hours. */
+export function formatHoursMinutes(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return "0m";
+  return formatDuration(Math.round(hours * 60) * 60_000);
+}
+
 export function formatHours(hours: number): string {
   if (!Number.isFinite(hours)) return "0h";
   const rounded = Math.round(hours * 10) / 10;
