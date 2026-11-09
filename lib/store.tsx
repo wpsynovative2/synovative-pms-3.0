@@ -32,6 +32,7 @@ import {
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
   loadScopes,
+  resetTaskSync,
   obcItemRow,
   obcServiceRow,
   patchColumns,
@@ -50,6 +51,7 @@ import type {
   Workstation,
   InventoryItem,
   InventoryEvent,
+  NotificationType,
   TaskOpen,
   CalendarConfig,
   Client,
@@ -201,6 +203,16 @@ let pendingWrites = 0;
 let writeEpoch = 0;
 let refreshing = false;
 let lastFullRefresh = 0;
+let lastTaskRefresh = 0;
+
+/*
+ * Returning to the tab catches up in two steps, because Supabase bills every
+ * byte it sends (0031). Tasks, synced by version and so cheap, after a minute
+ * away; everything else only after a quarter of an hour. Your own saves and
+ * your notifications refresh what they touch in between.
+ */
+const TASK_REFRESH_AFTER_MS = 60_000;
+const FULL_REFRESH_AFTER_MS = 15 * 60_000;
 
 function requestRefresh(scopes: Iterable<Scope>) {
   for (const s of scopes) queuedScopes.add(s);
@@ -241,7 +253,7 @@ async function flush() {
   refreshing = true;
   const epoch = writeEpoch;
   try {
-    const { data, failures } = await loadScopes(sb(), scopes);
+    const { data, failures } = await loadScopes(sb(), scopes, state.db);
     if (writeEpoch !== epoch) {
       // A write started while we were fetching — this data may predate it.
       for (const s of scopes) queuedScopes.add(s);
@@ -251,6 +263,7 @@ async function flush() {
       if (scopes.length === ALL_SCOPES.length && failures.length === 0) {
         lastFullRefresh = Date.now();
       }
+      if (scopes.includes("tasks")) lastTaskRefresh = Date.now();
     }
 
     const signature = failures.map((f) => f.scope).sort().join("|");
@@ -349,14 +362,27 @@ function subscribeToNotifications(userId: string) {
         const n = toNotification(payload.new as Record<string, unknown>);
         if (state.db.notifications.some((x) => x.id === n.id)) return;
         setDb({ ...state.db, notifications: [n, ...state.db.notifications] });
-        // A notification means someone changed work this user can see.
-        requestRefresh(["tasks", "projects", "expenses"]);
+        // A notification means someone changed work this user can see. Fetch
+        // what that kind of change touches, not every scope that might.
+        requestRefresh(NOTIFICATION_SCOPES[n.type] ?? ["tasks"]);
       },
     )
     .subscribe();
 }
 
+/** What a notification of each kind may have changed. Anything unlisted: tasks. */
+const NOTIFICATION_SCOPES: Partial<Record<NotificationType, Scope[]>> = {
+  // Being given a task can open a project to you for the first time.
+  task_assigned: ["tasks", "projects"],
+  expense_added: ["expenses"],
+  expense_reviewed: ["expenses"],
+  content_allotted: ["tasks", "content"],
+  website_renewal: ["websites"],
+  inventory_assigned: ["inventory"],
+};
+
 function resetSession() {
+  resetTaskSync();
   channel?.unsubscribe();
   channel = null;
   queuedScopes.clear();
@@ -376,6 +402,7 @@ const DEFERRED_SCOPES: Scope[] = ALL_SCOPES.filter((s) => !CORE_SCOPES.includes(
 async function activate(userId: string): Promise<{ ok: boolean; error?: string }> {
   if (activating === userId) return { ok: true };
   activating = userId;
+  resetTaskSync();
   setState({ auth: "loading", userId });
   try {
     // The core scopes are not optional: without users there is no way to tell
@@ -438,7 +465,9 @@ async function init() {
   // Catch up on anything that changed while the tab was in the background.
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || state.auth !== "signed-in") return;
-    if (Date.now() - lastFullRefresh > 60_000) requestRefresh(ALL_SCOPES);
+    const now = Date.now();
+    if (now - lastFullRefresh > FULL_REFRESH_AFTER_MS) requestRefresh(ALL_SCOPES);
+    else if (now - lastTaskRefresh > TASK_REFRESH_AFTER_MS) requestRefresh(["tasks"]);
   });
 }
 

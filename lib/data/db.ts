@@ -145,15 +145,46 @@ async function fetchColumns(
   columns: string,
   ...orders: string[]
 ): Promise<Row[]> {
+  return fetchFiltered(sb, table, columns, null, orders);
+}
+
+/** A page-by-page read, optionally only the rows whose `filter.column` is one of `filter.ids`. */
+async function fetchFiltered(
+  sb: SupabaseClient,
+  table: string,
+  columns: string,
+  filter: { column: string; ids: string[] } | null,
+  orders: string[],
+): Promise<Row[]> {
   const out: Row[] = [];
   for (let from = 0; ; from += PAGE) {
     let query = sb.from(table).select(columns);
+    if (filter) query = query.in(filter.column, filter.ids);
     for (const column of orders) query = query.order(column, { ascending: true });
     const { data, error } = await query.range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
     out.push(...(data as unknown as Row[]));
     if (!data || data.length < PAGE) return out;
   }
+}
+
+/** Ids per request when reading by id: keeps the URL well under any proxy's limit. */
+const ID_CHUNK = 120;
+
+/** fetchAll restricted to rows whose `column` is one of `ids`, in chunks. */
+async function fetchIn(
+  sb: SupabaseClient,
+  table: string,
+  column: string,
+  ids: string[],
+  ...orders: string[]
+): Promise<Row[]> {
+  const out: Row[] = [];
+  for (let at = 0; at < ids.length; at += ID_CHUNK) {
+    const chunk = ids.slice(at, at + ID_CHUNK);
+    out.push(...(await fetchFiltered(sb, table, "*", { column, ids: chunk }, orders)));
+  }
+  return out;
 }
 
 function groupBy<T>(rows: Row[], key: string, map: (r: Row) => T): Map<string, T[]> {
@@ -289,22 +320,47 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
   return { projects };
 }
 
-async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, sessions, submissions, reviews, remarks, assignments, groupRows, linkRows] = await Promise.all([
-    fetchAll(sb, "tasks", "created_at", "id"),
-    fetchAll(sb, "time_sessions", "started_at", "id"),
-    fetchAll(sb, "submissions", "submitted_at", "id"),
-    fetchAll(sb, "reviews", "reviewed_at", "id"),
-    fetchAll(sb, "remarks", "created_at", "id"),
+interface TaskRows {
+  rows: Row[];
+  sessions: Row[];
+  submissions: Row[];
+  reviews: Row[];
+  remarks: Row[];
+  assignments: Row[];
+  linkRows: Row[];
+}
+
+/** Task rows and their history: all of them, or only the tasks named. */
+async function fetchTaskRows(sb: SupabaseClient, ids: string[] | null): Promise<TaskRows> {
+  const read = (table: string, column: string, ...orders: string[]) =>
+    ids ? fetchIn(sb, table, column, ids, ...orders) : fetchAll(sb, table, ...orders);
+  const [rows, sessions, submissions, reviews, remarks, assignments, linkRows] = await Promise.all([
+    read("tasks", "id", "created_at", "id"),
+    read("time_sessions", "task_id", "started_at", "id"),
+    read("submissions", "task_id", "submitted_at", "id"),
+    read("reviews", "task_id", "reviewed_at", "id"),
+    read("remarks", "task_id", "created_at", "id"),
     // History only (0016): a database that has not run the migration yet still
     // loads its tasks, just without it.
-    fetchAll(sb, "task_assignments", "at", "id").catch(() => []),
-    // As above (0021, 0022): tasks still load on a database behind the code.
-    fetchAll(sb, "task_groups", "project_id", "number").catch(() => []),
-    fetchAll(sb, "task_dependencies", "task_id", "depends_on_task_id").catch(() => []),
+    read("task_assignments", "task_id", "at", "id").catch(() => []),
+    // As above (0021): tasks still load on a database behind the code.
+    read("task_dependencies", "task_id", "task_id", "depends_on_task_id").catch(() => []),
   ]);
+  return { rows, sessions, submissions, reviews, remarks, assignments, linkRows };
+}
 
-  const taskGroups: TaskGroup[] = groupRows.map((r) => ({
+/** As above (0022): tasks still load without their groups. */
+const fetchTaskGroupRows = (sb: SupabaseClient) =>
+  fetchAll(sb, "task_groups", "project_id", "number").catch(() => [] as Row[]);
+
+async function loadTasks(sb: SupabaseClient): Promise<{ tasks: Task[]; taskGroups: TaskGroup[] }> {
+  const [taskRows, groupRows] = await Promise.all([fetchTaskRows(sb, null), fetchTaskGroupRows(sb)]);
+  const taskGroups = buildTaskGroups(groupRows);
+  return { tasks: buildTasks(taskRows, taskGroups), taskGroups };
+}
+
+function buildTaskGroups(groupRows: Row[]): TaskGroup[] {
+  return groupRows.map((r) => ({
     id: str(r.id),
     projectId: str(r.project_id),
     number: num(r.number),
@@ -315,6 +371,21 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
     createdBy: str(r.created_by),
     createdAt: str(r.created_at),
   }));
+}
+
+/** "T1.3" for a task filed in a 3D group, from the groups as they stand. */
+function taskCode(
+  groupId: string | null | undefined,
+  groupNumber: number | null | undefined,
+  numbers: Map<string, number>,
+): string | undefined {
+  return groupId && numbers.has(groupId) ? `T${numbers.get(groupId)}.${num(groupNumber)}` : undefined;
+}
+
+function buildTasks(
+  { rows, sessions, submissions, reviews, remarks, assignments, linkRows }: TaskRows,
+  taskGroups: TaskGroup[],
+): Task[] {
   const groupNumber = new Map(taskGroups.map((g) => [g.id, g.number]));
   const links = groupBy<string>(linkRows, "task_id", (r) => str(r.depends_on_task_id));
 
@@ -361,7 +432,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
   }));
 
   // Creation order is display order (§9.2).
-  const tasks: Task[] = rows.map((r) => {
+  return rows.map((r) => {
     const id = str(r.id);
     return {
       id,
@@ -381,10 +452,7 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       dependsOnTaskIds: links.get(id) ?? [],
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
-      code:
-        r.group_id && groupNumber.has(str(r.group_id))
-          ? `T${groupNumber.get(str(r.group_id))}.${num(r.group_number)}`
-          : undefined,
+      code: taskCode(nullable(r.group_id), r.group_number as number | null, groupNumber),
       threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
       threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
       shotsBrief: str(r.shots_brief),
@@ -411,6 +479,98 @@ async function loadTasks(sb: SupabaseClient): Promise<Partial<Database>> {
       series: readLink(r),
     };
   });
+}
+
+/* ------------------------------------------------- tasks, synced by version */
+
+/*
+ * Supabase bills what it sends out, and the tasks scope was most of it: every
+ * task with its whole history, downloaded again after each save, notification and
+ * return to the tab. A refresh now asks task_versions() (0031) for a short
+ * fingerprint per task and downloads only the tasks that are new, whose
+ * fingerprint changed, or that this browser changed itself since (an optimistic
+ * edit, which may have failed and must be put back). Every other task keeps the
+ * object it already has. With nothing synced yet, or on a database without 0031,
+ * it is the full load.
+ */
+interface SyncedTask {
+  task: Task;
+  version: string;
+}
+let taskSync: Map<string, SyncedTask> | null = null;
+/** task_versions() doesn't exist here: load in full, and stop asking. */
+let taskSyncMissing = false;
+
+/** Forget what was synced, on signing in or out. */
+export function resetTaskSync() {
+  taskSync = null;
+  taskSyncMissing = false;
+}
+
+async function fetchTaskVersions(sb: SupabaseClient): Promise<Record<string, string> | null> {
+  const { data, error } = await sb.rpc("task_versions");
+  if (!error) return (data as Record<string, string> | null) ?? {};
+  // PGRST202: no such function - a database that hasn't run 0031.
+  if (error.code === "PGRST202" || /could not find the function/i.test(error.message)) return null;
+  throw new Error(`task_versions: ${error.message}`);
+}
+
+async function loadTasksSynced(
+  sb: SupabaseClient,
+  current?: Database,
+): Promise<{ tasks: Task[]; taskGroups: TaskGroup[] }> {
+  if (taskSyncMissing) return loadTasks(sb);
+  // Versions before rows: a change landing between the two reads then shows as
+  // a stale version next time, rather than being taken as already held.
+  const versions = await fetchTaskVersions(sb);
+  if (!versions) {
+    taskSyncMissing = true;
+    taskSync = null;
+    return loadTasks(sb);
+  }
+
+  if (!taskSync || !current) {
+    const full = await loadTasks(sb);
+    taskSync = new Map(
+      full.tasks
+        .filter((t) => versions[t.id])
+        .map((t) => [t.id, { task: t, version: versions[t.id] }]),
+    );
+    return full;
+  }
+
+  const held = taskSync;
+  const onScreen = new Map(current.tasks.map((t) => [t.id, t]));
+  const stale = Object.keys(versions).filter((id) => {
+    const synced = held.get(id);
+    return !synced || synced.version !== versions[id] || onScreen.get(id) !== synced.task;
+  });
+
+  const [groupRows, fresh] = await Promise.all([
+    fetchTaskGroupRows(sb),
+    stale.length ? fetchTaskRows(sb, stale) : null,
+  ]);
+  const taskGroups = buildTaskGroups(groupRows);
+  const numbers = new Map(taskGroups.map((g) => [g.id, g.number]));
+  const fetched = new Map((fresh ? buildTasks(fresh, taskGroups) : []).map((t) => [t.id, t]));
+  const staleIds = new Set(stale);
+
+  const next = new Map<string, SyncedTask>();
+  for (const [id, version] of Object.entries(versions)) {
+    let task = staleIds.has(id) ? fetched.get(id) : held.get(id)?.task;
+    // Deleted between the two reads.
+    if (!task) continue;
+    // A renumbered group renames its tasks without the tasks themselves changing.
+    const code = taskCode(task.groupId, task.groupNumber, numbers);
+    if (code !== task.code) task = { ...task, code };
+    next.set(id, { task, version });
+  }
+  taskSync = next;
+
+  // Creation order is display order (§9.2), as the full load reads it.
+  const tasks = [...next.values()]
+    .map((x) => x.task)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   return { tasks, taskGroups };
 }
 
@@ -935,11 +1095,14 @@ export async function loadTaskOpens(
   }));
 }
 
-const LOADERS: Record<Scope, (sb: SupabaseClient) => Promise<Partial<Database>>> = {
+const LOADERS: Record<
+  Scope,
+  (sb: SupabaseClient, current?: Database) => Promise<Partial<Database>>
+> = {
   master: loadMaster,
   users: loadUsers,
   projects: loadProjects,
-  tasks: loadTasks,
+  tasks: loadTasksSynced,
   expenses: loadExpenses,
   vendors: loadVendors,
   templates: loadTemplates,
@@ -980,9 +1143,11 @@ export interface ScopeLoad {
 export async function loadScopes(
   sb: SupabaseClient,
   scopes: Iterable<Scope>,
+  /** What is on screen now, so the tasks scope can fetch only what changed. */
+  current?: Database,
 ): Promise<ScopeLoad> {
   const wanted = Array.from(new Set(scopes));
-  const settled = await Promise.allSettled(wanted.map((s) => LOADERS[s](sb)));
+  const settled = await Promise.allSettled(wanted.map((s) => LOADERS[s](sb, current)));
 
   const data: Partial<Database> = {};
   const failures: ScopeFailure[] = [];

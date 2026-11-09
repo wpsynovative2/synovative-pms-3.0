@@ -248,9 +248,19 @@ stops an in-flight refetch from overwriting a newer optimistic state.
 drift apart.
 
 **Refreshes.** After your own saves; when a Realtime notification arrives
-(meaning someone else changed work you can see); and on tab focus if the last
-full refresh was over a minute ago. Realtime is subscribed **for the current
+(meaning someone else changed work you can see), for the scopes that kind of
+notification touches (`NOTIFICATION_SCOPES`); and on tab focus — tasks after a
+minute away, everything after fifteen. Realtime is subscribed **for the current
 user's notifications only** — a free-tier budget decision (§19).
+
+**The tasks scope is synced by version (`0031`), because egress is billed.**
+A refresh first asks `task_versions()` for a fingerprint per task, then
+downloads only tasks that are new, whose fingerprint changed, or whose object
+on screen is not the one last synced — an optimistic edit, which is how a
+failed write still gets put back. Unchanged tasks keep their objects. Keep
+optimistic updates immutable (replace the task object, never mutate it), or
+the sync cannot see the edit. Any new child table of `tasks` must be added to
+`task_versions()` as well as to `fetchTaskRows`, or changes to it go unseen.
 
 **Errors.** `friendlyError()` maps Postgres codes to sentences people can act
 on (`42501` → permission, `23503` → still in use, `one_running_timer_per_user`
@@ -454,6 +464,7 @@ Since the current baseline:
 | `0026_3d_task_thumbnail.sql` | `tasks.thumbnail_file_id` / `thumbnail_url`: a 3D task's image, in one master Drive folder. Served by `/api/drive/thumbnails/[id]`, which treats both columns as untrusted |
 | `0027_3d_thumbnail_name.sql` | `tasks.thumbnail_name`: what someone called a task's thumbnail, which also names its file on Drive (`PATCH /api/drive/thumbnails/[id]`) |
 | `0028_task_opens.sql` | `task_opens`: who opened which task when, written only by `log_task_open()` (as the caller, for a task they can see, at most once per task per ten minutes) from `TaskDetailDrawer`, read by `can_view_user_activity()` (global managers and HR Admin) for the Activity tab on a person's page, which puts opens beside the sessions, submissions, reviews, remarks and assignments already on each task (`lib/activity.ts`). Pruned after 90 days. Mirrors `canViewUserActivity` |
+| `0031_task_versions.sql` | `task_versions()`: one JSON object of a 16-character fingerprint per visible task, over the task row and all its child rows (sessions, submissions, reviews, remarks, assignments, dependencies), computed as the caller. The tasks scope downloads only new, changed or locally edited tasks (`loadTasksSynced` in `lib/data/db.ts`); without the function it loads in full. Cut for Supabase egress |
 | `0029_overdue_rule.sql` | `task_is_overdue`: Submitted, Waiting for Client Response and Approved are judged by the latest submission (IST day) against the due date, so on-time work isn't late while reviewed or with the client, and work resubmitted after the due date stays late through approval. A rejection's new due date moves the date it is judged by. `notify_due_and_overdue` skips Approved. Mirrors `isOverdue` |
 | `0030_activity_on_reports.sql` | `can_view_user_activity()`: Super Admin and Admin only (was global managers and HR Admin). The Activity view moves from a person's page to an Activity tab on Reports, where they pick the person. Mirrors `canViewUserActivity` |
 
