@@ -1048,7 +1048,7 @@ export function TaskFormModal({
             label="Repeat"
             hint={
               repeat
-                ? "On each date a task named “<title> – <Month> <Year>” is created for the same assignee, with the due date moved by the same amount."
+                ? "On each date a task named “<Property> | <Title> | <Month Year>” is created for the same assignee (without a property, “<Title> | <Month Year>”), with the due date moved by the same amount."
                 : undefined
             }
           >

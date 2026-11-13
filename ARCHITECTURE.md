@@ -318,7 +318,9 @@ assignment or overdue notifications, no timers, no content slots.
 A `pg_cron` job at 00:05 IST creates **every** occurrence, the first included,
 as a real project (tasks, content tasks with their slots, members, services,
 company / client / property) or task, named by `occurrence_name()` —
-"<name> – November 2026", or the name with `[Month]` / `[Year]` filled in. Each
+"<Property> | <Name> | November 2026", or "<Name> | November 2026" without a
+property, any `[Month]` / `[Year]` in the name taken out (`0032`; copies made
+before keep their old names). Mirrors `occurrenceTitle` in `lib/recurrence.ts`. Each
 copy carries a `SeriesLink` back to its blueprint. Saving a blueprint calls
 `run_due_recurrences()`, so one whose first date is today appears at once.
 Pausing skips the dates it covers rather than banking them. Deleting a blueprint
@@ -465,6 +467,7 @@ Since the current baseline:
 | `0027_3d_thumbnail_name.sql` | `tasks.thumbnail_name`: what someone called a task's thumbnail, which also names its file on Drive (`PATCH /api/drive/thumbnails/[id]`) |
 | `0028_task_opens.sql` | `task_opens`: who opened which task when, written only by `log_task_open()` (as the caller, for a task they can see, at most once per task per ten minutes) from `TaskDetailDrawer`, read by `can_view_user_activity()` (global managers and HR Admin) for the Activity tab on a person's page, which puts opens beside the sessions, submissions, reviews, remarks and assignments already on each task (`lib/activity.ts`). Pruned after 90 days. Mirrors `canViewUserActivity` |
 | `0031_task_versions.sql` | `task_versions()`: one JSON object of a 16-character fingerprint per visible task, over the task row and all its child rows (sessions, submissions, reviews, remarks, assignments, dependencies), computed as the caller. The tasks scope downloads only new, changed or locally edited tasks (`loadTasksSynced` in `lib/data/db.ts`); without the function it loads in full. Cut for Supabase egress |
+| `0032_occurrence_title_property.sql` | `occurrence_name(name, day, property)`: recurring projects and individual tasks are named "<Property> \| <Title> \| <Month Year>", the property left out when there is none and `[Month]` / `[Year]` stripped from the title. `generate_recurring_occurrences` as 0021 otherwise. Mirrors `occurrenceTitle` |
 | `0029_overdue_rule.sql` | `task_is_overdue`: Submitted, Waiting for Client Response and Approved are judged by the latest submission (IST day) against the due date, so on-time work isn't late while reviewed or with the client, and work resubmitted after the due date stays late through approval. A rejection's new due date moves the date it is judged by. `notify_due_and_overdue` skips Approved. Mirrors `isOverdue` |
 | `0030_activity_on_reports.sql` | `can_view_user_activity()`: Super Admin and Admin only (was global managers and HR Admin). The Activity view moves from a person's page to an Activity tab on Reports, where they pick the person. Mirrors `canViewUserActivity` |
 

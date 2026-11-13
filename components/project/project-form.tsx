@@ -35,7 +35,7 @@ import {
   THREE_D_SOFTWARE,
 } from "@/lib/master-data";
 import { canSeeClients, canSetRecurrence } from "@/lib/permissions";
-import { ruleError, seriesFor } from "@/lib/recurrence";
+import { occurrenceTitle, ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore, type NewProjectTaskInput } from "@/lib/store";
 import type {
   CalendarConfig,
@@ -184,18 +184,14 @@ function as3dRow<D extends TaskDraft>(d: D, users: User[]): D {
 const toDays = (value: string) => Math.max(0, Math.trunc(Number(value)) || 0);
 
 /**
- * What a repeat made on `day` would be called: "<name> – October 2026", or a
- * month on. Mirrors occurrence_name() / title_day() (0029), [Month] included.
+ * What a repeat made on `day` would be called, named for that month or the next.
+ * Mirrors occurrence_name() / title_day() (0029, 0032).
  */
-function titleExample(name: string, day: string, monthsOn: 0 | 1) {
+function titleExample(name: string, day: string, monthsOn: 0 | 1, propertyName?: string) {
   const [y, m] = day.split("-").map(Number);
   const at = new Date(Date.UTC(y, m - 1 + monthsOn, 1));
-  const month = at.toLocaleString("en-IN", { month: "long", timeZone: "UTC" });
-  const year = String(at.getUTCFullYear());
-  const base = name.trim() || "Project name";
-  return /\[(month|year)\]/i.test(base)
-    ? base.replace(/\[month\]/gi, month).replace(/\[year\]/gi, year)
-    : `${base} – ${month} ${year}`;
+  const monthDay = `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  return occurrenceTitle(name.trim() || "Project name", monthDay, propertyName);
 }
 
 /** Stands for a typed client name from before clients were picked from Companies. */
@@ -294,6 +290,10 @@ export function ProjectFormModal({
   const seriesSource = project?.series ? projectById(project.series.sourceId) : undefined;
   // A Social Media retainer chooses which month its repeats are named for.
   const askTitleMonth = mayRepeat && form.services.includes(SMM_SERVICE);
+  // Its repeats are named after the property (0032); one raised from an OBC carries the OBC's.
+  const repeatProperty = db.properties.find(
+    (p) => p.id === (form.propertyId || project?.propertyId),
+  )?.name;
   // A repeating project cannot be 3D: its copies would lose their groups (0022).
   const is3d = !mayRepeat && (form.is3d ?? form.services.includes(THREE_D_SERVICE));
   // Its groups would be left behind, so a project with any stays 3D.
@@ -950,7 +950,7 @@ export function ProjectFormModal({
             required
             hint={
               repeat
-                ? "On each date a project named “<name> – <Month> <Year>” is created with these tasks. Write [Month] and [Year] in the name to place them yourself."
+                ? "On each date a project named “<Property> | <Name> | <Month Year>” is created with these tasks. Without a property, it is “<Name> | <Month Year>”."
                 : undefined
             }
           >
@@ -975,10 +975,10 @@ export function ProjectFormModal({
               onChange={(e) => set("titleMonth", e.target.value as TitleMonth)}
             >
               <option value="current">
-                {titleExample(form.name, form.startDate, 0)} (current month and year)
+                {titleExample(form.name, form.startDate, 0, repeatProperty)} (current month and year)
               </option>
               <option value="upcoming">
-                {titleExample(form.name, form.startDate, 1)} (upcoming month)
+                {titleExample(form.name, form.startDate, 1, repeatProperty)} (upcoming month)
               </option>
             </Select>
           </Field>

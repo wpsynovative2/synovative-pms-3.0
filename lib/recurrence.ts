@@ -433,3 +433,20 @@ export function ruleKey(rule: RecurrenceRule | null, anchor: string): string {
     e: r.ends,
   });
 }
+
+/**
+ * What a repeat is called: "<Property> | <Title> | <Month Year>", the property left
+ * out when there is none, and any [Month] / [Year] taken out of the title since
+ * the month always comes last. `monthDay` is any date in the month it is named
+ * for. Mirrors occurrence_name(name, day, property) (0032).
+ */
+export function occurrenceTitle(name: string, monthDay: string, propertyName?: string | null): string {
+  const [y, m] = monthDay.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, 1));
+  const month = `${at.toLocaleString("en-IN", { month: "long", timeZone: "UTC" })} ${at.getUTCFullYear()}`;
+  const title = name
+    .replace(/\[(month|year)\]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,|:–—-]+|[\s,|:–—-]+$/g, "");
+  return [propertyName?.trim(), title, month].filter(Boolean).join(" | ");
+}
