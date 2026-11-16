@@ -310,9 +310,9 @@ export interface Task {
   shortNumber?: number | null;
   /** A cam's share of its short's frames (0035). */
   frames?: number | null;
-  /** What a cam renders: a group or sub-group, or else a task filed in one (0035). */
-  renderGroupId?: string | null;
-  renderTaskId?: string | null;
+  /** What a cam renders: groups and sub-groups, and tasks filed in them (0035, 0036). */
+  renderGroupIds?: string[];
+  renderTaskIds?: string[];
   /** "T1.2.3", or "Cam1.2" for a cam. Derived when loaded, never stored. */
   code?: string;
   /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */

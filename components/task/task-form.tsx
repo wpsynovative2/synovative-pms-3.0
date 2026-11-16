@@ -7,6 +7,7 @@ import {
   pieceTypes,
 } from "@/components/content/piece-types";
 import { ThreeDNotesFields } from "@/components/three-d/notes";
+import { RenderPicker, type RenderPick } from "@/components/three-d/render-picker";
 import { ThreeDThumbnailField } from "@/components/three-d/thumbnail";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
@@ -157,13 +158,11 @@ export function TaskFormModal({
     : undefined;
   const isCam = !!short;
   const [frames, setFrames] = useState(task?.frames ? String(task.frames) : "");
-  const [renders, setRenders] = useState(
-    task?.renderTaskId
-      ? `t:${task.renderTaskId}`
-      : task?.renderGroupId
-        ? `g:${task.renderGroupId}`
-        : "",
-  );
+  // Any mix of groups, sub-groups and tasks (0036).
+  const [renders, setRenders] = useState<RenderPick>({
+    groupIds: task?.renderGroupIds ?? [],
+    taskIds: task?.renderTaskIds ?? [],
+  });
   const [groupId, setGroupId] = useState(task?.groupId ?? defaultGroupId ?? "");
   const defaultWaitsOn = (group: string, among: Task[]) =>
     is3d ? chainPredecessor(among, groups, group) : chainTail(among);
@@ -429,7 +428,10 @@ export function TaskFormModal({
       isCam && !(Number.isInteger(framesValue) && framesValue > 0)
         ? "Enter the number of frames, a whole number above 0."
         : undefined,
-    renders: isCam && !renders ? "Pick the group, sub-group or task it renders." : undefined,
+    renders:
+      isCam && !renders.groupIds.length && !renders.taskIds.length
+        ? "Pick at least one group, sub-group or task it renders."
+        : undefined,
     estimatedHours:
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
@@ -477,31 +479,6 @@ export function TaskFormModal({
     }));
   };
 
-  /** Every group, sub-group and filed task, in number order, for a cam to render. */
-  const renderOptions = isCam
-    ? tree.flatMap(({ group, subGroups }) => [
-        {
-          value: `g:${group.id}`,
-          label: `T${group.number} ${group.name}`,
-          hint: "Group: ready once every task in it is approved",
-        },
-        ...subGroups.flatMap((s) => [
-          {
-            value: `g:${s.id}`,
-            label: `T${group.number}.${s.number} ${s.name}`,
-            hint: "Sub-group",
-          },
-          ...projectTasks
-            .filter((t) => t.groupId === s.id)
-            .sort((a, b) => (a.groupNumber ?? 0) - (b.groupNumber ?? 0))
-            .map((t) => ({
-              value: `t:${t.id}`,
-              label: taskLabel(t),
-              hint: `Task · ${t.status}`,
-            })),
-        ]),
-      ])
-    : [];
   const camFramesHint = short
     ? (() => {
         const others = projectTasks
@@ -543,8 +520,8 @@ export function TaskFormModal({
         ? {
             shortId: short.id,
             frames: framesValue,
-            renderGroupId: renders.startsWith("g:") ? renders.slice(2) : null,
-            renderTaskId: renders.startsWith("t:") ? renders.slice(2) : null,
+            renderGroupIds: renders.groupIds,
+            renderTaskIds: renders.taskIds,
           }
         : {}),
       ...(asks3dDetails
@@ -728,37 +705,40 @@ export function TaskFormModal({
         </Field>
 
         {isCam ? (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field
-              label="Number of frames"
-              required
-              hint={camFramesHint}
-              error={touched ? errors.frames : undefined}
-            >
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                value={frames}
-                onChange={(e) => setFrames(e.target.value)}
-                placeholder="e.g. 120"
-              />
-            </Field>
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field
+                label="Number of frames"
+                required
+                hint={camFramesHint}
+                error={touched ? errors.frames : undefined}
+              >
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={frames}
+                  onChange={(e) => setFrames(e.target.value)}
+                  placeholder="e.g. 120"
+                />
+              </Field>
+            </div>
             <Field
               label="Renders"
               required
-              className="sm:col-span-2"
-              hint="Ready to render once this is approved: the task, or every task in the group or sub-group."
+              hint="Tick any groups, sub-groups and tasks. A group takes in everything under it."
               error={touched ? errors.renders : undefined}
             >
-              <SearchSelect
-                options={renderOptions}
+              <RenderPicker
+                projectId={project?.id ?? ""}
+                groups={groups}
+                tasks={projectTasks.filter((t) => !!t.groupId && t.kind === "standard")}
                 value={renders}
                 onChange={setRenders}
-                placeholder="Pick a group, sub-group or task…"
+                invalid={touched && !!errors.renders}
               />
             </Field>
-          </div>
+          </>
         ) : null}
 
         {asksCategory ? (

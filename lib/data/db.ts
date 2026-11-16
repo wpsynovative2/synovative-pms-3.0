@@ -511,8 +511,8 @@ function buildTasks(
       shortId: nullable(r.short_id),
       shortNumber: r.short_number === null || r.short_number === undefined ? null : num(r.short_number),
       frames: r.frames === null || r.frames === undefined ? null : num(r.frames),
-      renderGroupId: nullable(r.render_group_id),
-      renderTaskId: nullable(r.render_task_id),
+      renderGroupIds: (r.render_group_ids as string[] | null) ?? [],
+      renderTaskIds: (r.render_task_ids as string[] | null) ?? [],
       code: taskCode(
         {
           groupId: nullable(r.group_id),
@@ -1284,8 +1284,8 @@ export function taskRow(
     | "groupId"
     | "shortId"
     | "frames"
-    | "renderGroupId"
-    | "renderTaskId"
+    | "renderGroupIds"
+    | "renderTaskIds"
     | "threeDCategory"
     | "threeDSoftware"
     | "shotsBrief"
@@ -1320,8 +1320,8 @@ export function taskRow(
     // A cam's number is the database's too (0035).
     short_id: t.shortId ?? null,
     frames: t.frames ?? null,
-    render_group_id: t.renderGroupId ?? null,
-    render_task_id: t.renderTaskId ?? null,
+    render_group_ids: t.renderGroupIds ?? [],
+    render_task_ids: t.renderTaskIds ?? [],
     three_d_category: t.threeDCategory ?? null,
     three_d_software: t.threeDSoftware ?? null,
     shots_brief: t.shotsBrief ?? "",
@@ -1390,8 +1390,8 @@ export const TASK_COLUMNS: Record<string, string> = {
   groupId: "group_id",
   shortId: "short_id",
   frames: "frames",
-  renderGroupId: "render_group_id",
-  renderTaskId: "render_task_id",
+  renderGroupIds: "render_group_ids",
+  renderTaskIds: "render_task_ids",
   threeDCategory: "three_d_category",
   threeDSoftware: "three_d_software",
   shotsBrief: "shots_brief",

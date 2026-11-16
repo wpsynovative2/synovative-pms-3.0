@@ -32,8 +32,9 @@ import {
   camsOf,
   formatFrames,
   framesUsed,
-  renderTarget,
-  type RenderTarget,
+  camReadiness,
+  describeTargets,
+  type CamReadiness,
 } from "@/lib/shorts";
 import { useStore } from "@/lib/store";
 import type { Project, Short, Task, TaskGroup } from "@/lib/types";
@@ -85,7 +86,7 @@ export function ShortsTab({
   const [planOpen, setPlanOpen] = useState(false);
 
   const cams = tasks.filter((t) => !!t.shortId);
-  const readyCount = cams.filter((c) => renderTarget(c, groups, tasks)?.ready).length;
+  const readyCount = cams.filter((c) => camReadiness(c, groups, tasks).ready).length;
 
   const modals = (
     <>
@@ -288,8 +289,8 @@ function ShortStep({
 }) {
   const [open, setOpen] = useState(true);
   const cams = camsOf(short, tasks);
-  const targets = cams.map((c) => renderTarget(c, groups, tasks));
-  const ready = targets.filter((t) => t?.ready).length;
+  const targets = cams.map((c) => camReadiness(c, groups, tasks));
+  const ready = targets.filter((t) => t.ready).length;
   const state: DotState =
     cams.length > 0 && ready === cams.length ? "done" : ready > 0 ? "partial" : "idle";
   const given = framesUsed(cams);
@@ -406,14 +407,14 @@ function CamStep({
 }: {
   cam: Task;
   shortFrames: number;
-  target: RenderTarget | null;
+  target: CamReadiness;
   last: boolean;
   onOpen: () => void;
 }) {
   const { userById } = useStore();
   const assignee = userById(cam.assigneeId);
-  const ready = !!target?.ready;
-  const state: DotState = ready ? "done" : target && target.approved > 0 ? "partial" : "idle";
+  const ready = target.ready;
+  const state: DotState = ready ? "done" : target.approved > 0 ? "partial" : "idle";
 
   return (
     <li className="relative pb-2 pl-8 last:pb-0">
@@ -460,16 +461,14 @@ function CamStep({
           <span className="truncate text-[11px] text-ink-faint">
             {formatFrames(cam.frames ?? 0)}/{formatFrames(shortFrames)} frames
             {" · "}
-            {target
-              ? `Renders ${target.code} ${target.name}`
-              : "Renders nothing yet"}
+            Renders {describeTargets(target.targets)}
           </span>
         </span>
         {ready ? (
           <Badge className="border-st-approved/50 bg-st-approved/20 text-st-approved">
             <IconCheck size={11} /> Ready to render
           </Badge>
-        ) : target ? (
+        ) : target.targets.length ? (
           <span className="text-[11px] text-ink-faint">
             {target.approved}/{target.total} approved
           </span>

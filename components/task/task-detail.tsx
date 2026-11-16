@@ -39,7 +39,7 @@ import {
   isAssignee,
   visibleTasks,
 } from "@/lib/permissions";
-import { formatFrames, renderTarget } from "@/lib/shorts";
+import { camReadiness, formatFrames } from "@/lib/shorts";
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import { contentLabel, isTaskWaiting, taskLabel, type Client, type Review, type Submission } from "@/lib/types";
@@ -94,7 +94,7 @@ export function TaskDetailDrawer({
 
   // A cam of the project's Shorts (0035): its short, frames and what it renders.
   const camShort = task.shortId ? db.shorts.find((x) => x.id === task.shortId) : undefined;
-  const camTarget = camShort ? renderTarget(task, db.taskGroups, db.tasks) : null;
+  const camTarget = camShort ? camReadiness(task, db.taskGroups, db.tasks) : null;
 
   // The drawer can be deep-linked with ?task=<id>, so it re-checks scope itself
   // rather than trusting whichever list opened it (§4.2).
@@ -247,21 +247,16 @@ export function TaskDetailDrawer({
                   {formatFrames(task.frames ?? 0)}/{formatFrames(camShort.frames)}
                 </Fact>
                 <Fact label="Renders">
-                  {camTarget ? (
-                    <span className="flex flex-wrap items-center gap-1.5">
+                  {camTarget?.targets.length ? (
+                    camTarget.ready ? (
+                      <Badge className="border-st-approved/50 bg-st-approved/20 text-st-approved">
+                        Ready to render
+                      </Badge>
+                    ) : (
                       <span>
-                        {camTarget.code} {camTarget.name}
+                        {camTarget.approved}/{camTarget.total} tasks approved
                       </span>
-                      {camTarget.ready ? (
-                        <Badge className="border-st-approved/50 bg-st-approved/20 text-st-approved">
-                          Ready to render
-                        </Badge>
-                      ) : (
-                        <span className="text-ink-faint">
-                          {camTarget.approved}/{camTarget.total} approved
-                        </span>
-                      )}
-                    </span>
+                    )
                   ) : (
                     <span className="text-ink-faint italic">Nothing yet</span>
                   )}
@@ -361,8 +356,90 @@ export function TaskDetailDrawer({
             </div>
           ) : null}
 
+          {camTarget?.targets.length ? (
+            <Section
+              title="Renders"
+              hint={`${camTarget.approved}/${camTarget.total} approved`}
+            >
+              <div className="flex flex-col gap-3">
+                {camTarget.targets.map((target) => (
+                  <div key={target.id} className="rounded-xl border border-line">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line-soft bg-surface-2/60 px-3 py-2">
+                      <span className="text-[12px] font-semibold text-brand-ink">{target.code}</span>
+                      <span className="min-w-0 truncate text-[13px] font-medium text-ink">
+                        {target.name}
+                      </span>
+                      <span className="rounded-full border border-line px-1.5 py-px text-[10px] text-ink-muted capitalize">
+                        {target.kind}
+                      </span>
+                      <span
+                        className={cx(
+                          "ml-auto text-[11px]",
+                          target.ready ? "text-st-approved" : "text-ink-faint",
+                        )}
+                      >
+                        {target.approved}/{target.total} approved
+                      </span>
+                    </div>
+                    {target.taskIds.length ? (
+                      <ul className="divide-y divide-line-soft">
+                        {db.tasks
+                          .filter((t) => target.taskIds.includes(t.id))
+                          .sort((a, b) =>
+                            (a.code ?? "").localeCompare(b.code ?? "", undefined, { numeric: true }),
+                          )
+                          .map((t) => {
+                            const done = t.status === "Approved";
+                            const who = userById(t.assigneeId);
+                            return (
+                              <li
+                                key={t.id}
+                                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
+                              >
+                                <span
+                                  className={cx(
+                                    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[12px] font-semibold",
+                                    done
+                                      ? "border-st-approved bg-st-approved text-on-brand"
+                                      : "border-line bg-surface-3 text-ink-faint",
+                                  )}
+                                  title={done ? "Approved" : "Pending"}
+                                  aria-label={done ? "Approved" : "Pending"}
+                                >
+                                  {done ? <IconCheck size={11} /> : "–"}
+                                </span>
+                                <span className="shrink-0 text-[12px] font-medium text-ink-muted">
+                                  {t.code}
+                                </span>
+                                <span className="min-w-32 flex-1 truncate text-[13px] text-ink">
+                                  {t.title}
+                                </span>
+                                {who ? (
+                                  <span className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+                                    <Avatar name={who.fullName} size={18} />
+                                    {who.fullName}
+                                  </span>
+                                ) : (
+                                  <span className="text-[12px] text-ink-faint italic">Unassigned</span>
+                                )}
+                                <StatusBadge status={t.status} task={t} />
+                              </li>
+                            );
+                          })}
+                      </ul>
+                    ) : (
+                      <p className="px-3 py-2 text-[12px] text-ink-faint">No tasks in it yet.</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Section>
+          ) : null}
+
           {!isRichTextEmpty(task.description) ? (
-            <Section title={project?.is3d ? "Brief description" : "Description"}>
+            <Section
+              title={camShort ? "Description" : project?.is3d ? "Brief description" : "Description"}
+            >
               <RichText html={task.description} />
             </Section>
           ) : null}
