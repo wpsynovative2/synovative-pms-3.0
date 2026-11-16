@@ -401,7 +401,7 @@ export function TaskDetailDrawer({
                                     "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[12px] font-semibold",
                                     done
                                       ? "border-st-approved bg-st-approved text-on-brand"
-                                      : "border-line bg-surface-3 text-ink-faint",
+                                      : "border-st-rejected bg-st-rejected text-on-brand",
                                   )}
                                   title={done ? "Approved" : "Pending"}
                                   aria-label={done ? "Approved" : "Pending"}

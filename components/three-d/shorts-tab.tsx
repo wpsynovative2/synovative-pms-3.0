@@ -5,12 +5,20 @@ import { DueDate, OverdueBadge, StatusBadge } from "@/components/task/task-bits"
 import { TaskFormModal } from "@/components/task/task-form";
 import { ThreeDNotesView } from "@/components/three-d/notes";
 import { ShortFormModal } from "@/components/three-d/short-form";
+import {
+  ShortsFilters,
+  applyShortsFilters,
+  emptyShortsFilters,
+  isFilteringShorts,
+} from "@/components/three-d/shorts-filters";
 import { ThreeDThumbnailHover } from "@/components/three-d/thumbnail";
 import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconEdit,
+  IconEye,
+  IconEyeOff,
   IconPlay,
   IconPlus,
   IconTrash,
@@ -27,7 +35,7 @@ import {
   ProgressBar,
   cx,
 } from "@/components/ui/primitives";
-import { RichText } from "@/components/ui/rich-text";
+import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import {
   camsOf,
   formatFrames,
@@ -37,7 +45,7 @@ import {
   type CamReadiness,
 } from "@/lib/shorts";
 import { useStore } from "@/lib/store";
-import type { Project, Short, Task, TaskGroup } from "@/lib/types";
+import type { Project, Short, ShortFields, Task, TaskGroup } from "@/lib/types";
 
 /** Where a dot is: everything done, some of it, or nothing yet. */
 type DotState = "done" | "partial" | "idle";
@@ -83,10 +91,18 @@ export function ShortsTab({
   const [editingShort, setEditingShort] = useState<Short | "new" | null>(null);
   const [deleting, setDeleting] = useState<Short | null>(null);
   const [addingCamTo, setAddingCamTo] = useState<Short | null>(null);
-  const [planOpen, setPlanOpen] = useState(false);
+  const [planNotes, setPlanNotes] = useState(false);
+  const [filters, setFilters] = useState(emptyShortsFilters);
 
   const cams = tasks.filter((t) => !!t.shortId);
   const readyCount = cams.filter((c) => camReadiness(c, groups, tasks).ready).length;
+  // The filters narrow what is listed; every count still covers all the cams.
+  const filtering = isFilteringShorts(filters);
+  const shownCams = filtering ? applyShortsFilters(cams, filters, groups, tasks) : cams;
+  const shownCamIds = filtering ? new Set(shownCams.map((c) => c.id)) : undefined;
+  const shownShorts = filtering
+    ? shorts.filter((x) => shownCams.some((c) => c.shortId === x.id))
+    : shorts;
 
   const modals = (
     <>
@@ -161,34 +177,29 @@ export function ShortsTab({
 
   const given = framesUsed(shorts);
   const over = given > plan.frames;
-  const hasDetails =
-    !!plan.description || !!plan.clientSupeNotes || !!plan.leadNote || !!plan.generalNotes;
 
   return (
     <div className="flex flex-col gap-4">
+      {cams.length ? (
+        <ShortsFilters
+          value={filters}
+          onChange={setFilters}
+          cams={cams}
+          shorts={shorts}
+          groups={groups}
+          shown={shownCams.length}
+        />
+      ) : null}
+
       <Card>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setPlanOpen((v) => !v)}
-            aria-expanded={planOpen}
-            disabled={!hasDetails}
-            className="flex min-w-48 flex-1 items-center gap-2 text-left disabled:cursor-default"
-          >
-            {hasDetails ? (
-              planOpen ? (
-                <IconChevronDown size={15} className="shrink-0 text-ink-faint" />
-              ) : (
-                <IconChevronRight size={15} className="shrink-0 text-ink-faint" />
-              )
-            ) : (
-              <IconPlay size={15} className="shrink-0 text-brand-ink" />
-            )}
+          <span className="flex min-w-48 flex-1 items-center gap-2">
+            <IconPlay size={15} className="shrink-0 text-brand-ink" />
             <span className="truncate text-sm font-semibold text-ink">{plan.title}</span>
             <span className="shrink-0 text-[12px] text-ink-muted">
               {formatFrames(plan.frames)} frames
             </span>
-          </button>
+          </span>
 
           <span className="flex w-52 items-center gap-2" title="Frames given to shorts">
             <ProgressBar
@@ -208,6 +219,7 @@ export function ShortsTab({
             {readyCount}/{cams.length} cam{cams.length === 1 ? "" : "s"} ready
           </span>
 
+          <NotesButton of={plan} open={planNotes} onToggle={() => setPlanNotes((v) => !v)} />
           {mayManage ? (
             <>
               <IconButton label="Edit Shorts" onClick={() => setEditingPlan(true)}>
@@ -219,10 +231,9 @@ export function ShortsTab({
             </>
           ) : null}
         </div>
-        {planOpen && hasDetails ? (
-          <div className="flex flex-col gap-3 border-t border-line-soft px-5 py-3">
-            {plan.description ? <RichText html={plan.description} /> : null}
-            <ThreeDNotesView notes={plan} />
+        {planNotes ? (
+          <div className="border-t border-line-soft px-4 py-3">
+            <NotesPanel of={plan} />
           </div>
         ) : null}
       </Card>
@@ -239,15 +250,24 @@ export function ShortsTab({
             }
           />
         </Card>
+      ) : filtering && shownShorts.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<IconPlay size={30} />}
+            title="No cams match these filters"
+            action={<Button onClick={() => setFilters(emptyShortsFilters)}>Clear filters</Button>}
+          />
+        </Card>
       ) : (
         <Card className="px-4 py-5">
           <ol aria-label="Shorts">
-            {shorts.map((short, i) => (
+            {shownShorts.map((short, i) => (
               <ShortStep
                 key={short.id}
                 short={short}
                 planFrames={plan.frames}
-                last={i === shorts.length - 1}
+                last={i === shownShorts.length - 1}
+                shownCamIds={shownCamIds}
                 groups={groups}
                 tasks={tasks}
                 onOpenTask={onOpenTask}
@@ -270,6 +290,7 @@ function ShortStep({
   short,
   planFrames,
   last,
+  shownCamIds,
   groups,
   tasks,
   onOpenTask,
@@ -280,6 +301,8 @@ function ShortStep({
   short: Short;
   planFrames: number;
   last: boolean;
+  /** What the filters leave. Progress still counts every cam. */
+  shownCamIds?: Set<string>;
   groups: TaskGroup[];
   tasks: Task[];
   onOpenTask: (id: string) => void;
@@ -288,6 +311,7 @@ function ShortStep({
   onDelete?: () => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(false);
   const cams = camsOf(short, tasks);
   const targets = cams.map((c) => camReadiness(c, groups, tasks));
   const ready = targets.filter((t) => t.ready).length;
@@ -295,6 +319,9 @@ function ShortStep({
     cams.length > 0 && ready === cams.length ? "done" : ready > 0 ? "partial" : "idle";
   const given = framesUsed(cams);
   const over = given > short.frames;
+  const rows = cams
+    .map((cam, i) => ({ cam, target: targets[i] }))
+    .filter(({ cam }) => !shownCamIds || shownCamIds.has(cam.id));
 
   return (
     <li className="relative pb-6 pl-11 last:pb-0">
@@ -303,14 +330,14 @@ function ShortStep({
         <span
           aria-hidden
           className={cx(
-            "absolute top-8 bottom-0 left-[15px] w-0.5",
+            "absolute top-[38px] bottom-0 left-[15px] w-0.5",
             state === "done" ? "bg-st-approved" : "bg-line",
           )}
         />
       ) : null}
       <span
         className={cx(
-          "absolute top-0 left-0 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-semibold",
+          "absolute top-1.5 left-0 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border text-[11px] font-semibold",
           DOT_STYLE[state],
         )}
         aria-hidden
@@ -318,7 +345,7 @@ function ShortStep({
         {state === "done" ? <IconCheck size={14} /> : `SH${short.number}`}
       </span>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border-l-4 border-l-tint-violet bg-brand-dim/70 px-3 py-1.5">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -330,8 +357,13 @@ function ShortStep({
           ) : (
             <IconChevronRight size={14} className="shrink-0 text-ink-faint" />
           )}
-          <span className="shrink-0 text-sm font-semibold text-brand-ink">SH{short.number}</span>
-          <span className="truncate text-sm font-medium text-ink">{short.title}</span>
+          <span className="shrink-0 rounded-md bg-brand px-1.5 py-0.5 text-[12px] font-semibold text-on-brand">
+            SH{short.number}
+          </span>
+          <span className="shrink-0 text-[10px] font-semibold tracking-wide text-tint-violet uppercase">
+            Short
+          </span>
+          <span className="truncate text-sm font-semibold text-ink">{short.title}</span>
         </button>
         <span className="text-[12px] text-ink-muted">
           {formatFrames(short.frames)}/{formatFrames(planFrames)} frames
@@ -350,6 +382,7 @@ function ShortStep({
             <IconWarning size={11} /> Cams over by {formatFrames(given - short.frames)}
           </Badge>
         ) : null}
+        <NotesButton of={short} open={notesOpen} onToggle={() => setNotesOpen((v) => !v)} />
         {onEdit ? (
           <IconButton label={`Edit SH${short.number}`} onClick={onEdit}>
             <IconEdit size={14} />
@@ -362,22 +395,24 @@ function ShortStep({
         ) : null}
       </div>
 
+      {notesOpen && !open ? (
+        <div className="mt-2">
+          <NotesPanel of={short} />
+        </div>
+      ) : null}
       {open ? (
         <div className="mt-2 flex flex-col gap-3">
-          {short.description ? <RichText html={short.description} className="pl-6" /> : null}
-          <div className="pl-6 empty:hidden">
-            <ThreeDNotesView notes={short} />
-          </div>
+          {notesOpen ? <NotesPanel of={short} /> : null}
 
-          {cams.length ? (
+          {rows.length ? (
             <ol aria-label={`Cams of SH${short.number}`} className="flex flex-col">
-              {cams.map((cam, i) => (
+              {rows.map(({ cam, target }, i) => (
                 <CamStep
                   key={cam.id}
                   cam={cam}
                   shortFrames={short.frames}
-                  target={targets[i]}
-                  last={i === cams.length - 1}
+                  target={target}
+                  last={i === rows.length - 1}
                   onOpen={() => onOpenTask(cam.id)}
                 />
               ))}
@@ -444,10 +479,12 @@ function CamStep({
           "flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-left transition-colors",
           ready
             ? "border-st-approved/50 bg-st-approved/10 hover:bg-st-approved/15"
-            : "border-line-soft hover:bg-surface-2",
+            : "border-tint-blue/30 bg-tint-blue/6 hover:bg-tint-blue/12",
         )}
       >
-        <span className="w-14 shrink-0 text-[12px] font-medium text-ink-muted">{cam.code}</span>
+        <span className="shrink-0 rounded-md bg-tint-blue/15 px-1.5 py-0.5 text-[12px] font-semibold text-tint-blue">
+          {cam.code}
+        </span>
         {cam.thumbnailFileId ? (
           <ThreeDThumbnailHover
             key={cam.thumbnailFileId}
@@ -486,5 +523,49 @@ function CamStep({
         <DueDate task={cam} />
       </button>
     </li>
+  );
+}
+
+type WithNotes = Pick<ShortFields, "description" | "clientSupeNotes" | "leadNote" | "generalNotes">;
+
+/** How many of the description and three notes have something in them. */
+const filledNotes = (x: WithNotes) =>
+  [x.description, x.clientSupeNotes, x.leadNote, x.generalNotes].filter(
+    (v) => !isRichTextEmpty(v ?? ""),
+  ).length;
+
+/** Opens the description and notes, which stay out of the way until asked for. */
+function NotesButton({
+  of,
+  open,
+  onToggle,
+}: {
+  of: WithNotes;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const filled = filledNotes(of);
+  if (!filled) return null;
+  return (
+    <Button size="sm" onClick={onToggle} aria-expanded={open}>
+      {open ? <IconEyeOff size={13} /> : <IconEye size={13} />}
+      {open ? " Hide notes" : ` View notes (${filled})`}
+    </Button>
+  );
+}
+
+function NotesPanel({ of }: { of: WithNotes }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line-soft bg-surface-2/60 px-4 py-3">
+      {!isRichTextEmpty(of.description) ? (
+        <div>
+          <p className="text-[10px] font-medium tracking-wide text-ink-faint uppercase">
+            Description
+          </p>
+          <RichText html={of.description} className="mt-0.5" />
+        </div>
+      ) : null}
+      <ThreeDNotesView notes={of} />
+    </div>
   );
 }

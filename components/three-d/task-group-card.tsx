@@ -11,7 +11,7 @@ import {
   IconPlus,
   IconTrash,
 } from "@/components/ui/icons";
-import { Avatar, Badge, Button, Card, IconButton, ProgressBar } from "@/components/ui/primitives";
+import { Avatar, Badge, Button, Card, IconButton, ProgressBar, cx } from "@/components/ui/primitives";
 import { RichText } from "@/components/ui/rich-text";
 import { groupProgress, type GroupState } from "@/lib/analytics";
 import { formatShortDate } from "@/lib/calendar";
@@ -26,6 +26,39 @@ const STATE_STYLE: Record<GroupState, string> = {
 };
 
 const byNumber = (a: Task, b: Task) => (a.groupNumber ?? 0) - (b.groupNumber ?? 0);
+
+/*
+ * Each level has its own colour so they are told apart at a glance: a group is
+ * violet, a sub-group a light sky, and a task plain surface inside it.
+ */
+export const LEVEL_STYLE = {
+  group: {
+    card: "overflow-hidden border-l-4 border-l-tint-violet",
+    header: "bg-brand-dim/70",
+    chip: "bg-brand text-on-brand",
+    label: "text-tint-violet",
+  },
+  subGroup: {
+    panel: "border border-tint-blue/30 border-l-4 border-l-tint-blue bg-tint-blue/6",
+    chip: "bg-tint-blue/15 text-tint-blue",
+    label: "text-tint-blue",
+  },
+} as const;
+
+/** "T1 GROUP": the code in its level's colour, and what the level is. */
+export function LevelCode({ code, level }: { code: string; level: "group" | "subGroup" }) {
+  const style = LEVEL_STYLE[level];
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <span className={`rounded-md px-1.5 py-0.5 text-[12px] font-semibold ${style.chip}`}>
+        {code}
+      </span>
+      <span className={`text-[10px] font-semibold tracking-wide uppercase ${style.label}`}>
+        {level === "group" ? "Group" : "Sub-group"}
+      </span>
+    </span>
+  );
+}
 
 /**
  * One group of a 3D project, opening onto its sub-groups, each opening onto its
@@ -81,8 +114,13 @@ export function TaskGroupCard({
   const code = group ? `T${group.number}` : "";
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+    <Card className={group ? LEVEL_STYLE.group.card : undefined}>
+      <div
+        className={cx(
+          "flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3",
+          group && LEVEL_STYLE.group.header,
+        )}
+      >
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -94,10 +132,8 @@ export function TaskGroupCard({
           ) : (
             <IconChevronRight size={15} className="shrink-0 text-ink-faint" />
           )}
-          {group ? (
-            <span className="shrink-0 text-sm font-semibold text-brand-ink">{code}</span>
-          ) : null}
-          <span className="truncate text-sm font-medium text-ink">
+          {group ? <LevelCode code={code} level="group" /> : null}
+          <span className="truncate text-sm font-semibold text-ink">
             {group ? group.name : "Ungrouped"}
           </span>
           {group ? (
@@ -123,7 +159,7 @@ export function TaskGroupCard({
       </div>
 
       {open ? (
-        <div className="flex flex-col gap-2 border-t border-line-soft px-3 py-2.5">
+        <div className="flex flex-col gap-2.5 border-t border-line-soft px-3 py-3">
           {group ? (
             <>
               <div className="px-2 pb-1 empty:hidden">
@@ -202,7 +238,7 @@ function SubGroupSection({
   const rows = shownTaskIds ? tasks.filter((t) => shownTaskIds.has(t.id)) : tasks;
 
   return (
-    <div className="rounded-lg border border-line-soft bg-surface-2/40">
+    <div className={cx("rounded-lg", LEVEL_STYLE.subGroup.panel)}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
         <button
           type="button"
@@ -215,7 +251,7 @@ function SubGroupSection({
           ) : (
             <IconChevronRight size={14} className="shrink-0 text-ink-faint" />
           )}
-          <span className="shrink-0 text-[13px] font-semibold text-brand-ink">{code}</span>
+          <LevelCode code={code} level="subGroup" />
           <span className="truncate text-[13px] font-medium text-ink">{subGroup.name}</span>
         </button>
 
@@ -235,14 +271,19 @@ function SubGroupSection({
       </div>
 
       {open ? (
-        <div className="flex flex-col gap-1 border-t border-line-soft px-2 py-2">
+        <div className="flex flex-col gap-1 border-t border-tint-blue/20 px-2 py-2">
           {subGroup.description ? (
             <RichText html={subGroup.description} className="px-2" />
           ) : null}
           <div className="px-2 pb-1 empty:hidden">
             <ThreeDNotesView notes={subGroup} />
           </div>
-          <TaskRows tasks={rows} allTasks={allTasks} onOpenTask={onOpenTask} />
+          {rows.length ? (
+            // Tasks sit on plain surface, so they stand out from the sky behind.
+            <div className="flex flex-col rounded-md border border-line-soft bg-surface">
+              <TaskRows tasks={rows} allTasks={allTasks} onOpenTask={onOpenTask} />
+            </div>
+          ) : null}
           {tasks.length === 0 ? (
             <p className="px-2 py-2 text-[12px] text-ink-faint">
               No tasks in this sub-group yet.
