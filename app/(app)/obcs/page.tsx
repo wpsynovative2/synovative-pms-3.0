@@ -34,6 +34,7 @@ import {
   SearchInput,
   Select,
   StatTile,
+  Switch,
   Tabs,
   Textarea,
   cx,
@@ -47,6 +48,10 @@ import {
   OBC_STATUS_STYLE,
   PRIORITIES,
   PROJECT_COLORS,
+  THREE_D_CATEGORIES,
+  THREE_D_DEPARTMENT,
+  THREE_D_SERVICE,
+  THREE_D_SOFTWARE,
   WORKDAY_HOURS,
 } from "@/lib/master-data";
 import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
@@ -60,6 +65,8 @@ import type {
   ObcStatus,
   Priority,
   TaskKind,
+  ThreeDCategory,
+  ThreeDSoftware,
 } from "@/lib/types";
 
 /**
@@ -760,6 +767,9 @@ interface TaskDraft {
   contentCount: number;
   /** Content tasks only: the CB type of each piece, by slot (0015). */
   contentTypes: ContentType[];
+  /** A 3D project's tasks only, and then required (0024). */
+  threeDCategory: ThreeDCategory | "";
+  threeDSoftware: ThreeDSoftware | "";
 }
 
 /**
@@ -833,6 +843,21 @@ function ConvertModal({
   const [touched, setTouched] = useState(false);
   const [tab, setTab] = useState<ConvertTab>("project");
 
+  /*
+   * A 3D project (0022), as in the project form: on by itself when the order sells
+   * the 3D walkthrough, and switchable either way. Its tasks are the 3D Artists'
+   * standard tasks with a category and software (0023, 0024), and they arrive
+   * ungrouped, to be filed into sub-groups on its 3D page.
+   */
+  const [threeDChoice, setThreeDChoice] = useState<boolean | null>(null);
+  const is3d = threeDChoice ?? services.includes(THREE_D_SERVICE);
+  const threeDArtists = db.users.filter(
+    (u) => u.active && u.departments.includes(THREE_D_DEPARTMENT),
+  );
+  /** The rows that will be created: a 3D project takes no content tasks. */
+  const rowsKept = is3d ? drafts.filter((d) => d.kind === "standard") : drafts;
+  const contentLeftOut = drafts.length - rowsKept.length;
+
   const included = picked.filter((x) => chosen.includes(x.id));
 
   /**
@@ -886,6 +911,8 @@ function ConvertModal({
           kind: item.kind,
           contentCount: item.kind === "content" ? item.contentCount : 0,
           contentTypes: item.kind === "content" ? item.contentTypes : [],
+          threeDCategory: "",
+          threeDSoftware: "",
         };
       }),
     );
@@ -929,12 +956,16 @@ function ConvertModal({
         // it is expected to set the count that was actually sold.
         contentCount: kind === "content" ? 1 : 0,
         contentTypes: [],
+        threeDCategory: "",
+        threeDSoftware: "",
       },
     ]);
 
-  const badDraft = drafts.some(
-    (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
-  );
+  const badDraft = is3d
+    ? rowsKept.some((d) => !d.title.trim() || !d.threeDCategory || !d.threeDSoftware)
+    : drafts.some(
+        (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+      );
   const valid =
     name.trim() &&
     startDate &&
@@ -972,15 +1003,25 @@ function ConvertModal({
         companyId: obc.companyId,
         clientId: obc.clientId,
         propertyId: obc.propertyId,
+        is3d,
       },
       included.map((i) => i.id),
-      drafts.map((d) => {
+      rowsKept.map((d) => {
         const from = clamp(d.startDate);
+        // A 3D task is the 3D Artists' (0024); anyone else picked stays off it.
+        const assigneeId =
+          is3d && !threeDArtists.some((u) => u.id === d.assigneeId) ? null : d.assigneeId || null;
         return {
           title: d.title.trim(),
           description: d.description,
-          department: d.department,
-          assigneeId: d.assigneeId || null,
+          department: is3d ? THREE_D_DEPARTMENT : d.department,
+          assigneeId,
+          ...(is3d
+            ? {
+                threeDCategory: d.threeDCategory || null,
+                threeDSoftware: d.threeDSoftware || null,
+              }
+            : {}),
           priority: d.priority,
           startDate: from,
           dueDate: clamp(d.dueDate < from ? from : d.dueDate),
@@ -1017,9 +1058,11 @@ function ConvertModal({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" onClick={submit}>
-            {drafts.length
-              ? `Create project + ${drafts.length} ${drafts.length === 1 ? "task" : "tasks"}`
-              : "Create project"}
+            {rowsKept.length
+              ? `Create ${is3d ? "3D project" : "project"} + ${rowsKept.length} ${rowsKept.length === 1 ? "task" : "tasks"}`
+              : is3d
+                ? "Create 3D project"
+                : "Create project"}
           </Button>
         </>
       }
@@ -1032,7 +1075,7 @@ function ConvertModal({
             onChange={setTab}
             tabs={[
               { id: "project", label: "Project" },
-              { id: "tasks", label: "Tasks", count: drafts.length },
+              { id: "tasks", label: "Tasks", count: rowsKept.length },
             ]}
           />
 
@@ -1137,6 +1180,20 @@ function ConvertModal({
             />
           </Field>
 
+          <div className="flex flex-col gap-1.5">
+            <Switch
+              on={is3d}
+              onChange={setThreeDChoice}
+              label="3D project"
+              className="self-start"
+            />
+            <p className="text-[11px] leading-relaxed text-ink-faint">
+              Shows in the 3D module, where its tasks are laid out in groups and sub-groups,
+              with Shorts beside them. Already on when the order sells the 3D walkthrough.
+              Its tasks belong to 3D Artists, and it takes no content tasks.
+            </p>
+          </div>
+
           <Field
             label="Project note"
             hint="Anything true of the whole project rather than of one service."
@@ -1187,15 +1244,28 @@ function ConvertModal({
 
           <Field
             label="Tasks"
-            hint="Optional — lay out the first tasks now, or later from the project itself."
+            hint={
+              is3d
+                ? "Optional. They arrive ungrouped, to be filed into sub-groups on the project's 3D page."
+                : "Optional — lay out the first tasks now, or later from the project itself."
+            }
             error={
               touched && badDraft
-                ? "Every task needs a title and a department, and a content task at least one piece."
+                ? is3d
+                  ? "Every task needs a title, a task category and a software."
+                  : "Every task needs a title and a department, and a content task at least one piece."
                 : undefined
             }
           >
             <div className="flex flex-col gap-2.5">
-              {drafts.map((d, i) => (
+              {contentLeftOut ? (
+                <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] text-ink-faint">
+                  {contentLeftOut} content task{contentLeftOut === 1 ? "" : "s"} from the template{" "}
+                  {contentLeftOut === 1 ? "is" : "are"} left out: a 3D project takes standard tasks
+                  only.
+                </p>
+              ) : null}
+              {rowsKept.map((d, i) => (
                 <div key={d.key} className="rounded-xl border border-line bg-surface-2 p-3">
                   <div className="mb-2.5 flex items-center gap-2">
                     <span className="text-[11px] font-medium text-ink-faint">
@@ -1213,7 +1283,7 @@ function ConvertModal({
                   </div>
 
                   <div className="flex flex-col gap-2.5">
-                    <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div className={is3d ? "hidden" : "grid gap-2.5 sm:grid-cols-2"}>
                       <Select
                         value={d.kind}
                         onChange={(e) => {
@@ -1280,7 +1350,58 @@ function ConvertModal({
                       placeholder="Brief, references, deliverable format…"
                     />
 
-                    <div className="grid gap-2.5 sm:grid-cols-2">
+                    {is3d ? (
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        <Select
+                          value={d.threeDCategory}
+                          onChange={(e) =>
+                            setDraft(d.key, {
+                              threeDCategory: e.target.value as ThreeDCategory | "",
+                            })
+                          }
+                          aria-label={`Category of task ${i + 1}`}
+                        >
+                          <option value="">Task category…</option>
+                          {THREE_D_CATEGORIES.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </Select>
+                        <Select
+                          value={d.threeDSoftware}
+                          onChange={(e) =>
+                            setDraft(d.key, {
+                              threeDSoftware: e.target.value as ThreeDSoftware | "",
+                            })
+                          }
+                          aria-label={`Software of task ${i + 1}`}
+                        >
+                          <option value="">Software…</option>
+                          {THREE_D_SOFTWARE.map((x) => (
+                            <option key={x} value={x}>
+                              {x}
+                            </option>
+                          ))}
+                        </Select>
+                        <div className="sm:col-span-2">
+                          <SearchSelect
+                            options={threeDArtists.map((u) => ({
+                              value: u.id,
+                              label: u.fullName,
+                              avatarName: u.fullName,
+                            }))}
+                            value={
+                              threeDArtists.some((u) => u.id === d.assigneeId) ? d.assigneeId : ""
+                            }
+                            onChange={(v) => setDraft(d.key, { assigneeId: v })}
+                            placeholder="Nobody yet (3D Artists)"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className={is3d ? "hidden" : "grid gap-2.5 sm:grid-cols-2"}>
                       <SearchSelect
                         options={db.departments.map((x) => ({ value: x, label: x }))}
                         value={d.department}
@@ -1351,9 +1472,11 @@ function ConvertModal({
                 <Button onClick={() => addDraft()}>
                   <IconPlus size={14} /> Add task
                 </Button>
-                <Button onClick={() => addDraft("", "content")}>
-                  <IconPlus size={14} /> Add content task
-                </Button>
+                {is3d ? null : (
+                  <Button onClick={() => addDraft("", "content")}>
+                    <IconPlus size={14} /> Add content task
+                  </Button>
+                )}
               </div>
             </div>
           </Field>

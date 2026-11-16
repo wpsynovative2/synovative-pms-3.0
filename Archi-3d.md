@@ -609,6 +609,7 @@ it has run.
 | 21 | How are a project's shorts laid out? | **A Shorts tab** (`0035`, section 10): Shorts → SH1 → Cam1.1. A cam is a task, ready to render once the group, sub-group or task it renders is approved |
 | 22 | What happens to the Cam shots category? | **It is no longer offered.** Every cam carries it instead; older tasks keep theirs until edited |
 | 23 | Can a cam render more than one thing? | **Yes**, any mix of groups, sub-groups and tasks (`0036`). Ready once every task they cover is approved |
+| 24 | Can a 3D project be raised from an OBC? | **Yes.** Converting an OBC has the same *3D project* switch as the project form, on by itself when the order sells the 3D walkthrough. Its opening tasks are 3D Artists' standard tasks with a category and software, arriving ungrouped; content tasks from a template are left out |
 
 ---
 
