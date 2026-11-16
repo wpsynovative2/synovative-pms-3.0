@@ -96,6 +96,8 @@ export const EMPTY_DB: Database = {
   projects: [],
   tasks: [],
   taskGroups: [],
+  shortsPlans: [],
+  shorts: [],
   expenses: [],
   vendors: [],
   projectTemplates: [],
@@ -354,10 +356,57 @@ async function fetchTaskRows(sb: SupabaseClient, ids: string[] | null): Promise<
 const fetchTaskGroupRows = (sb: SupabaseClient) =>
   fetchAll(sb, "task_groups", "project_id", "number").catch(() => [] as Row[]);
 
-async function loadTasks(sb: SupabaseClient): Promise<{ tasks: Task[]; taskGroups: TaskGroup[] }> {
-  const [taskRows, groupRows] = await Promise.all([fetchTaskRows(sb, null), fetchTaskGroupRows(sb)]);
-  const taskGroups = buildTaskGroups(groupRows);
-  return { tasks: buildTasks(taskRows, taskGroups), taskGroups };
+/** As above (0035): tasks still load without their shorts. */
+const fetchShortsRows = (sb: SupabaseClient) =>
+  Promise.all([
+    fetchAll(sb, "shorts_plans", "project_id", "project_id").catch(() => [] as Row[]),
+    fetchAll(sb, "shorts", "project_id", "number").catch(() => [] as Row[]),
+  ]);
+
+/** What the tasks scope loads: the tasks, and the 3D groups and shorts that number them. */
+type TaskScope = Pick<Database, "tasks" | "taskGroups" | "shortsPlans" | "shorts">;
+type Containers = Omit<TaskScope, "tasks">;
+
+async function fetchContainers(sb: SupabaseClient): Promise<Containers> {
+  const [groupRows, [planRows, shortRows]] = await Promise.all([
+    fetchTaskGroupRows(sb),
+    fetchShortsRows(sb),
+  ]);
+  return {
+    taskGroups: buildTaskGroups(groupRows),
+    shortsPlans: planRows.map((r) => ({
+      projectId: str(r.project_id),
+      ...shortFields(r),
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    })),
+    shorts: shortRows.map((r) => ({
+      id: str(r.id),
+      projectId: str(r.project_id),
+      number: num(r.number),
+      ...shortFields(r),
+      createdBy: str(r.created_by),
+      createdAt: str(r.created_at),
+    })),
+  };
+}
+
+const shortFields = (r: Row) => ({
+  title: str(r.title),
+  frames: num(r.frames),
+  description: str(r.description),
+  clientSupeNotes: str(r.client_supe_notes),
+  leadNote: str(r.lead_note),
+  generalNotes: str(r.general_notes),
+});
+
+/** "T1" / "T1.2" for each group and "Cam1" for each short: what a task's number follows. */
+const containerCodes = (c: Containers) =>
+  new Map([...groupCodes(c.taskGroups), ...c.shorts.map((x) => [x.id, `Cam${x.number}`] as const)]);
+
+async function loadTasks(sb: SupabaseClient): Promise<TaskScope> {
+  const [taskRows, containers] = await Promise.all([fetchTaskRows(sb, null), fetchContainers(sb)]);
+  return { tasks: buildTasks(taskRows, containers), ...containers };
 }
 
 function buildTaskGroups(groupRows: Row[]): TaskGroup[] {
@@ -376,21 +425,24 @@ function buildTaskGroups(groupRows: Row[]): TaskGroup[] {
   }));
 }
 
-/** "T1.2.3" for a task filed in a 3D sub-group, from the groups as they stand. */
+/**
+ * "T1.2.3" for a task filed in a 3D sub-group, or "Cam1.2" for a cam, from the
+ * groups and shorts as they stand.
+ */
 function taskCode(
-  groupId: string | null | undefined,
-  groupNumber: number | null | undefined,
+  t: Pick<Task, "groupId" | "groupNumber" | "shortId" | "shortNumber">,
   codes: Map<string, string>,
 ): string | undefined {
-  const group = groupId ? codes.get(groupId) : undefined;
-  return group ? taskCodeIn(group, num(groupNumber)) : undefined;
+  const parent = t.groupId ?? t.shortId;
+  const prefix = parent ? codes.get(parent) : undefined;
+  return prefix ? taskCodeIn(prefix, num(t.groupId ? t.groupNumber : t.shortNumber)) : undefined;
 }
 
 function buildTasks(
   { rows, sessions, submissions, reviews, remarks, assignments, linkRows }: TaskRows,
-  taskGroups: TaskGroup[],
+  containers: Containers,
 ): Task[] {
-  const codes = groupCodes(taskGroups);
+  const codes = containerCodes(containers);
   const links = groupBy<string>(linkRows, "task_id", (r) => str(r.depends_on_task_id));
 
   const ses = groupBy<TimeSession>(sessions, "task_id", (r) => ({
@@ -456,7 +508,20 @@ function buildTasks(
       dependsOnTaskIds: links.get(id) ?? [],
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
-      code: taskCode(nullable(r.group_id), r.group_number as number | null, codes),
+      shortId: nullable(r.short_id),
+      shortNumber: r.short_number === null || r.short_number === undefined ? null : num(r.short_number),
+      frames: r.frames === null || r.frames === undefined ? null : num(r.frames),
+      renderGroupId: nullable(r.render_group_id),
+      renderTaskId: nullable(r.render_task_id),
+      code: taskCode(
+        {
+          groupId: nullable(r.group_id),
+          groupNumber: r.group_number as number | null,
+          shortId: nullable(r.short_id),
+          shortNumber: r.short_number as number | null,
+        },
+        codes,
+      ),
       threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
       threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
       shotsBrief: str(r.shots_brief),
@@ -522,7 +587,7 @@ async function fetchTaskVersions(sb: SupabaseClient): Promise<Record<string, str
 async function loadTasksSynced(
   sb: SupabaseClient,
   current?: Database,
-): Promise<{ tasks: Task[]; taskGroups: TaskGroup[] }> {
+): Promise<TaskScope> {
   if (taskSyncMissing) return loadTasks(sb);
   // Versions before rows: a change landing between the two reads then shows as
   // a stale version next time, rather than being taken as already held.
@@ -550,13 +615,12 @@ async function loadTasksSynced(
     return !synced || synced.version !== versions[id] || onScreen.get(id) !== synced.task;
   });
 
-  const [groupRows, fresh] = await Promise.all([
-    fetchTaskGroupRows(sb),
+  const [containers, fresh] = await Promise.all([
+    fetchContainers(sb),
     stale.length ? fetchTaskRows(sb, stale) : null,
   ]);
-  const taskGroups = buildTaskGroups(groupRows);
-  const codes = groupCodes(taskGroups);
-  const fetched = new Map((fresh ? buildTasks(fresh, taskGroups) : []).map((t) => [t.id, t]));
+  const codes = containerCodes(containers);
+  const fetched = new Map((fresh ? buildTasks(fresh, containers) : []).map((t) => [t.id, t]));
   const staleIds = new Set(stale);
 
   const next = new Map<string, SyncedTask>();
@@ -565,7 +629,7 @@ async function loadTasksSynced(
     // Deleted between the two reads.
     if (!task) continue;
     // A renumbered group renames its tasks without the tasks themselves changing.
-    const code = taskCode(task.groupId, task.groupNumber, codes);
+    const code = taskCode(task, codes);
     if (code !== task.code) task = { ...task, code };
     next.set(id, { task, version });
   }
@@ -575,7 +639,7 @@ async function loadTasksSynced(
   const tasks = [...next.values()]
     .map((x) => x.task)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-  return { tasks, taskGroups };
+  return { tasks, ...containers };
 }
 
 async function loadExpenses(sb: SupabaseClient): Promise<Partial<Database>> {
@@ -1218,6 +1282,10 @@ export function taskRow(
     | "contentTypes"
     | "dependsOnTaskIds"
     | "groupId"
+    | "shortId"
+    | "frames"
+    | "renderGroupId"
+    | "renderTaskId"
     | "threeDCategory"
     | "threeDSoftware"
     | "shotsBrief"
@@ -1249,6 +1317,11 @@ export function taskRow(
     // Its links go in task_dependencies once the row exists; the database
     // gives a grouped task its number (0021, 0022).
     group_id: t.groupId ?? null,
+    // A cam's number is the database's too (0035).
+    short_id: t.shortId ?? null,
+    frames: t.frames ?? null,
+    render_group_id: t.renderGroupId ?? null,
+    render_task_id: t.renderTaskId ?? null,
     three_d_category: t.threeDCategory ?? null,
     three_d_software: t.threeDSoftware ?? null,
     shots_brief: t.shotsBrief ?? "",
@@ -1315,6 +1388,10 @@ export const TASK_COLUMNS: Record<string, string> = {
   contentCount: "content_count",
   contentTypes: "content_types",
   groupId: "group_id",
+  shortId: "short_id",
+  frames: "frames",
+  renderGroupId: "render_group_id",
+  renderTaskId: "render_task_id",
   threeDCategory: "three_d_category",
   threeDSoftware: "three_d_software",
   shotsBrief: "shots_brief",

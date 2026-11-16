@@ -69,7 +69,7 @@ export function TaskGroupCard({
     () =>
       group
         ? allTasks.filter((t) => !!t.groupId && subIds.has(t.groupId))
-        : allTasks.filter((t) => !t.groupId),
+        : allTasks.filter((t) => !t.groupId && !t.shortId),
     [allTasks, group, subIds],
   );
   const filtering = !!shownTaskIds;

@@ -12,9 +12,9 @@ import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
 import { IconWarning } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
-import { Button, Field, Input, Select, Switch, Textarea, cx } from "@/components/ui/primitives";
+import { Button, Field, Input, Select, Switch, cx } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
-import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
+import { RichTextEditor } from "@/components/ui/rich-text";
 import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import { renameThumbnail } from "@/lib/thumbnail";
@@ -92,6 +92,7 @@ export function TaskFormModal({
   mode,
   defaultDepartment,
   defaultGroupId,
+  defaultShortId,
   defaultTitle,
   defaultDescription,
   onCreated,
@@ -107,6 +108,8 @@ export function TaskFormModal({
   defaultDepartment?: string;
   /** The sub-group a new task goes in, when added from one in a 3D project. */
   defaultGroupId?: string;
+  /** The short a new cam goes in, when added from the Shorts tab (0035). */
+  defaultShortId?: string;
   /** Seeds a new task, e.g. from the OBC line it delivers. */
   defaultTitle?: string;
   /** Rich text, seeded the same way — the brief that was sold. */
@@ -144,6 +147,23 @@ export function TaskFormModal({
     [is3d, groups, project],
   );
   const codes = useMemo(() => groupCodes(groups), [groups]);
+  /*
+   * A cam is a task in a short of the project's Shorts (0035): it asks for its
+   * frames and what it renders, and nothing about groups, category or software.
+   * Once in a short it stays there.
+   */
+  const short = is3d
+    ? db.shorts.find((x) => x.id === (task?.shortId ?? defaultShortId))
+    : undefined;
+  const isCam = !!short;
+  const [frames, setFrames] = useState(task?.frames ? String(task.frames) : "");
+  const [renders, setRenders] = useState(
+    task?.renderTaskId
+      ? `t:${task.renderTaskId}`
+      : task?.renderGroupId
+        ? `g:${task.renderGroupId}`
+        : "",
+  );
   const [groupId, setGroupId] = useState(task?.groupId ?? defaultGroupId ?? "");
   const defaultWaitsOn = (group: string, among: Task[]) =>
     is3d ? chainPredecessor(among, groups, group) : chainTail(among);
@@ -185,7 +205,11 @@ export function TaskFormModal({
     companyId: task?.companyId ?? "",
     propertyId: task?.propertyId ?? "",
     clientIds: task?.clientIds ?? [],
-    threeDCategory: task?.threeDCategory ?? "",
+    // Cam shots is no longer offered (0035), so an older task picks again.
+    threeDCategory:
+      task?.threeDCategory === CAM_SHOTS_CATEGORY && !task.shortId
+        ? ""
+        : (task?.threeDCategory ?? ""),
     threeDSoftware: task?.threeDSoftware ?? "",
     shotsBrief: task?.shotsBrief ?? "",
     cameraAngles: task?.cameraAngles ?? "",
@@ -229,7 +253,8 @@ export function TaskFormModal({
   const mayBeContentTask = mode === "project" && (!is3d || task?.kind === "content");
   const isContent = mayBeContentTask && kind === "content";
   const asks3dDetails = is3d && !isContent;
-  const isCamShots = asks3dDetails && form.threeDCategory === CAM_SHOTS_CATEGORY;
+  // A cam is always Cam shots, and needs no software.
+  const asksCategory = asks3dDetails && !isCam;
   const pieces = Number(contentCount);
   const pieceCount = isContent && Number.isFinite(pieces) ? Math.max(Math.trunc(pieces), 0) : 0;
   const [repeat, setRepeat] = useState<RecurrenceRule | null>(task?.recurrence?.rule ?? null);
@@ -339,7 +364,7 @@ export function TaskFormModal({
    * dates are worked out, not picked - the database recomputes them the same way
    * (0014, 0021). Only a 3D project's form offers more than one.
    */
-  const mayDepend = mode === "project" && !!project && !isContent;
+  const mayDepend = mode === "project" && !!project && !isContent && !isCam;
   const dependent = mayDepend && dependsOn;
   const candidates = useMemo(
     () => dependencyCandidates(task?.id ?? null, projectTasks),
@@ -394,15 +419,17 @@ export function TaskFormModal({
   });
 
   const hours = Number(form.estimatedHours);
+  const framesValue = Number(frames);
   const errors = {
     title: !form.title.trim() ? "A title is required." : undefined,
     threeDCategory:
-      asks3dDetails && !form.threeDCategory ? "Pick the task category." : undefined,
-    threeDSoftware: asks3dDetails && !form.threeDSoftware ? "Pick the software." : undefined,
-    shotsBrief:
-      isCamShots && isRichTextEmpty(form.shotsBrief) ? "Write the shots brief." : undefined,
-    cameraAngles:
-      isCamShots && !form.cameraAngles.trim() ? "List the camera angles." : undefined,
+      asksCategory && !form.threeDCategory ? "Pick the task category." : undefined,
+    threeDSoftware: asksCategory && !form.threeDSoftware ? "Pick the software." : undefined,
+    frames:
+      isCam && !(Number.isInteger(framesValue) && framesValue > 0)
+        ? "Enter the number of frames, a whole number above 0."
+        : undefined,
+    renders: isCam && !renders ? "Pick the group, sub-group or task it renders." : undefined,
     estimatedHours:
       !form.estimatedHours || Number.isNaN(hours) || hours <= 0
         ? "Enter the estimated hours."
@@ -450,6 +477,43 @@ export function TaskFormModal({
     }));
   };
 
+  /** Every group, sub-group and filed task, in number order, for a cam to render. */
+  const renderOptions = isCam
+    ? tree.flatMap(({ group, subGroups }) => [
+        {
+          value: `g:${group.id}`,
+          label: `T${group.number} ${group.name}`,
+          hint: "Group: ready once every task in it is approved",
+        },
+        ...subGroups.flatMap((s) => [
+          {
+            value: `g:${s.id}`,
+            label: `T${group.number}.${s.number} ${s.name}`,
+            hint: "Sub-group",
+          },
+          ...projectTasks
+            .filter((t) => t.groupId === s.id)
+            .sort((a, b) => (a.groupNumber ?? 0) - (b.groupNumber ?? 0))
+            .map((t) => ({
+              value: `t:${t.id}`,
+              label: taskLabel(t),
+              hint: `Task · ${t.status}`,
+            })),
+        ]),
+      ])
+    : [];
+  const camFramesHint = short
+    ? (() => {
+        const others = projectTasks
+          .filter((t) => t.shortId === short.id && t.id !== task?.id)
+          .reduce((sum, t) => sum + (t.frames ?? 0), 0);
+        const free = short.frames - others;
+        return free >= 0
+          ? `Of SH${short.number}'s ${short.frames}; ${free} not yet given to a cam.`
+          : `SH${short.number}'s ${short.frames} are already over-given by ${-free}.`;
+      })()
+    : undefined;
+
   const save = () => {
     setTouched(true);
     if (!valid || thumbnailBusy) return;
@@ -472,15 +536,21 @@ export function TaskFormModal({
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
       dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
       durationDays: dependent ? days : null,
-      // Content tasks stay outside the groups, and so does anything not in 3D.
-      groupId: is3d && !isContent && groupId ? groupId : null,
+      // Content tasks stay outside the groups, and so does anything not in 3D, and
+      // a cam, which is in a short instead.
+      groupId: is3d && !isContent && !isCam && groupId ? groupId : null,
+      ...(isCam
+        ? {
+            shortId: short.id,
+            frames: framesValue,
+            renderGroupId: renders.startsWith("g:") ? renders.slice(2) : null,
+            renderTaskId: renders.startsWith("t:") ? renders.slice(2) : null,
+          }
+        : {}),
       ...(asks3dDetails
         ? {
-            threeDCategory: form.threeDCategory || null,
-            threeDSoftware: form.threeDSoftware || null,
-            // Left behind if the category changes, so a Modeling task carries none.
-            shotsBrief: isCamShots ? form.shotsBrief : "",
-            cameraAngles: isCamShots ? form.cameraAngles.trim() : "",
+            threeDCategory: isCam ? CAM_SHOTS_CATEGORY : form.threeDCategory || null,
+            threeDSoftware: isCam ? null : form.threeDSoftware || null,
             thumbnailFileId: form.thumbnailFileId || null,
             thumbnailUrl: form.thumbnailUrl || null,
             thumbnailName,
@@ -528,7 +598,11 @@ export function TaskFormModal({
       open={open}
       onClose={onClose}
       title={
-        recurring
+        isCam
+          ? task
+            ? `Edit ${task.code ?? "cam"}`
+            : `Add cam to SH${short.number}`
+          : recurring
           ? task
             ? "Edit repeating task"
             : "New repeating task"
@@ -551,13 +625,13 @@ export function TaskFormModal({
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" disabled={thumbnailBusy} onClick={save}>
-            {task ? "Save changes" : "Create task"}
+            {task ? "Save changes" : isCam ? "Add cam" : "Create task"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        {!task && db.taskTemplates.length ? (
+        {!task && !isCam && db.taskTemplates.length ? (
           <Field label="Start from a task template" hint="Optional — pre-fills the form.">
             <SearchSelect
               options={db.taskTemplates.map((t) => ({
@@ -632,7 +706,7 @@ export function TaskFormModal({
         ) : null}
 
         <Field
-          label="Task title"
+          label={isCam ? "Title" : "Task title"}
           required
           error={touched ? errors.title : undefined}
           htmlFor="task-title"
@@ -645,7 +719,7 @@ export function TaskFormModal({
           />
         </Field>
 
-        <Field label={is3d ? "Brief description" : "Description"}>
+        <Field label={isCam ? "Description" : is3d ? "Brief description" : "Description"}>
           <RichTextEditor
             value={form.description}
             onChange={(v) => set("description", v)}
@@ -653,7 +727,41 @@ export function TaskFormModal({
           />
         </Field>
 
-        {asks3dDetails ? (
+        {isCam ? (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field
+              label="Number of frames"
+              required
+              hint={camFramesHint}
+              error={touched ? errors.frames : undefined}
+            >
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={frames}
+                onChange={(e) => setFrames(e.target.value)}
+                placeholder="e.g. 120"
+              />
+            </Field>
+            <Field
+              label="Renders"
+              required
+              className="sm:col-span-2"
+              hint="Ready to render once this is approved: the task, or every task in the group or sub-group."
+              error={touched ? errors.renders : undefined}
+            >
+              <SearchSelect
+                options={renderOptions}
+                value={renders}
+                onChange={setRenders}
+                placeholder="Pick a group, sub-group or task…"
+              />
+            </Field>
+          </div>
+        ) : null}
+
+        {asksCategory ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Task category"
@@ -690,32 +798,6 @@ export function TaskFormModal({
               </Select>
             </Field>
           </div>
-        ) : null}
-
-        {isCamShots ? (
-          <>
-            <Field label="Shots brief" required error={touched ? errors.shotsBrief : undefined}>
-              <RichTextEditor
-                value={form.shotsBrief}
-                onChange={(v) => set("shotsBrief", v)}
-                placeholder="What each shot should show, and how long it runs…"
-              />
-            </Field>
-            <Field
-              label="Camera angles"
-              required
-              htmlFor="task-camera-angles"
-              error={touched ? errors.cameraAngles : undefined}
-            >
-              <Textarea
-                id="task-camera-angles"
-                rows={3}
-                value={form.cameraAngles}
-                onChange={(e) => set("cameraAngles", e.target.value)}
-                placeholder="e.g. Drone wide of the tower, eye-level walkthrough of the lobby"
-              />
-            </Field>
-          </>
         ) : null}
 
         {mode === "individual" ? (
@@ -849,7 +931,7 @@ export function TaskFormModal({
           </Field>
         </div>
 
-        {is3d && !isContent ? (
+        {is3d && !isContent && !isCam ? (
           <Field
             label="Sub-group"
             hint={
@@ -1075,9 +1157,11 @@ export function TaskFormModal({
           </p>
         ) : null}
 
-        <Field label="Tags" hint="Comma separated — stored as a list.">
-          <TagsInput value={form.tags} onChange={(v) => set("tags", v)} />
-        </Field>
+        {isCam ? null : (
+          <Field label="Tags" hint="Comma separated — stored as a list.">
+            <TagsInput value={form.tags} onChange={(v) => set("tags", v)} />
+          </Field>
+        )}
 
         {asks3dDetails ? (
           <ThreeDNotesFields

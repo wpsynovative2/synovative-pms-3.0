@@ -8,7 +8,7 @@ deadline from one or more other tasks.
 
 **Status:** built. Migrations `0021_task_dependency_links.sql`,
 `0022_3d_task_groups.sql`, `0023_3d_no_content_tasks.sql` and
-`0024_3d_task_details.sql`, `0025_3d_cam_shots.sql`, `0026_3d_task_thumbnail.sql`, `0027_3d_thumbnail_name.sql` and `0033_3d_sub_groups.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
+`0024_3d_task_details.sql`, `0025_3d_cam_shots.sql`, `0026_3d_task_thumbnail.sql`, `0027_3d_thumbnail_name.sql`, `0033_3d_sub_groups.sql`, `0034_3d_group_delete_cascade.sql` and `0035_3d_shorts.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
 records the decisions behind it, and section 8 what is left for later.
 
 The module is shown only to the **3D Artists department, Super Admin, Admin,
@@ -89,7 +89,7 @@ on its ordinary project page, and do not appear in the module.
 | --- | --- | --- |
 | Department | Task | Not asked. Always 3D Artists, and the database refuses another on a new task |
 | Task category | Task | Required by the forms: Modeling, Texture, Lighting or Cam shots |
-| Shots brief (rich text), Camera angles | Task | Cam shots only (`0025`), and then required by the forms. Cleared if the category changes to another |
+| Shots brief (rich text), Camera angles | Task | No longer asked (`0035`): Cam shots is not offered as a category, because a camera is now a cam in Shorts (section 10). Older tasks keep what they have, shown on the task, and pick another category when next edited |
 | Software | Task | Required by the forms: Blender or Unreal |
 | Thumbnail | Task | Optional, in every category (`0026`). The browser compresses it to a JPEG, at most 1600 px on its longest side, before it goes to Drive |
 | Thumbnail name | Task | Optional (`0027`). Shown under the image, and names the file on Drive |
@@ -606,3 +606,46 @@ it has run.
 | 18 | How many levels does a 3D project have? | **Three**: group, sub-group, task (`0033`). Progress shows on groups and sub-groups. A sub-group asks for a title, a description and the three notes |
 | 19 | What happens to tasks filed straight in a group? | **They move into sub-group 1 of that group, named after it**, and keep their numbers. In an SBS project the chain runs T1.1.1 → T1.1.2 → T1.2.1 → T2.1.1 |
 | 20 | Can a group or sub-group with work in it be deleted? | **Yes, with everything in it** (`0034`): its sub-groups, their tasks, and the tasks' time, submissions and reviews. The same people who manage groups may do it, after a warning that counts what goes |
+| 21 | How are a project's shorts laid out? | **A Shorts tab** (`0035`, section 10): Shorts → SH1 → Cam1.1. A cam is a task, ready to render once the group, sub-group or task it renders is approved |
+| 22 | What happens to the Cam shots category? | **It is no longer offered.** Every cam carries it instead; older tasks keep theirs until edited |
+
+---
+
+## 10. Shorts (`0035`)
+
+A 3D project page has two tabs: **Tasks** (the groups above) and **Shorts**, the
+films the project renders.
+
+```
+Shorts  Walkthrough reels                6000 frames, 4200 given to shorts
+│
+●  SH1  Arrival sequence                 300/6000 frames     1/2 ready
+│  ●  Cam1.1  Gate drone shot            120/300  → T1.1.2   Ready to render
+│  ○  Cam1.2  Lobby push-in              180/300  → T2.1     1/3 approved
+│
+●  SH2  Amenities                        900/6000 frames     0/1 ready
+   ○  Cam2.1  Pool deck pan              900/900  → T3       0/4 approved
+```
+
+| Level | Stored in | Asks for |
+| --- | --- | --- |
+| **Shorts** | `shorts_plans`, one row per project | Title, frames (the whole project's), description, Client Supe Notes, 3D Lead Note, General Notes |
+| **Short** (SH1) | `shorts`, numbered from `shorts_plans.next_short_number` | The same; its frames are a share of the Shorts' |
+| **Cam** (Cam1.2) | `tasks` with `short_id`, numbered from `shorts.next_cam_number` | Title, frames (a share of its short's), description, the three notes, what it renders, and as any task: assignee, dates, status, priority, estimate, thumbnail |
+
+- **A cam is a task**, for the reasons in section 2: timer, submit, review, My Tasks,
+  Workload and Reports all work unchanged. It is a standard task outside the groups,
+  in 3D Artists, with category Cam shots and no software. It stays in its short.
+- **What it renders** is one group, sub-group or filed task of the same project
+  (`render_group_id` or `render_task_id`, checked by `guard_cam_render`). If that is
+  deleted the link is cleared and the cam stays.
+- **Ready to render** is worked out on screen (`renderTarget` in `lib/shorts.ts`):
+  the task is Approved, or every task in the group or sub-group is. A ready cam is
+  highlighted green with a badge; a short shows how many of its cams are ready, and
+  its dot turns green when all are.
+- **Frames** are not checked against the parent. Going over shows a red warning on
+  the Shorts header or the short.
+- **Who may:** whoever may manage groups sets up Shorts and adds, edits and deletes
+  shorts and cams. Deleting a short deletes its cams (`on delete cascade`), with
+  their time, submissions and reviews. Anyone who can see the project sees the tab.
+- The **Tasks** tab, its filters and its Ungrouped section leave cams out.

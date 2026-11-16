@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { ProjectDriveControls } from "@/components/project/project-drive";
 import { GroupFormModal } from "@/components/three-d/group-form";
+import { ShortsTab } from "@/components/three-d/shorts-tab";
 import { TaskGroupCard } from "@/components/three-d/task-group-card";
 import {
   ThreeDTaskFilters,
@@ -13,9 +14,9 @@ import {
 } from "@/components/three-d/task-filters";
 import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskFormModal } from "@/components/task/task-form";
-import { IconArrowLeft, IconCube, IconPlus } from "@/components/ui/icons";
+import { IconArrowLeft, IconCube, IconPlay, IconPlus, IconTasks } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { Badge, Button, Card, EmptyState, PageHeader } from "@/components/ui/primitives";
+import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "@/components/ui/primitives";
 import { formatDate } from "@/lib/calendar";
 import {
   canCreateTaskInProject,
@@ -27,9 +28,12 @@ import { useStore } from "@/lib/store";
 import { groupTree } from "@/lib/task-groups";
 import type { TaskGroup } from "@/lib/types";
 
+type Tab = "tasks" | "shorts";
+
 /*
- * One 3D project: its numbered groups, each holding sub-groups, each holding its
- * tasks: T1, T1.1, T1.1.1 (Archi-3d.md §6).
+ * One 3D project, in two tabs. Tasks: its numbered groups, each holding
+ * sub-groups, each holding its tasks: T1, T1.1, T1.1.1 (Archi-3d.md §6). Shorts:
+ * the films it renders, SH1 and their cams Cam1.1 (0035).
  * Opening a task uses the same drawer as everywhere else, and everything else about
  * the project (team, expenses, activity) is on its ordinary project page.
  */
@@ -47,6 +51,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   /** A sub-group's id. Undefined: adding is closed. Null: adding a task outside any group. */
   const [addingTaskTo, setAddingTaskTo] = useState<string | null | undefined>(undefined);
   const [filters, setFilters] = useState(emptyThreeDFilters);
+  const [tab, setTab] = useState<Tab>("tasks");
 
   const tree = useMemo(() => groupTree(db.taskGroups, id), [db.taskGroups, id]);
   const projectGroups = useMemo(
@@ -59,10 +64,14 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
     () => db.tasks.filter((t) => t.projectId === id && t.kind === "standard"),
     [db.tasks, id],
   );
-  const ungrouped = useMemo(() => projectTasks.filter((t) => !t.groupId), [projectTasks]);
+  // Cams are tasks too, but they belong to the Shorts tab (0035). The full list
+  // stays for naming what a task waits on.
+  const groupTasks = useMemo(() => projectTasks.filter((t) => !t.shortId), [projectTasks]);
+  const camCount = projectTasks.length - groupTasks.length;
+  const ungrouped = useMemo(() => groupTasks.filter((t) => !t.groupId), [groupTasks]);
   const shownTasks = useMemo(
-    () => applyThreeDFilters(projectTasks, filters, projectGroups),
-    [projectTasks, filters, projectGroups],
+    () => applyThreeDFilters(groupTasks, filters, projectGroups),
+    [groupTasks, filters, projectGroups],
   );
   const shownTaskIds = useMemo(() => new Set(shownTasks.map((t) => t.id)), [shownTasks]);
 
@@ -140,7 +149,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
             <Link href={`/projects/${project.id}`}>
               <Button>Project page</Button>
             </Link>
-            {mayManage ? (
+            {mayManage && tab === "tasks" ? (
               <Button variant="primary" onClick={() => setAddingGroup(true)}>
                 <IconPlus size={15} /> Add group
               </Button>
@@ -149,67 +158,89 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
         }
       />
 
-      {projectTasks.length > 0 ? (
-        <ThreeDTaskFilters
-          value={filters}
-          onChange={setFilters}
-          tasks={projectTasks}
+      <Tabs<Tab>
+        className="self-start"
+        tabs={[
+          { id: "tasks", label: "Tasks", icon: <IconTasks size={14} />, count: groupTasks.length },
+          { id: "shorts", label: "Shorts", icon: <IconPlay size={14} />, count: camCount },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
+
+      {tab === "shorts" ? (
+        <ShortsTab
+          project={project}
           groups={projectGroups}
-          shown={shownTasks.length}
+          tasks={projectTasks}
+          mayManage={mayManage}
+          onOpenTask={setOpenTaskId}
         />
-      ) : null}
+      ) : (
+        <>
+          {groupTasks.length > 0 ? (
+            <ThreeDTaskFilters
+              value={filters}
+              onChange={setFilters}
+              tasks={groupTasks}
+              groups={projectGroups}
+              shown={shownTasks.length}
+            />
+          ) : null}
 
-      {filtering && shownTasks.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<IconCube size={30} />}
-            title="No tasks match these filters"
-            action={<Button onClick={() => setFilters(emptyThreeDFilters)}>Clear filters</Button>}
-          />
-        </Card>
-      ) : null}
+          {filtering && shownTasks.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={<IconCube size={30} />}
+                title="No tasks match these filters"
+                action={<Button onClick={() => setFilters(emptyThreeDFilters)}>Clear filters</Button>}
+              />
+            </Card>
+          ) : null}
 
-      {tree.length === 0 && ungrouped.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={<IconCube size={30} />}
-            title="No groups yet"
-            body={
-              mayManage
-                ? "Add the first group, T1, then its sub-groups T1.1, T1.2, and their tasks: T1.1.1, T1.1.2 and so on."
-                : "The work in this project hasn't been laid out yet."
-            }
-          />
-        </Card>
-      ) : null}
+          {tree.length === 0 && ungrouped.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={<IconCube size={30} />}
+                title="No groups yet"
+                body={
+                  mayManage
+                    ? "Add the first group, T1, then its sub-groups T1.1, T1.2, and their tasks: T1.1.1, T1.1.2 and so on."
+                    : "The work in this project hasn't been laid out yet."
+                }
+              />
+            </Card>
+          ) : null}
 
-      <div className="flex flex-col gap-3">
-        {shownTree.map(({ group, subGroups }) => (
-          <TaskGroupCard
-            key={group.id}
-            group={group}
-            subGroups={subGroups}
-            project={project}
-            allTasks={projectTasks}
-            shownTaskIds={filtering ? shownTaskIds : undefined}
-            onOpenTask={setOpenTaskId}
-            onAddTask={mayAddTask ? (subGroupId) => setAddingTaskTo(subGroupId) : undefined}
-            onAddSubGroup={mayManage ? () => setAddingSubGroupTo(group) : undefined}
-            onEdit={mayManage ? setEditing : undefined}
-            onDelete={mayManage ? setDeleting : undefined}
-          />
-        ))}
-        {showUngrouped ? (
-          <TaskGroupCard
-            group={null}
-            project={project}
-            allTasks={projectTasks}
-            shownTaskIds={filtering ? shownTaskIds : undefined}
-            onOpenTask={setOpenTaskId}
-            onAddTask={mayAddTask ? setAddingTaskTo : undefined}
-          />
-        ) : null}
-      </div>
+          <div className="flex flex-col gap-3">
+            {shownTree.map(({ group, subGroups }) => (
+              <TaskGroupCard
+                key={group.id}
+                group={group}
+                subGroups={subGroups}
+                project={project}
+                allTasks={projectTasks}
+                shownTaskIds={filtering ? shownTaskIds : undefined}
+                onOpenTask={setOpenTaskId}
+                onAddTask={mayAddTask ? (subGroupId) => setAddingTaskTo(subGroupId) : undefined}
+                onAddSubGroup={mayManage ? () => setAddingSubGroupTo(group) : undefined}
+                onEdit={mayManage ? setEditing : undefined}
+                onDelete={mayManage ? setDeleting : undefined}
+              />
+            ))}
+            {showUngrouped ? (
+              <TaskGroupCard
+                group={null}
+                project={project}
+                allTasks={projectTasks}
+                shownTaskIds={filtering ? shownTaskIds : undefined}
+                onOpenTask={setOpenTaskId}
+                onAddTask={mayAddTask ? setAddingTaskTo : undefined}
+              />
+            ) : null}
+          </div>
+        </>
+      )}
 
       {addingGroup ? (
         <GroupFormModal

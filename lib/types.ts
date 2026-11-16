@@ -304,7 +304,16 @@ export interface Task {
   groupId?: string | null;
   /** Its number within the sub-group: the 3 of T1.2.3. Set by the database. */
   groupNumber?: number | null;
-  /** "T1.2.3". Derived when loaded, never stored. */
+  /** The short this task is a cam of, in a 3D project (0035). Never also in a group. */
+  shortId?: string | null;
+  /** Its number within the short: the 2 of Cam1.2. Set by the database. */
+  shortNumber?: number | null;
+  /** A cam's share of its short's frames (0035). */
+  frames?: number | null;
+  /** What a cam renders: a group or sub-group, or else a task filed in one (0035). */
+  renderGroupId?: string | null;
+  renderTaskId?: string | null;
+  /** "T1.2.3", or "Cam1.2" for a cam. Derived when loaded, never stored. */
   code?: string;
   /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */
   threeDCategory?: ThreeDCategory | null;
@@ -371,6 +380,31 @@ export interface TaskGroup extends ThreeDNotes {
   name: string;
   /** Rich text. Asked of a sub-group only. */
   description: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** The fields Shorts and each short both carry (0035). The rest is rich text. */
+export interface ShortFields extends ThreeDNotes {
+  title: string;
+  /** Shorts: the whole project's. A short: its share of them. */
+  frames: number;
+  description: string;
+}
+
+/** A 3D project's Shorts (0035): one per project, holding its shorts. */
+export interface ShortsPlan extends ShortFields {
+  projectId: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** SH1 of a 3D project's Shorts (0035). Its cams are tasks with `shortId`. */
+export interface Short extends ShortFields {
+  id: string;
+  projectId: string;
+  /** The 1 of SH1 and of Cam1.2. Set by the database, and never reused. */
+  number: number;
   createdBy: string;
   createdAt: string;
 }
@@ -1347,6 +1381,8 @@ export interface Database {
   projects: Project[];
   tasks: Task[];
   taskGroups: TaskGroup[];
+  shortsPlans: ShortsPlan[];
+  shorts: Short[];
   expenses: Expense[];
   vendors: Vendor[];
   projectTemplates: ProjectTemplate[];

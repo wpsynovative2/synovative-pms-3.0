@@ -51,13 +51,13 @@ export const THREE_D_SERVICE = "3D Walkthrough Animation";
 export const THREE_D_DEPARTMENT = "3D Artists";
 export const CLIENT_SERVICING_DEPARTMENT = "Project Managers";
 /** What a 3D project's task asks for. The database holds the same lists (0024). */
+/**
+ * No longer offered as a category (0035): a camera is a cam in the project's
+ * Shorts, and every cam carries it. Older tasks keep it until they are edited.
+ */
 export const CAM_SHOTS_CATEGORY: ThreeDCategory = "Cam shots";
-export const THREE_D_CATEGORIES: ThreeDCategory[] = [
-  "Modeling",
-  "Texture",
-  "Lighting",
-  CAM_SHOTS_CATEGORY,
-];
+/** What a 3D task in a group asks to be (0024). */
+export const THREE_D_CATEGORIES: ThreeDCategory[] = ["Modeling", "Texture", "Lighting"];
 export const THREE_D_SOFTWARE: ThreeDSoftware[] = ["Blender", "Unreal"];
 export const PROJECT_DRIVE_AREAS = {
   csf: "CSF",

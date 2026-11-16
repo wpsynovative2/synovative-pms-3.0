@@ -39,6 +39,7 @@ import {
   isAssignee,
   visibleTasks,
 } from "@/lib/permissions";
+import { formatFrames, renderTarget } from "@/lib/shorts";
 import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import { contentLabel, isTaskWaiting, taskLabel, type Client, type Review, type Submission } from "@/lib/types";
@@ -90,6 +91,10 @@ export function TaskDetailDrawer({
   }, [openedId, logTaskOpen]);
 
   if (!task || !currentUser) return null;
+
+  // A cam of the project's Shorts (0035): its short, frames and what it renders.
+  const camShort = task.shortId ? db.shorts.find((x) => x.id === task.shortId) : undefined;
+  const camTarget = camShort ? renderTarget(task, db.taskGroups, db.tasks) : null;
 
   // The drawer can be deep-linked with ?task=<id>, so it re-checks scope itself
   // rather than trusting whichever list opened it (§4.2).
@@ -232,6 +237,36 @@ export function TaskDetailDrawer({
             ) : null}
             {project?.is3d && task.threeDSoftware ? (
               <Fact label="Software">{task.threeDSoftware}</Fact>
+            ) : null}
+            {camShort ? (
+              <>
+                <Fact label="Short">
+                  SH{camShort.number} {camShort.title}
+                </Fact>
+                <Fact label="Frames">
+                  {formatFrames(task.frames ?? 0)}/{formatFrames(camShort.frames)}
+                </Fact>
+                <Fact label="Renders">
+                  {camTarget ? (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span>
+                        {camTarget.code} {camTarget.name}
+                      </span>
+                      {camTarget.ready ? (
+                        <Badge className="border-st-approved/50 bg-st-approved/20 text-st-approved">
+                          Ready to render
+                        </Badge>
+                      ) : (
+                        <span className="text-ink-faint">
+                          {camTarget.approved}/{camTarget.total} approved
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-ink-faint italic">Nothing yet</span>
+                  )}
+                </Fact>
+              </>
             ) : null}
             <Fact label="Estimated">{task.estimatedHours}h</Fact>
             <Fact label="Time spent">{formatDuration(taskElapsedMs(task))}</Fact>

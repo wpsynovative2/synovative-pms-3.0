@@ -13,16 +13,14 @@ import {
   Input,
   Select,
   Switch,
-  Textarea,
   cx,
 } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
-import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
+import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
 import { projectedAfter } from "@/lib/dependencies";
 import {
-  CAM_SHOTS_CATEGORY,
   CONTENT_WRITER_DEPARTMENT,
   PRIORITIES,
   PROJECT_COLORS,
@@ -150,10 +148,9 @@ const toTaskInput = (
   // Rows keep these if the 3D switch is turned off, so they are not sent then.
   threeDCategory: (is3d && d.threeDCategory) || null,
   threeDSoftware: (is3d && d.threeDSoftware) || null,
-  // Left behind if the category changes, so a Modeling task carries none.
-  shotsBrief: is3d && d.threeDCategory === CAM_SHOTS_CATEGORY ? (d.shotsBrief ?? "") : "",
-  cameraAngles:
-    is3d && d.threeDCategory === CAM_SHOTS_CATEGORY ? (d.cameraAngles ?? "").trim() : "",
+  // Cam shots is no longer a task category: cams live in Shorts (0035).
+  shotsBrief: "",
+  cameraAngles: "",
   priority: d.priority,
   estimatedHours: d.estimatedHours,
   startDate: link?.startDate ?? d.startDate,
@@ -551,12 +548,9 @@ export function ProjectFormModal({
     !d.title.trim() ||
     !d.department ||
     (d.kind === "content" && d.contentCount < 1) ||
-    (is3d && (!d.threeDCategory || !d.threeDSoftware)) ||
-    (is3d &&
-      d.threeDCategory === CAM_SHOTS_CATEGORY &&
-      (isRichTextEmpty(d.shotsBrief ?? "") || !d.cameraAngles?.trim()));
+    (is3d && (!d.threeDCategory || !d.threeDSoftware));
   const rowError = is3d
-    ? "Every task needs a title, a task category and a software, and a Cam shots task its shots brief and camera angles."
+    ? "Every task needs a title, a task category and a software."
     : "Every task needs a title and a department, and a content task at least one piece.";
 
   /** What a 3D project asks of each row (0024). */
@@ -588,23 +582,6 @@ export function ProjectFormModal({
           ))}
         </Select>
       </div>
-      {d.threeDCategory === CAM_SHOTS_CATEGORY ? (
-        <>
-          <RichTextEditor
-            value={d.shotsBrief ?? ""}
-            onChange={(v) => update({ shotsBrief: v })}
-            minHeight={72}
-            placeholder="Shots brief: what each shot should show, and how long it runs…"
-          />
-          <Textarea
-            rows={2}
-            value={d.cameraAngles ?? ""}
-            onChange={(e) => update({ cameraAngles: e.target.value })}
-            placeholder="Camera angles: e.g. Drone wide of the tower, eye-level walkthrough of the lobby"
-            aria-label="Camera angles"
-          />
-        </>
-      ) : null}
     </div>
   );
 

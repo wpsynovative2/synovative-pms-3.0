@@ -83,6 +83,9 @@ import type {
   ReviewDecision,
   ReviewSource,
   Role,
+  Short,
+  ShortFields,
+  ShortsPlan,
   Task,
   TaskGroup,
   TaskTemplate,
@@ -582,6 +585,18 @@ export type TaskGroupInput = Pick<
   "name" | "description" | "clientSupeNotes" | "leadNote" | "generalNotes"
 >;
 
+/** What Shorts and a short are saved with (0035). */
+export type ShortInput = ShortFields;
+
+const shortColumns = (s: ShortInput) => ({
+  title: s.title,
+  frames: s.frames,
+  description: s.description,
+  client_supe_notes: s.clientSupeNotes,
+  lead_note: s.leadNote,
+  general_notes: s.generalNotes,
+});
+
 const taskGroupColumns = (g: TaskGroupInput) => ({
   name: g.name,
   description: g.description,
@@ -762,6 +777,10 @@ interface StoreValue {
   createTaskGroup: (projectId: string, input: TaskGroupInput, parentId?: string | null) => TaskGroup;
   updateTaskGroup: (id: string, input: TaskGroupInput) => void;
   deleteTaskGroup: (id: string) => void;
+  saveShortsPlan: (projectId: string, input: ShortInput) => void;
+  createShort: (projectId: string, input: ShortInput) => Short;
+  updateShort: (id: string, input: ShortInput) => void;
+  deleteShort: (id: string) => void;
 
   startTimer: (taskId: string) => void;
   pauseTimer: (taskId: string, note?: string) => void;
@@ -1119,13 +1138,26 @@ const actions = {
           ...state.db.tasks.filter((t) => t.groupId === group.id).map((t) => t.groupNumber ?? 0),
         ) + 1
       : null;
+    // A cam of a short is numbered the same way (0035).
+    const short = state.db.shorts.find((x) => x.id === input.shortId);
+    const shortNumber = short
+      ? Math.max(
+          0,
+          ...state.db.tasks.filter((t) => t.shortId === short.id).map((t) => t.shortNumber ?? 0),
+        ) + 1
+      : null;
     const task: Task = {
       kind: "standard",
       contentCount: 0,
       contentTypes: [],
       ...input,
       groupNumber,
-      code: groupCode ? taskCodeIn(groupCode, groupNumber) : undefined,
+      shortNumber,
+      code: groupCode
+        ? taskCodeIn(groupCode, groupNumber)
+        : short
+          ? taskCodeIn(`Cam${short.number}`, shortNumber)
+          : undefined,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
       id: newId(),
@@ -1340,6 +1372,88 @@ const actions = {
         };
       },
       (c) => run(c.from("task_groups").delete().eq("id", id)),
+    );
+  },
+
+  /* --------------------------------------------------------- 3D shorts */
+
+  /** A 3D project's Shorts: one per project, made once and then edited (0035). */
+  saveShortsPlan(projectId: string, input: ShortInput) {
+    const existing = state.db.shortsPlans.find((p) => p.projectId === projectId);
+    if (existing) {
+      void commit(
+        ["tasks"],
+        (db) => ({
+          ...db,
+          shortsPlans: db.shortsPlans.map((p) => (p.projectId === projectId ? { ...p, ...input } : p)),
+        }),
+        (c) => run(c.from("shorts_plans").update(shortColumns(input)).eq("project_id", projectId)),
+      );
+      return;
+    }
+    const plan: ShortsPlan = { projectId, ...input, createdBy: me(), createdAt: now() };
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, shortsPlans: [...db.shortsPlans, plan] }),
+      (c) =>
+        run(
+          c.from("shorts_plans").insert({
+            project_id: projectId,
+            ...shortColumns(input),
+            created_by: plan.createdBy,
+          }),
+        ),
+    );
+  },
+
+  createShort(projectId: string, input: ShortInput): Short {
+    const short: Short = {
+      id: newId(),
+      projectId,
+      // Shown straight away; the database hands out the real number (0035).
+      number:
+        Math.max(
+          0,
+          ...state.db.shorts.filter((x) => x.projectId === projectId).map((x) => x.number),
+        ) + 1,
+      ...input,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, shorts: [...db.shorts, short] }),
+      (c) =>
+        run(
+          c.from("shorts").insert({
+            id: short.id,
+            project_id: projectId,
+            ...shortColumns(input),
+            created_by: short.createdBy,
+          }),
+        ),
+    );
+    return short;
+  },
+
+  updateShort(id: string, input: ShortInput) {
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, shorts: db.shorts.map((x) => (x.id === id ? { ...x, ...input } : x)) }),
+      (c) => run(c.from("shorts").update(shortColumns(input)).eq("id", id)),
+    );
+  },
+
+  /** Takes its cams with it (0035). The page asks first, saying how many. */
+  deleteShort(id: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        shorts: db.shorts.filter((x) => x.id !== id),
+        tasks: db.tasks.filter((t) => t.shortId !== id),
+      }),
+      (c) => run(c.from("shorts").delete().eq("id", id)),
     );
   },
 
