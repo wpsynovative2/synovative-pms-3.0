@@ -43,6 +43,7 @@ import type {
   User,
   Vendor,
 } from "@/lib/types";
+import { groupCodes, taskCodeIn } from "@/lib/task-groups";
 
 /**
  * The bridge between Supabase tables (snake_case, normalised) and the nested
@@ -363,8 +364,10 @@ function buildTaskGroups(groupRows: Row[]): TaskGroup[] {
   return groupRows.map((r) => ({
     id: str(r.id),
     projectId: str(r.project_id),
+    parentId: nullable(r.parent_id),
     number: num(r.number),
     name: str(r.name),
+    description: str(r.description),
     clientSupeNotes: str(r.client_supe_notes),
     leadNote: str(r.lead_note),
     generalNotes: str(r.general_notes),
@@ -373,20 +376,21 @@ function buildTaskGroups(groupRows: Row[]): TaskGroup[] {
   }));
 }
 
-/** "T1.3" for a task filed in a 3D group, from the groups as they stand. */
+/** "T1.2.3" for a task filed in a 3D sub-group, from the groups as they stand. */
 function taskCode(
   groupId: string | null | undefined,
   groupNumber: number | null | undefined,
-  numbers: Map<string, number>,
+  codes: Map<string, string>,
 ): string | undefined {
-  return groupId && numbers.has(groupId) ? `T${numbers.get(groupId)}.${num(groupNumber)}` : undefined;
+  const group = groupId ? codes.get(groupId) : undefined;
+  return group ? taskCodeIn(group, num(groupNumber)) : undefined;
 }
 
 function buildTasks(
   { rows, sessions, submissions, reviews, remarks, assignments, linkRows }: TaskRows,
   taskGroups: TaskGroup[],
 ): Task[] {
-  const groupNumber = new Map(taskGroups.map((g) => [g.id, g.number]));
+  const codes = groupCodes(taskGroups);
   const links = groupBy<string>(linkRows, "task_id", (r) => str(r.depends_on_task_id));
 
   const ses = groupBy<TimeSession>(sessions, "task_id", (r) => ({
@@ -452,7 +456,7 @@ function buildTasks(
       dependsOnTaskIds: links.get(id) ?? [],
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
-      code: taskCode(nullable(r.group_id), r.group_number as number | null, groupNumber),
+      code: taskCode(nullable(r.group_id), r.group_number as number | null, codes),
       threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
       threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
       shotsBrief: str(r.shots_brief),
@@ -551,7 +555,7 @@ async function loadTasksSynced(
     stale.length ? fetchTaskRows(sb, stale) : null,
   ]);
   const taskGroups = buildTaskGroups(groupRows);
-  const numbers = new Map(taskGroups.map((g) => [g.id, g.number]));
+  const codes = groupCodes(taskGroups);
   const fetched = new Map((fresh ? buildTasks(fresh, taskGroups) : []).map((t) => [t.id, t]));
   const staleIds = new Set(stale);
 
@@ -561,7 +565,7 @@ async function loadTasksSynced(
     // Deleted between the two reads.
     if (!task) continue;
     // A renumbered group renames its tasks without the tasks themselves changing.
-    const code = taskCode(task.groupId, task.groupNumber, numbers);
+    const code = taskCode(task.groupId, task.groupNumber, codes);
     if (code !== task.code) task = { ...task, code };
     next.set(id, { task, version });
   }

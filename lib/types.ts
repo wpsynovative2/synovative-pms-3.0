@@ -300,11 +300,11 @@ export interface Task {
    * is on screen, never stored (see markWaiting).
    */
   waitingOnTaskIds?: string[];
-  /** The group this task is filed in, in a 3D project (0022). */
+  /** The sub-group this task is filed in, in a 3D project (0022, 0033). */
   groupId?: string | null;
-  /** Its number within the group: the 3 of T1.3. Set by the database. */
+  /** Its number within the sub-group: the 3 of T1.2.3. Set by the database. */
   groupNumber?: number | null;
-  /** "T1.3". Derived when loaded, never stored. */
+  /** "T1.2.3". Derived when loaded, never stored. */
   code?: string;
   /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */
   threeDCategory?: ThreeDCategory | null;
@@ -339,7 +339,7 @@ export interface Task {
 export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds">) =>
   (t.waitingOnTaskIds?.length ?? 0) > 0;
 
-/** "T1.3 Sample flat interior" for a task filed in a group; the title otherwise. */
+/** "T1.2.3 Sample flat interior" for a task filed in a group; the title otherwise. */
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>
   t.code ? `${t.code} ${t.title}` : t.title;
 
@@ -354,15 +354,23 @@ export interface ThreeDNotes {
 }
 
 /**
- * A group of tasks in a 3D project (0022): T1 of T1.1, T1.2. It has a name, a
- * number and its notes; its progress is worked out from its tasks.
+ * A group in a 3D project (0022, 0033). A group T1 holds sub-groups T1.1, T1.2,
+ * and only a sub-group holds tasks: T1.1.1, T1.1.2. Both have a name, a number
+ * and the notes; their progress is worked out from the tasks under them.
  */
 export interface TaskGroup extends ThreeDNotes {
   id: string;
   projectId: string;
-  /** The 1 of T1. Set by the database, and never reused. */
+  /** Null for a group; the group it sits in, for a sub-group. */
+  parentId: string | null;
+  /**
+   * The 1 of T1, or the 2 of T1.2: unique among its siblings. Set by the
+   * database, and never reused.
+   */
   number: number;
   name: string;
+  /** Rich text. Asked of a sub-group only. */
+  description: string;
   createdBy: string;
   createdAt: string;
 }

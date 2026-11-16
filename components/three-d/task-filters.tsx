@@ -10,6 +10,7 @@ import {
   THREE_D_SOFTWARE,
 } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
+import { groupTree } from "@/lib/task-groups";
 import type { Priority, Task, TaskGroup, TaskStatus, ThreeDCategory, ThreeDSoftware } from "@/lib/types";
 
 export interface ThreeDFilterState {
@@ -18,7 +19,10 @@ export interface ThreeDFilterState {
   software: ThreeDSoftware | "all";
   status: TaskStatus | "all" | "open" | "overdue";
   priority: Priority | "all";
-  /** A group's id, or "none" for tasks outside any group. */
+  /**
+   * A group's or sub-group's id, or "none" for tasks outside any group. A group
+   * matches every task in its sub-groups.
+   */
   groupId: string;
   /** Someone's id, or "none" for nobody yet. */
   assigneeId: string;
@@ -37,8 +41,13 @@ export const emptyThreeDFilters: ThreeDFilterState = {
 export const isFilteringThreeD = (f: ThreeDFilterState) =>
   JSON.stringify(f) !== JSON.stringify(emptyThreeDFilters);
 
-export function applyThreeDFilters(tasks: Task[], f: ThreeDFilterState): Task[] {
+export function applyThreeDFilters(
+  tasks: Task[],
+  f: ThreeDFilterState,
+  groups: TaskGroup[],
+): Task[] {
   const q = f.query.trim().toLowerCase();
+  const parentOf = new Map(groups.map((g) => [g.id, g.parentId]));
   return tasks.filter((t) => {
     if (
       q &&
@@ -58,7 +67,13 @@ export function applyThreeDFilters(tasks: Task[], f: ThreeDFilterState): Task[] 
     if (f.priority !== "all" && t.priority !== f.priority) return false;
     if (f.groupId === "none") {
       if (t.groupId) return false;
-    } else if (f.groupId !== "all" && t.groupId !== f.groupId) return false;
+    } else if (
+      f.groupId !== "all" &&
+      t.groupId !== f.groupId &&
+      parentOf.get(t.groupId ?? "") !== f.groupId
+    ) {
+      return false;
+    }
     if (f.assigneeId === "none") {
       if (t.assigneeId !== null) return false;
     } else if (f.assigneeId !== "all" && t.assigneeId !== f.assigneeId) return false;
@@ -78,11 +93,16 @@ export function ThreeDTaskFilters({
   onChange: (next: ThreeDFilterState) => void;
   /** Every task of the project. */
   tasks: Task[];
+  /** The project's groups and sub-groups. */
   groups: TaskGroup[];
   /** How many tasks the filters leave. */
   shown: number;
 }) {
   const { db } = useStore();
+  const tree = useMemo(
+    () => (groups[0] ? groupTree(groups, groups[0].projectId) : []),
+    [groups],
+  );
   const set = <K extends keyof ThreeDFilterState>(k: K, v: ThreeDFilterState[K]) =>
     onChange({ ...value, [k]: v });
 
@@ -175,11 +195,16 @@ export function ThreeDTaskFilters({
         aria-label="Group"
       >
         <option value="all">All groups</option>
-        {groups.map((g) => (
-          <option key={g.id} value={g.id}>
-            T{g.number} {g.name}
-          </option>
-        ))}
+        {tree.map(({ group, subGroups }) => [
+          <option key={group.id} value={group.id}>
+            T{group.number} {group.name}
+          </option>,
+          ...subGroups.map((s) => (
+            <option key={s.id} value={s.id}>
+              {"\u00a0\u00a0\u00a0"}T{group.number}.{s.number} {s.name}
+            </option>
+          )),
+        ])}
         {tasks.some((t) => !t.groupId) ? <option value="none">Ungrouped</option> : null}
       </Select>
 

@@ -1,13 +1,14 @@
 # 3D Module — architecture
 
 A module where 3D Artists run their projects as numbered groups of tasks: a
-project holds groups T1, T2 … Tn, and each group holds tasks T1.1, T1.2 … T1.n.
+project holds groups T1, T2 … Tn, each group holds sub-groups T1.1, T1.2 … T1.n,
+and each sub-group holds tasks T1.1.1, T1.1.2 … T1.1.n (`0033`).
 A project can run step by step (SBS), and any task can take its start date and
 deadline from one or more other tasks.
 
 **Status:** built. Migrations `0021_task_dependency_links.sql`,
 `0022_3d_task_groups.sql`, `0023_3d_no_content_tasks.sql` and
-`0024_3d_task_details.sql`, `0025_3d_cam_shots.sql`, `0026_3d_task_thumbnail.sql` and `0027_3d_thumbnail_name.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
+`0024_3d_task_details.sql`, `0025_3d_cam_shots.sql`, `0026_3d_task_thumbnail.sql`, `0027_3d_thumbnail_name.sql` and `0033_3d_sub_groups.sql`; pages `/3d-projects` and `/3d-projects/[id]`. Section 9
 records the decisions behind it, and section 8 what is left for later.
 
 The module is shown only to the **3D Artists department, Super Admin, Admin,
@@ -17,61 +18,65 @@ Manager and the Business Development Executives department**.
 
 ## 1. The structure
 
-This is the shape the whole module follows. There are exactly two levels under
-a project.
+This is the shape the whole module follows. There are exactly three levels under
+a project (`0033`; before it there were two, and a group held its tasks itself).
 
 ```
 3D Project
 │
 ├── T1   (group)
-│   ├── T1.1   (task)
-│   ├── T1.2   (task)
-│   ├── T1.3   (task)
-│   ├── T1.4   (task)
-│   └── T1.n   (task)
+│   ├── T1.1   (sub-group)
+│   │   ├── T1.1.1   (task)
+│   │   └── T1.1.n   (task)
+│   └── T1.2   (sub-group)
+│       └── T1.2.1   (task)
 │
 ├── T2   (group)
-│   ├── T2.1   (task)
-│   ├── T2.2   (task)
-│   └── T2.n   (task)
-│
-├── ...
+│   ├── T2.1   (sub-group)
+│   │   └── T2.1.1   (task)
+│   └── T2.2   (sub-group)
+│       └── T2.2.1   (task)
 │
 └── Tn   (group)
-    ├── Tn.1   (task)
-    ├── Tn.2   (task)
-    ├── Tn.3   (task)
-    └── Tn.n   (task)
+    └── Tn.n   (sub-group)
+        └── Tn.n.n   (task)
 ```
 
 The same shape filled in. The names are invented, to show how it reads:
 
 ```
-Skyline Towers — Walkthrough                     (project)
+Skyline Towers — Walkthrough                         (project)
 │
-├── T1  Modelling                                (group)   2/3 approved
-│   ├── T1.1  Tower exterior       Riya    Approved
-│   ├── T1.2  Podium and landscape Arjun   Approved
-│   └── T1.3  Sample flat interior Riya    In Progress
+├── T1  Modelling                                    (group)      2/3 approved
+│   ├── T1.1  Tower                                  (sub-group)  2/2 approved
+│   │   ├── T1.1.1  Tower exterior       Riya    Approved
+│   │   └── T1.1.2  Podium and landscape Arjun   Approved
+│   └── T1.2  Interiors                              (sub-group)  0/1 approved
+│       └── T1.2.1  Sample flat interior Riya    In Progress
 │
-├── T2  Texturing and lighting                   (group)   0/2 approved
-│   ├── T2.1  Exterior materials   Arjun   Not Started
-│   └── T2.2  Day and dusk lighting Riya   Not Started
-│
-└── T3  Animation and render                     (group)   0/3 approved
-    ├── T3.1  Camera paths         Kabir   Not Started
-    ├── T3.2  Final render         Kabir   Not Started
-    └── T3.3  Edit and sound       Kabir   Not Started
+└── T2  Texturing and lighting                       (group)      0/2 approved
+    └── T2.1  Exterior                               (sub-group)  0/2 approved
+        ├── T2.1.1  Exterior materials   Arjun   Not Started
+        └── T2.1.2  Day and dusk lighting Riya   Not Started
 ```
 
 | Level | What it is | Holds its own |
 | --- | --- | --- |
 | **Project** | An ordinary project, marked as 3D | Client chain, window, Leader, members, Drive folder |
-| **Group** (T1) | A named, numbered container | Name and number only. Progress and dates are worked out from its tasks |
-| **Task** (T1.1) | An ordinary task, filed in a group | Assignee, dates, timer, submissions, reviews, remarks |
+| **Group** (T1) | A named, numbered container of sub-groups | Name, number and the three notes. Progress and dates are worked out from every task in its sub-groups |
+| **Sub-group** (T1.2) | A named, numbered container of tasks, numbered within its group | Title, description (rich text) and the three notes. Progress and dates are worked out from its tasks |
+| **Task** (T1.2.3) | An ordinary task, filed in a sub-group | Assignee, dates, timer, submissions, reviews, remarks |
 
-Work happens only on tasks. A group has no assignee, timer or review, so nobody
-starts or submits "T1" itself.
+A sub-group is a `task_groups` row with a `parent_id`. Only a sub-group holds tasks,
+and a sub-group has no sub-groups of its own; the database refuses both. Deleting
+a group deletes its sub-groups, and deleting a sub-group deletes its tasks, with
+their time, submissions and reviews (`0034`); the page says how much will go and
+asks first. When `0033` ran,
+the tasks a group held straight away moved into a new sub-group 1 named after it,
+keeping their numbers: T1.3 became T1.1.3.
+
+Work happens only on tasks. A group or sub-group has no assignee, timer or review,
+so nobody starts or submits "T1" or "T1.2" itself.
 
 **No content tasks.** A 3D project holds standard tasks only: the forms do not offer
 content tasks, it has no Content Bank tab, and the database refuses a new one
@@ -88,7 +93,8 @@ on its ordinary project page, and do not appear in the module.
 | Software | Task | Required by the forms: Blender or Unreal |
 | Thumbnail | Task | Optional, in every category (`0026`). The browser compresses it to a JPEG, at most 1600 px on its longest side, before it goes to Drive |
 | Thumbnail name | Task | Optional (`0027`). Shown under the image, and names the file on Drive |
-| Client Supe Notes, 3D Lead Note, General Notes | Group and task | Optional rich text. When a project is created, its opening tasks skip these; they are added from the task form |
+| Description | Sub-group | Optional rich text (`0033`) |
+| Client Supe Notes, 3D Lead Note, General Notes | Group, sub-group and task | Optional rich text. When a project is created, its opening tasks skip these; they are added from the task form |
 
 Thumbnails all go in one Drive folder, **3D Thumbnails**, inside 3D Operation Work,
 made the first time one is uploaded. The task stores the file's id and link. The
@@ -213,7 +219,7 @@ Rules the migration has to enforce:
 | A link joins two different standard tasks in the same project | Trigger on `task_dependencies`, which also walks every link to refuse a loop |
 | The same link cannot be added twice | Primary key on `task_dependencies (task_id, depends_on_task_id)` |
 | A task with links has its days to complete | The same trigger, because a check constraint cannot look across tables |
-| A group with tasks cannot be deleted | The foreign key refuses it. It is deferred to commit, so deleting a whole project still works: its groups and tasks both cascade, and a check at the end of a statement could run before the tasks had gone |
+| Deleting a group or sub-group deletes what is in it | The foreign keys cascade (`0034`; until then they refused, deferred to commit). Whoever may manage groups may do it, even for tasks they could not delete one by one |
 
 **Ungrouped tasks are allowed.** `group_id` stays nullable, and those tasks show
 under an "Ungrouped" heading. Tasks reach a project in several ways (the project
@@ -597,3 +603,6 @@ it has run.
 | 15 | What notes do groups and tasks carry? | **Client Supe Notes, 3D Lead Note and General Notes**, optional rich text, and editable by whoever may edit that group or task |
 | 16 | What does a Cam shots task ask for? | **A shots brief (rich text) and camera angles**, both required, on top of what every 3D task asks |
 | 17 | Can a 3D task have a thumbnail? | **Yes, optional, in any category.** Compressed in the browser and kept privately in one master Drive folder, with the link on the task |
+| 18 | How many levels does a 3D project have? | **Three**: group, sub-group, task (`0033`). Progress shows on groups and sub-groups. A sub-group asks for a title, a description and the three notes |
+| 19 | What happens to tasks filed straight in a group? | **They move into sub-group 1 of that group, named after it**, and keep their numbers. In an SBS project the chain runs T1.1.1 → T1.1.2 → T1.2.1 → T2.1.1 |
+| 20 | Can a group or sub-group with work in it be deleted? | **Yes, with everything in it** (`0034`): its sub-groups, their tasks, and the tasks' time, submissions and reviews. The same people who manage groups may do it, after a warning that counts what goes |

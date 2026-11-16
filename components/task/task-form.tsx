@@ -38,6 +38,7 @@ import {
 } from "@/lib/master-data";
 import { canReviewTask, canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
+import { groupCodes, groupTree } from "@/lib/task-groups";
 import { useStore } from "@/lib/store";
 import {
   type ContentType,
@@ -104,7 +105,7 @@ export function TaskFormModal({
   project: Project | null;
   mode: "project" | "individual";
   defaultDepartment?: string;
-  /** The group a new task goes in, when added from a group in a 3D project. */
+  /** The sub-group a new task goes in, when added from one in a 3D project. */
   defaultGroupId?: string;
   /** Seeds a new task, e.g. from the OBC line it delivers. */
   defaultTitle?: string;
@@ -130,18 +131,19 @@ export function TaskFormModal({
         : [],
     [db.tasks, blueprints.tasks, project, mode],
   );
-  // 3D projects file their tasks in numbered groups (0022). Once in a group a
-  // task stays there, but an ungrouped one can still be filed.
+  // 3D projects file their tasks in numbered sub-groups of numbered groups (0022,
+  // 0033). Once in a sub-group a task stays there, but an ungrouped one can still
+  // be filed.
   const is3d = mode === "project" && !!project?.is3d;
   const groups = useMemo(
-    () =>
-      is3d
-        ? db.taskGroups
-            .filter((g) => g.projectId === project?.id)
-            .sort((a, b) => a.number - b.number)
-        : [],
+    () => (is3d ? db.taskGroups.filter((g) => g.projectId === project?.id) : []),
     [is3d, db.taskGroups, project?.id],
   );
+  const tree = useMemo(
+    () => (is3d && project ? groupTree(groups, project.id) : []),
+    [is3d, groups, project],
+  );
+  const codes = useMemo(() => groupCodes(groups), [groups]);
   const [groupId, setGroupId] = useState(task?.groupId ?? defaultGroupId ?? "");
   const defaultWaitsOn = (group: string, among: Task[]) =>
     is3d ? chainPredecessor(among, groups, group) : chainTail(among);
@@ -347,7 +349,7 @@ export function TaskFormModal({
   const waitsOnDetail = (t: Task) => {
     const group = groups.find((g) => g.id === t.groupId);
     return [
-      group ? `T${group.number} ${group.name}` : "Ungrouped",
+      group ? `${codes.get(group.id) ?? ""} ${group.name}` : "Ungrouped",
       t.threeDCategory,
       t.threeDSoftware,
       db.users.find((u) => u.id === t.assigneeId)?.fullName ?? "Nobody yet",
@@ -849,13 +851,13 @@ export function TaskFormModal({
 
         {is3d && !isContent ? (
           <Field
-            label="Group"
+            label="Sub-group"
             hint={
               task?.groupId
-                ? "A task stays in its group."
-                : groups.length
-                  ? "Its number comes from the group: the next one in T1 is T1.4."
-                  : "This project has no groups yet."
+                ? "A task stays in its sub-group."
+                : tree.some((x) => x.subGroups.length)
+                  ? "Its number comes from the sub-group: the next one in T1.2 is T1.2.4."
+                  : "This project has no sub-groups yet. Add one to a group first."
             }
           >
             <Select
@@ -873,11 +875,17 @@ export function TaskFormModal({
               }}
             >
               <option value="">Ungrouped</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  T{g.number} {g.name}
-                </option>
-              ))}
+              {tree
+                .filter((x) => x.subGroups.length)
+                .map(({ group, subGroups }) => (
+                  <optgroup key={group.id} label={`T${group.number} ${group.name}`}>
+                    {subGroups.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        T{group.number}.{s.number} {s.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
             </Select>
           </Field>
         ) : null}

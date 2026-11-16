@@ -340,9 +340,10 @@ defaults to waiting on the last one. Dependent dates may run past the project
 deadline; that is flagged, not clamped.
 
 **3D projects ([Archi-3d.md](Archi-3d.md)).** A project marked `is3d` files its
-tasks in numbered groups: T1, then T1.1, T1.2. A task stays an ordinary task, so its
-timer, review and dependencies are unchanged; only the group is new, and its
-progress is worked out from its tasks. Numbers come from counters in the database
+tasks in numbered groups and sub-groups: T1, then sub-groups T1.1, T1.2, then tasks
+T1.1.1, T1.1.2 (`0033`). A task stays an ordinary task, so its timer, review and
+dependencies are unchanged; only the groups are new, and the progress of both
+levels is worked out from the tasks under them. Numbers come from counters in the database
 and are never reused. A task can wait on several (`task_dependencies`, `0021`) and
 starts the day the last is approved. In a step-by-step 3D project the chain follows
 number order rather than creation order: triggers re-point the next task when one
@@ -468,6 +469,8 @@ Since the current baseline:
 | `0028_task_opens.sql` | `task_opens`: who opened which task when, written only by `log_task_open()` (as the caller, for a task they can see, at most once per task per ten minutes) from `TaskDetailDrawer`, read by `can_view_user_activity()` (global managers and HR Admin) for the Activity tab on a person's page, which puts opens beside the sessions, submissions, reviews, remarks and assignments already on each task (`lib/activity.ts`). Pruned after 90 days. Mirrors `canViewUserActivity` |
 | `0031_task_versions.sql` | `task_versions()`: one JSON object of a 16-character fingerprint per visible task, over the task row and all its child rows (sessions, submissions, reviews, remarks, assignments, dependencies), computed as the caller. The tasks scope downloads only new, changed or locally edited tasks (`loadTasksSynced` in `lib/data/db.ts`); without the function it loads in full. Cut for Supabase egress |
 | `0032_occurrence_title_property.sql` | `occurrence_name(name, day, property)`: recurring projects and individual tasks are named "<Property> \| <Title> \| <Month Year>", the property left out when there is none and `[Month]` / `[Year]` stripped from the title. `generate_recurring_occurrences` as 0021 otherwise. Mirrors `occurrenceTitle` |
+| `0033_3d_sub_groups.sql` | A third level in 3D projects: `task_groups.parent_id` makes a sub-group (T1.2), numbered from its group's `next_subgroup_number`, with a rich-text `description`. Only a sub-group holds tasks (`assign_task_group_number`), and the SBS chain runs in three-level order (`task_group_place`, `place_task_in_chain`). Tasks filed straight in a group move into a new sub-group 1 named after it, keeping their numbers. Mirrors `lib/task-groups.ts` / `chainPredecessor` |
+| `0034_3d_group_delete_cascade.sql` | `tasks_group_fkey` and `task_groups_parent_fkey` cascade: deleting a 3D group deletes its sub-groups, and a sub-group its tasks with their time, submissions and reviews, for whoever may manage groups (`can_manage_task_groups`). Mirrors `deleteTaskGroup` |
 | `0029_overdue_rule.sql` | `task_is_overdue`: Submitted, Waiting for Client Response and Approved are judged by the latest submission (IST day) against the due date, so on-time work isn't late while reviewed or with the client, and work resubmitted after the due date stays late through approval. A rejection's new due date moves the date it is judged by. `notify_due_and_overdue` skips Approved. Mirrors `isOverdue` |
 | `0030_activity_on_reports.sql` | `can_view_user_activity()`: Super Admin and Admin only (was global managers and HR Admin). The Activity view moves from a person's page to an Activity tab on Reports, where they pick the person. Mirrors `canViewUserActivity` |
 

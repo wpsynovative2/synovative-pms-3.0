@@ -4,6 +4,7 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { todayISO } from "./calendar";
 import { markWaiting } from "./dependencies";
 import { splitBlueprints } from "./recurrence";
+import { groupCodes, taskCodeIn } from "./task-groups";
 import {
   createContext,
   useCallback,
@@ -578,11 +579,12 @@ export interface ProjectWithTasksInput {
 
 export type TaskGroupInput = Pick<
   TaskGroup,
-  "name" | "clientSupeNotes" | "leadNote" | "generalNotes"
+  "name" | "description" | "clientSupeNotes" | "leadNote" | "generalNotes"
 >;
 
 const taskGroupColumns = (g: TaskGroupInput) => ({
   name: g.name,
+  description: g.description,
   client_supe_notes: g.clientSupeNotes,
   lead_note: g.leadNote,
   general_notes: g.generalNotes,
@@ -757,7 +759,7 @@ interface StoreValue {
   addRemark: (taskId: string, text: string) => void;
 
   /** 3D task groups (0022). */
-  createTaskGroup: (projectId: string, input: TaskGroupInput) => TaskGroup;
+  createTaskGroup: (projectId: string, input: TaskGroupInput, parentId?: string | null) => TaskGroup;
   updateTaskGroup: (id: string, input: TaskGroupInput) => void;
   deleteTaskGroup: (id: string) => void;
 
@@ -1110,6 +1112,7 @@ const actions = {
   createTask(input: NewTaskInput): Task {
     // Shown straight away; the database hands out the real number (0022).
     const group = state.db.taskGroups.find((g) => g.id === input.groupId);
+    const groupCode = group ? groupCodes(state.db.taskGroups).get(group.id) : undefined;
     const groupNumber = group
       ? Math.max(
           0,
@@ -1122,7 +1125,7 @@ const actions = {
       contentTypes: [],
       ...input,
       groupNumber,
-      code: group ? `T${group.number}.${groupNumber}` : undefined,
+      code: groupCode ? taskCodeIn(groupCode, groupNumber) : undefined,
       // Only individual tasks repeat on their own; project tasks repeat with their project.
       recurrence: input.projectId === null ? (input.recurrence ?? null) : null,
       id: newId(),
@@ -1188,7 +1191,8 @@ const actions = {
               0,
               ...state.db.tasks.filter((t) => t.groupId === filedIn.id).map((t) => t.groupNumber ?? 0),
             ) + 1;
-          return { groupNumber, code: `T${filedIn.number}.${groupNumber}` };
+          const groupCode = groupCodes(state.db.taskGroups).get(filedIn.id);
+          return { groupNumber, code: groupCode ? taskCodeIn(groupCode, groupNumber) : undefined };
         })()
       : {};
     // Only the links that change: writing one again would reset a task's dates.
@@ -1272,15 +1276,19 @@ const actions = {
 
   /* ----------------------------------------------------- 3D task groups */
 
-  createTaskGroup(projectId: string, input: TaskGroupInput): TaskGroup {
+  /** A group, or with `parentId` a sub-group of that group (0033). */
+  createTaskGroup(projectId: string, input: TaskGroupInput, parentId: string | null = null): TaskGroup {
     const group: TaskGroup = {
       id: newId(),
       projectId,
-      // Shown straight away; the database hands out the real number (0022).
+      parentId,
+      // Shown straight away; the database hands out the real number (0022, 0033).
       number:
         Math.max(
           0,
-          ...state.db.taskGroups.filter((g) => g.projectId === projectId).map((g) => g.number),
+          ...state.db.taskGroups
+            .filter((g) => g.projectId === projectId && g.parentId === parentId)
+            .map((g) => g.number),
         ) + 1,
       ...input,
       createdBy: me(),
@@ -1294,6 +1302,7 @@ const actions = {
           c.from("task_groups").insert({
             id: group.id,
             project_id: projectId,
+            parent_id: parentId,
             ...taskGroupColumns(input),
             created_by: group.createdBy,
           }),
@@ -1313,11 +1322,23 @@ const actions = {
     );
   },
 
-  /** Refused by the database while it still has tasks; the page only offers it when empty. */
+  /**
+   * Takes everything in it: a group its sub-groups, and a sub-group its tasks
+   * (0034). The page asks first, saying how much will go.
+   */
   deleteTaskGroup(id: string) {
     void commit(
       ["tasks"],
-      (db) => ({ ...db, taskGroups: db.taskGroups.filter((g) => g.id !== id) }),
+      (db) => {
+        const gone = new Set(
+          db.taskGroups.filter((g) => g.id === id || g.parentId === id).map((g) => g.id),
+        );
+        return {
+          ...db,
+          taskGroups: db.taskGroups.filter((g) => !gone.has(g.id)),
+          tasks: db.tasks.filter((t) => !t.groupId || !gone.has(t.groupId)),
+        };
+      },
       (c) => run(c.from("task_groups").delete().eq("id", id)),
     );
   },

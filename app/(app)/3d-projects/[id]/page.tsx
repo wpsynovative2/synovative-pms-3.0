@@ -24,10 +24,12 @@ import {
   canViewThreeD,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
+import { groupTree } from "@/lib/task-groups";
 import type { TaskGroup } from "@/lib/types";
 
 /*
- * One 3D project: its numbered groups, each holding its tasks (Archi-3d.md §6).
+ * One 3D project: its numbered groups, each holding sub-groups, each holding its
+ * tasks: T1, T1.1, T1.1.1 (Archi-3d.md §6).
  * Opening a task uses the same drawer as everywhere else, and everything else about
  * the project (team, expenses, activity) is on its ordinary project page.
  */
@@ -38,15 +40,17 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
+  /** The group a new sub-group goes in, while adding one. */
+  const [addingSubGroupTo, setAddingSubGroupTo] = useState<TaskGroup | null>(null);
   const [editing, setEditing] = useState<TaskGroup | null>(null);
   const [deleting, setDeleting] = useState<TaskGroup | null>(null);
-  /** Undefined: adding is closed. Null: adding a task outside any group. */
+  /** A sub-group's id. Undefined: adding is closed. Null: adding a task outside any group. */
   const [addingTaskTo, setAddingTaskTo] = useState<string | null | undefined>(undefined);
   const [filters, setFilters] = useState(emptyThreeDFilters);
 
-  const groups = useMemo(
-    () =>
-      db.taskGroups.filter((g) => g.projectId === id).sort((a, b) => a.number - b.number),
+  const tree = useMemo(() => groupTree(db.taskGroups, id), [db.taskGroups, id]);
+  const projectGroups = useMemo(
+    () => db.taskGroups.filter((g) => g.projectId === id),
     [db.taskGroups, id],
   );
   // Content tasks are not part of this module (0023). An older project marked 3D
@@ -57,8 +61,8 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   );
   const ungrouped = useMemo(() => projectTasks.filter((t) => !t.groupId), [projectTasks]);
   const shownTasks = useMemo(
-    () => applyThreeDFilters(projectTasks, filters),
-    [projectTasks, filters],
+    () => applyThreeDFilters(projectTasks, filters, projectGroups),
+    [projectTasks, filters, projectGroups],
   );
   const shownTaskIds = useMemo(() => new Set(shownTasks.map((t) => t.id)), [shownTasks]);
 
@@ -89,9 +93,31 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   const mayAddTask = canCreateTaskInProject(user, project);
   // While filtering, a group with nothing left to show gets out of the way.
   const filtering = isFilteringThreeD(filters);
-  const shownGroups = filtering
-    ? groups.filter((g) => shownTasks.some((t) => t.groupId === g.id))
-    : groups;
+  const shownTree = filtering
+    ? tree.filter(({ subGroups }) =>
+        shownTasks.some((t) => subGroups.some((s) => s.id === t.groupId)),
+      )
+    : tree;
+  /** What goes with a group or sub-group (0034), said before it goes. */
+  const deleteWarning = (g: TaskGroup) => {
+    const subs = projectGroups.filter((x) => x.parentId === g.id);
+    const ids = new Set([g.id, ...subs.map((x) => x.id)]);
+    const tasks = projectTasks.filter((t) => !!t.groupId && ids.has(t.groupId)).length;
+    const parts = [
+      ...(g.parentId ? [] : [`${subs.length} sub-group${subs.length === 1 ? "" : "s"}`]),
+      `${tasks} task${tasks === 1 ? "" : "s"}`,
+    ];
+    const contents =
+      subs.length || tasks
+        ? `This also deletes its ${parts.join(" and ")}, with their time logs, submissions, reviews and remarks. This cannot be undone. `
+        : "";
+    return `${contents}Its number will not be used again.`;
+  };
+  /** "T1" or "T1.2", for the titles of the dialogs. */
+  const codeOf = (g: TaskGroup) => {
+    const parent = g.parentId ? projectGroups.find((x) => x.id === g.parentId) : undefined;
+    return parent ? `T${parent.number}.${g.number}` : `T${g.number}`;
+  };
   const showUngrouped = filtering ? shownTasks.some((t) => !t.groupId) : ungrouped.length > 0;
 
   return (
@@ -128,7 +154,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
           value={filters}
           onChange={setFilters}
           tasks={projectTasks}
-          groups={groups}
+          groups={projectGroups}
           shown={shownTasks.length}
         />
       ) : null}
@@ -143,14 +169,14 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
         </Card>
       ) : null}
 
-      {groups.length === 0 && ungrouped.length === 0 ? (
+      {tree.length === 0 && ungrouped.length === 0 ? (
         <Card>
           <EmptyState
             icon={<IconCube size={30} />}
             title="No groups yet"
             body={
               mayManage
-                ? "Add the first group, T1, then add its tasks: T1.1, T1.2 and so on."
+                ? "Add the first group, T1, then its sub-groups T1.1, T1.2, and their tasks: T1.1.1, T1.1.2 and so on."
                 : "The work in this project hasn't been laid out yet."
             }
           />
@@ -158,17 +184,19 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
       ) : null}
 
       <div className="flex flex-col gap-3">
-        {shownGroups.map((g) => (
+        {shownTree.map(({ group, subGroups }) => (
           <TaskGroupCard
-            key={g.id}
-            group={g}
+            key={group.id}
+            group={group}
+            subGroups={subGroups}
             project={project}
             allTasks={projectTasks}
             shownTaskIds={filtering ? shownTaskIds : undefined}
             onOpenTask={setOpenTaskId}
-            onAddTask={mayAddTask ? () => setAddingTaskTo(g.id) : undefined}
-            onEdit={mayManage ? () => setEditing(g) : undefined}
-            onDelete={mayManage ? () => setDeleting(g) : undefined}
+            onAddTask={mayAddTask ? (subGroupId) => setAddingTaskTo(subGroupId) : undefined}
+            onAddSubGroup={mayManage ? () => setAddingSubGroupTo(group) : undefined}
+            onEdit={mayManage ? setEditing : undefined}
+            onDelete={mayManage ? setDeleting : undefined}
           />
         ))}
         {showUngrouped ? (
@@ -178,7 +206,7 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
             allTasks={projectTasks}
             shownTaskIds={filtering ? shownTaskIds : undefined}
             onOpenTask={setOpenTaskId}
-            onAddTask={mayAddTask ? () => setAddingTaskTo(null) : undefined}
+            onAddTask={mayAddTask ? setAddingTaskTo : undefined}
           />
         ) : null}
       </div>
@@ -186,8 +214,23 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
       {addingGroup ? (
         <GroupFormModal
           projectId={project.id}
-          nextNumber={Math.max(0, ...groups.map((g) => g.number)) + 1}
+          nextNumber={Math.max(0, ...tree.map(({ group }) => group.number)) + 1}
           onClose={() => setAddingGroup(false)}
+        />
+      ) : null}
+      {addingSubGroupTo ? (
+        <GroupFormModal
+          projectId={project.id}
+          parent={addingSubGroupTo}
+          nextNumber={
+            Math.max(
+              0,
+              ...projectGroups
+                .filter((g) => g.parentId === addingSubGroupTo.id)
+                .map((g) => g.number),
+            ) + 1
+          }
+          onClose={() => setAddingSubGroupTo(null)}
         />
       ) : null}
       {editing ? (
@@ -219,8 +262,8 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
           if (deleting) deleteTaskGroup(deleting.id);
           setDeleting(null);
         }}
-        title={deleting ? `Delete T${deleting.number} ${deleting.name}?` : "Delete group?"}
-        body="Its number will not be used again in this project."
+        title={deleting ? `Delete ${codeOf(deleting)} ${deleting.name}?` : "Delete group?"}
+        body={deleting ? deleteWarning(deleting) : ""}
       />
     </div>
   );

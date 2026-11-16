@@ -90,7 +90,7 @@ export default function ThreeDProjectsPage() {
           {projects.map((p) => {
             const tasks = db.tasks.filter((t) => t.projectId === p.id && t.kind === "standard");
             const approved = tasks.filter((t) => t.status === "Approved").length;
-            const groups = db.taskGroups.filter((g) => g.projectId === p.id).length;
+            const groups = db.taskGroups.filter((g) => g.projectId === p.id && !g.parentId).length;
             return (
               <Link key={p.id} href={`/3d-projects/${p.id}`}>
                 <Card className="flex flex-wrap items-center gap-x-5 gap-y-2 p-4 transition-colors hover:border-brand-bright/40">

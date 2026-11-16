@@ -1,4 +1,5 @@
 import { addDays, snapToWorkingDay, todayISO } from "./calendar";
+import { comparePlaces, groupPlaces } from "./task-groups";
 import type { CalendarConfig, Task, TaskGroup } from "./types";
 
 /**
@@ -106,25 +107,30 @@ export function chainTail(projectTasks: Task[]): Task | undefined {
 
 /**
  * What a new task waits on by default in a step-by-step 3D project: the one
- * before it in number order, not the last one created, because a task can be added
- * to an earlier group at any time. A new task goes last in its group, so that is
- * the latest task at or before the group. Ungrouped tasks sit outside the chain.
+ * before it in number order (T1.1.1, T1.1.2, T1.2.1, T2.1.1), not the last one
+ * created, because a task can be added to an earlier sub-group at any time. A new
+ * task goes last in its sub-group, so that is the latest task at or before the
+ * sub-group. Ungrouped tasks sit outside the chain. Mirrors place_task_in_chain.
  */
 export function chainPredecessor(
   projectTasks: Task[],
   groups: TaskGroup[],
   groupId: string | null | undefined,
 ): Task | undefined {
-  const numberOf = new Map(groups.map((g) => [g.id, g.number]));
-  const limit = groupId ? numberOf.get(groupId) : undefined;
-  if (limit === undefined) return undefined;
-  const place = (t: Task) => [numberOf.get(t.groupId ?? "") ?? 0, t.groupNumber ?? 0] as const;
+  const places = groupPlaces(groups);
+  const limit = groupId ? places.get(groupId) : undefined;
+  if (!limit) return undefined;
+  const place = (t: Task) => [...(places.get(t.groupId ?? "") ?? [0, 0]), t.groupNumber ?? 0];
   return projectTasks
-    .filter((t) => t.kind === "standard" && t.groupId && place(t)[0] <= limit)
-    .reduce<Task | undefined>((last, t) => {
-      if (!last) return t;
-      const [g, n] = place(t);
-      const [lg, ln] = place(last);
-      return g > lg || (g === lg && n > ln) ? t : last;
-    }, undefined);
+    .filter(
+      (t) =>
+        t.kind === "standard" &&
+        !!t.groupId &&
+        places.has(t.groupId) &&
+        comparePlaces(places.get(t.groupId)!, limit) <= 0,
+    )
+    .reduce<Task | undefined>(
+      (last, t) => (!last || comparePlaces(place(t), place(last)) > 0 ? t : last),
+      undefined,
+    );
 }
