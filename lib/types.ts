@@ -790,6 +790,33 @@ export const CONTENT_STAGES: ContentStage[] = [
   "Carry Forwarded",
 ];
 
+/*
+ * A piece's status only moves forward (0041): Not set → Ready To Design →
+ * Design Completed → Scheduled. Cancelled and Carry Forwarded sit beside that
+ * line and can be chosen at any time. Coming back from one of them, the
+ * journey's stamps still hold the line: once it was ready (readyAt) or designed
+ * (completedAt) it cannot go back before that. Not set is never chosen again.
+ * Mirrors guard_content_stage_forward().
+ */
+const CONTENT_STAGE_STEP: Partial<Record<ContentStage, number>> = {
+  "Ready To Design": 1,
+  "Design Completed": 2,
+  Scheduled: 3,
+};
+
+export type ContentStageFrom = Pick<ContentEntry, "stage" | "readyAt" | "completedAt">;
+
+export function canMoveContentStage(from: ContentStageFrom, to: ContentStage | null): boolean {
+  if (to === from.stage) return true;
+  if (to === "Cancelled" || to === "Carry Forwarded") return true;
+  if (to === null) return false;
+  const floor = Math.max(
+    from.stage ? (CONTENT_STAGE_STEP[from.stage] ?? 0) : 0,
+    from.completedAt ? 2 : from.readyAt ? 1 : 0,
+  );
+  return (CONTENT_STAGE_STEP[to] ?? 0) >= floor;
+}
+
 /** Where a piece will be used (0023): one or the other, required once written. */
 export type ContentPlacement = "SMM" | "WhatsApp Share";
 

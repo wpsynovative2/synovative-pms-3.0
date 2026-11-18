@@ -591,6 +591,19 @@ export const canSetContentDelivery = (u: User, entry: ContentEntry, project: Pro
   (!!project && isProjectLeader(u, project)) ||
   isContentTeamLeader(u);
 
+/**
+ * Changing a piece's placement from its page: Super Admin, Admin and Managers.
+ * The writer sets it in the piece's form. Mirrors set_content_placement() (0039).
+ */
+export const canSetContentPlacement = (u: User) => isGlobalManager(u);
+
+/**
+ * Marking a piece Design Completed by hand: ops only (Super Admin, Admin,
+ * Managers). Approving the designer's task still does it for anyone (0037).
+ * Mirrors guard_content_design_completed() (0040).
+ */
+export const canMarkDesignCompleted = (u: User) => isGlobalManager(u);
+
 export function canStartContent(u: User, entry: ContentEntry, task: Task | null) {
   return !!task && task.id === entry.taskId && task.assigneeId === u.id && !isContentStarted(entry);
 }

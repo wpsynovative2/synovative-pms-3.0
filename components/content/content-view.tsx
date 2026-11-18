@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AllotDialog } from "@/components/content/allot-dialog";
 import { ContentJourney } from "@/components/content/content-journey";
 import {
@@ -19,19 +19,24 @@ import {
 } from "@/components/content/stage-picker";
 import { DatePicker } from "@/components/ui/date-picker";
 import { FullScreen } from "@/components/ui/modal";
-import { Avatar, Badge, Button, Card, cx } from "@/components/ui/primitives";
+import { Popover } from "@/components/ui/popover";
+import { Avatar, Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
 import { daysBetween, formatDate, formatMonth, todayISO } from "@/lib/calendar";
 import {
   canAllotContent,
   canEditContentEntry,
+  canMarkDesignCompleted,
   canSetContentStage,
   canSetContentDelivery,
+  canSetContentPlacement,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import {
+  CONTENT_PLACEMENTS,
   contentHolders,
   contentLabel,
+  type ContentPlacement,
   isContentStarted,
   isStmType,
   type ContentEntry,
@@ -118,7 +123,15 @@ export function ContentDetailScreen({
 }
 
 export function ContentDetail({ entry }: { entry: ContentEntry }) {
-  const { db, currentUser, userById, projectById, taskById, setContentDeliveryDate } = useStore();
+  const {
+    db,
+    currentUser,
+    userById,
+    projectById,
+    taskById,
+    setContentDeliveryDate,
+    setContentPlacement,
+  } = useStore();
   const user = currentUser!;
   const writer = userById(entry.createdBy);
   const allotted = userById(entry.allottedTo);
@@ -198,9 +211,30 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
           )}
         </Fact>
         <Fact label="Placement">
-          <span className={cx("text-[13px]", entry.placement ? "text-ink" : "text-ink-faint")}>
-            {entry.placement ?? "Not set"}
-          </span>
+          {canSetContentPlacement(user) ? (
+            <Select
+              value={entry.placement ?? ""}
+              onChange={(e) =>
+                e.target.value && setContentPlacement(entry.id, e.target.value as ContentPlacement)
+              }
+            >
+              {/* A placement is never cleared once set (0004), so "Not set" is only shown. */}
+              {entry.placement ? null : (
+                <option value="" disabled>
+                  Not set
+                </option>
+              )}
+              {CONTENT_PLACEMENTS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span className={cx("text-[13px]", entry.placement ? "text-ink" : "text-ink-faint")}>
+              {entry.placement ?? "Not set"}
+            </span>
+          )}
         </Fact>
         <Fact label="Content for">
           <span className="text-[13px] text-ink">{formatMonth(entry.forMonth)}</span>
@@ -300,6 +334,8 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
           value={value}
           forMonth={entry.forMonth}
           disabled={!started}
+          allowDesignCompleted={canMarkDesignCompleted(currentUser!)}
+          from={entry}
           onChange={(next) => setContentStage(entry.id, next.stage, next.date)}
         />
       </span>
@@ -543,8 +579,8 @@ export function ContentCard({
         className="group cursor-pointer px-4 pt-3 pb-3.5 transition-colors hover:bg-surface-2/60"
       >
         <div className={CONTENT_GRID}>
-          {/* Piece: status dot, name, then what it is. */}
-          <div className="flex min-w-0 items-start gap-2.5">
+          {/* Piece: status dot, name, then what it is. Hovering it shows the on-pic. */}
+          <OnPicPeek entry={entry}>
             <span
               className={cx(
                 "mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full",
@@ -578,7 +614,7 @@ export function ContentCard({
                 ) : null}
               </div>
             </div>
-          </div>
+          </OnPicPeek>
 
           {/*
             Delivery, Status and Allotted to are changed right here, by the
@@ -654,6 +690,59 @@ export function ContentCard({
           <ContentJourney entry={entry} className="mt-3 border-t border-dashed border-line-soft pt-3" />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/** How long the pointer rests on a piece before its on-pic shows. */
+const PEEK_DELAY_MS = 300;
+
+/**
+ * The piece cell of a Content Bank row - its name and the free space after it,
+ * up to the Delivery column. Resting the pointer there floats the piece's
+ * on-pic beside it, so a list can be skimmed without opening each piece. After
+ * a short delay, so running the pointer down the list does not flash a box per
+ * row; the box ignores the pointer, so it never covers a click on the row.
+ */
+function OnPicPeek({ entry, children }: { entry: ContentEntry; children: React.ReactNode }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const empty = isRichTextEmpty(entry.onPic);
+
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => cancel, []);
+
+  return (
+    <div
+      ref={anchorRef}
+      className="flex min-w-0 items-start gap-2.5 self-stretch"
+      onMouseEnter={() => {
+        if (empty) return;
+        cancel();
+        timer.current = setTimeout(() => setOpen(true), PEEK_DELAY_MS);
+      }}
+      onMouseLeave={() => {
+        cancel();
+        setOpen(false);
+      }}
+    >
+      {children}
+      <Popover
+        anchorRef={anchorRef}
+        open={open && !empty}
+        onClose={() => setOpen(false)}
+        maxHeight={360}
+        className="pointer-events-none w-96 max-w-[calc(100vw-16px)] rounded-card p-3"
+      >
+        <span className="mb-1.5 block text-[10px] font-medium tracking-wide text-ink-faint uppercase">
+          On pic
+        </span>
+        <RichText html={entry.onPic} />
+      </Popover>
     </div>
   );
 }

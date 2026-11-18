@@ -7,7 +7,12 @@ import { Badge, Button, Field, Select } from "@/components/ui/primitives";
 import { addMonths, formatDate, formatMonth, monthOf } from "@/lib/calendar";
 import { CONTENT_STAGE_STYLE } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
-import { CONTENT_STAGES, type ContentStage } from "@/lib/types";
+import {
+  CONTENT_STAGES,
+  canMoveContentStage,
+  type ContentStage,
+  type ContentStageFrom,
+} from "@/lib/types";
 
 /*
  * A piece's status, with the date two of them need (0013): Scheduled asks for
@@ -35,15 +40,27 @@ export function StagePicker({
   forMonth,
   onChange,
   disabled,
+  allowDesignCompleted = true,
+  from = null,
 }: {
   value: StageValue;
   /** The month the piece is for; carrying forward must go past it. */
   forMonth: string;
   onChange: (next: StageValue) => void;
   disabled?: boolean;
+  /** Off for anyone but ops (0040): Design Completed is shown but not offered. */
+  allowDesignCompleted?: boolean;
+  /**
+   * The piece as saved. Status only moves forward from it (0041), so earlier
+   * stages are shown but not offered. Null for a piece not saved yet.
+   */
+  from?: ContentStageFrom | null;
 }) {
   const [asking, setAsking] = useState<ContentStage | null>(null);
   const detail = stageDetail(value);
+  const behind = (s: ContentStage | null) => !!from && !canMoveContentStage(from, s);
+  const opsOnly = (s: ContentStage) =>
+    !allowDesignCompleted && s === "Design Completed" && from?.stage !== s;
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -57,10 +74,12 @@ export function StagePicker({
           else onChange({ stage, date: null });
         }}
       >
-        <option value="">Not set</option>
+        <option value="" disabled={behind(null)}>
+          Not set
+        </option>
         {CONTENT_STAGES.map((s) => (
-          <option key={s} value={s}>
-            {s}
+          <option key={s} value={s} disabled={behind(s) || opsOnly(s)}>
+            {opsOnly(s) && !behind(s) ? `${s} (ops only)` : s}
           </option>
         ))}
       </Select>

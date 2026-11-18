@@ -60,6 +60,7 @@ import type {
   Comment,
   Company,
   ContentEntry,
+  ContentPlacement,
   ContentStage,
   Database,
   DriveFolder,
@@ -912,6 +913,8 @@ interface StoreValue {
   setContentStage: (entryId: string, stage: ContentStage | null, date?: string | null) => void;
   /** When the piece is to be delivered; null clears it (0012). */
   setContentDeliveryDate: (entryId: string, date: string | null) => void;
+  /** SMM or WhatsApp Share, set from the piece's page by a manager (0039). */
+  setContentPlacement: (entryId: string, placement: ContentPlacement) => void;
   /** The writer presses Start Writing on a piece of their task (0027). */
   startContentPiece: (entryId: string) => void;
 
@@ -3140,6 +3143,17 @@ const crmActions = {
     );
   },
 
+  setContentPlacement(entryId: string, placement: ContentPlacement) {
+    void commit(
+      ["content"],
+      (db) => ({
+        ...db,
+        contentEntries: db.contentEntries.map((e) => (e.id === entryId ? { ...e, placement } : e)),
+      }),
+      (c) => run(c.rpc("set_content_placement", { p_content_id: entryId, p_placement: placement })),
+    );
+  },
+
   startContentPiece(entryId: string) {
     const startedAt = now();
     void commit(
@@ -3162,7 +3176,16 @@ const crmActions = {
       (db) => ({
         ...db,
         contentEntries: db.contentEntries.map((e) =>
-          e.id === entryId ? stampJourney(e, { ...e, stage, scheduledOn, carryMonth }) : e,
+          e.id === entryId
+            ? stampJourney(e, {
+                ...e,
+                stage,
+                scheduledOn,
+                carryMonth,
+                // The day it is scheduled for is its delivery date (0042).
+                deliveryDate: scheduledOn ?? e.deliveryDate,
+              })
+            : e,
         ),
       }),
       (c) =>

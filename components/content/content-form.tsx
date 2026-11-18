@@ -9,7 +9,7 @@ import { Badge, Button, Field, Input, Select, cx } from "@/components/ui/primiti
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
 import { formatMonth, monthChoices, monthOf, todayISO } from "@/lib/calendar";
-import { canSetContentStage } from "@/lib/permissions";
+import { canMarkDesignCompleted, canSetContentStage } from "@/lib/permissions";
 import { useStore, type ContentInput } from "@/lib/store";
 import {
   CONTENT_PLACEMENTS,
@@ -355,6 +355,8 @@ export function ContentComposer({
                       <StagePicker
                         value={active.stage}
                         forMonth={active.forMonth}
+                        allowDesignCompleted={canMarkDesignCompleted(user)}
+                        from={entry ?? null}
                         onChange={(stage) => setDraft(active.key, { stage })}
                       />
                     </Field>
