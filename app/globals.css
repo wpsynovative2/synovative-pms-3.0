@@ -203,6 +203,25 @@ h3 {
   background: transparent;
 }
 
+/*
+ * Native dropdown lists. Windows draws a <select>'s list on the select's own
+ * background, so a see-through one (an active filter, tinted blue; the date
+ * picker's month and year, transparent) left the dark theme's light text on an
+ * almost-white list. Every list gets the surface and ink outright, in both themes.
+ */
+select option,
+select optgroup {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+select optgroup {
+  font-weight: 600;
+  color: var(--color-ink-muted);
+}
+select option:disabled {
+  color: var(--color-ink-faint);
+}
+
 /* Native date/time pickers need a light icon on dark ground */
 :root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator,
 :root:not([data-theme="light"]) input[type="time"]::-webkit-calendar-picker-indicator {

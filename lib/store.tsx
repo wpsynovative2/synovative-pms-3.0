@@ -47,7 +47,7 @@ import {
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
-import { isAllotted, isContentEmpty, stampJourney } from "./types";
+import { isAllotted, isContentEmpty, isStmType, stampJourney } from "./types";
 import type {
   Workstation,
   InventoryItem,
@@ -1233,10 +1233,14 @@ const actions = {
     const linksGone = links ? had.filter((x) => !links.includes(x)) : [];
     const linksNew = links ? links.filter((x) => !had.includes(x)) : [];
 
+    // Set to Approved here by a reviewer: the same as approving it (0037).
+    const approving = status === "Approved" && before.status !== "Approved";
+    const designMoves = approving && designsContent(state.db, id);
     void commit(
-      withSlots(["tasks"], slotsMove || allotmentMoves),
+      withSlots(["tasks"], slotsMove || allotmentMoves || designMoves),
       (db) => {
-        const next = mapTask(db, id, (t) => ({ ...t, ...effective, ...filed }));
+        const updated = mapTask(db, id, (t) => ({ ...t, ...effective, ...filed }));
+        const next = (designMoves && completeContentDesign(updated, id)) || updated;
         if (!allotmentMoves) return next;
         return {
           ...next,
@@ -1568,10 +1572,12 @@ const actions = {
   },
 
   reviewTask(taskId: string, input: ReviewInput) {
+    const approving = input.decision === "Approved";
     void commit(
-      ["tasks"],
-      (db) =>
-        mapTask(db, taskId, (task) => {
+      // An approval may finish the design of pieces allotted to the task (0037).
+      withSlots(["tasks"], approving && designsContent(state.db, taskId)),
+      (db) => {
+        const next = mapTask(db, taskId, (task) => {
           const review: Review = {
             id: newId(),
             submissionId: task.submissions[task.submissions.length - 1]?.id ?? "",
@@ -1595,7 +1601,9 @@ const actions = {
             assigneeId: input.newAssigneeId ?? task.assigneeId,
             dueDate: input.newDueDate ?? task.dueDate,
           };
-        }),
+        });
+        return (approving && completeContentDesign(next, taskId)) || next;
+      },
       (c) =>
         run(
           c.rpc("review_task", {
@@ -1940,6 +1948,31 @@ const linkActions = {
 };
 
 /** Content tasks also change the Content Bank, where their slots live. */
+/**
+ * Approving a designer's task finishes the design of what is allotted to it
+ * (0037): each piece Ready To Design moves to Design Completed, once its static
+ * task is approved and, for a two-part piece, its reel task too. Null when
+ * nothing moves. Mirrors complete_content_design().
+ */
+function completeContentDesign(db: Database, approvedId: string): Database | null {
+  const approved = (id: string | null) =>
+    !!id && (id === approvedId || db.tasks.find((t) => t.id === id)?.status === "Approved");
+  let moved = false;
+  const contentEntries = db.contentEntries.map((e) => {
+    if (e.stage !== "Ready To Design") return e;
+    if (e.allottedTaskId !== approvedId && e.motionAllottedTaskId !== approvedId) return e;
+    if (!approved(e.allottedTaskId)) return e;
+    if (isStmType(e.type) && !approved(e.motionAllottedTaskId)) return e;
+    moved = true;
+    return stampJourney(e, { ...e, stage: "Design Completed" });
+  });
+  return moved ? { ...db, contentEntries } : null;
+}
+
+/** Whether a task has content pieces allotted to it, whose stage an approval may move. */
+const designsContent = (db: Database, taskId: string) =>
+  db.contentEntries.some((e) => e.allottedTaskId === taskId || e.motionAllottedTaskId === taskId);
+
 function withSlots(scopes: Scope[], content: boolean): Scope[] {
   return content ? [...scopes, "content"] : scopes;
 }
