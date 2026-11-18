@@ -8,7 +8,13 @@ import { Modal } from "@/components/ui/modal";
 import { Avatar, Badge, Button, Field, Input, Select, cx } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
 import { addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
-import { PRIORITIES, TASK_STATUS_STYLE, WORKDAY_HOURS } from "@/lib/master-data";
+import {
+  CONTENT_WRITER_DEPARTMENT,
+  PRIORITIES,
+  TASK_STATUS_STYLE,
+  WORKDAY_HOURS,
+} from "@/lib/master-data";
+import { canBeAllottedContent } from "@/lib/permissions";
 import { useStore, type ContentAllotment } from "@/lib/store";
 import {
   contentLabel,
@@ -266,8 +272,9 @@ function PartPicker({
         taskCount.set(t.assigneeId, (taskCount.get(t.assigneeId) ?? 0) + 1);
       }
     }
+    // Writers write; the design and the reel are someone else's (0038).
     const active = db.users
-      .filter((u) => u.active)
+      .filter((u) => u.active && canBeAllottedContent(u))
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
     const inside = active.filter((u) => taskCount.has(u.id));
     return {
@@ -338,7 +345,10 @@ function PartPicker({
               On this project ({people.inside.length})
             </p>
             {people.inside.length === 0 ? (
-              <p className="text-[12px] text-ink-faint">Nobody holds a task here yet.</p>
+              <p className="text-[12px] text-ink-faint">
+                Nobody here can take it yet. Content writers are not offered: a piece is
+                designed by someone else.
+              </p>
             ) : (
               <div className="grid gap-1.5 sm:grid-cols-2">
                 {people.inside.map(({ user: u, tasks }) => (
@@ -387,6 +397,7 @@ function PartPicker({
             />
             <p className="mt-1.5 text-[11px] text-ink-faint">
               They have no task here, so a new task is created for them on this project.
+              Content writers are not offered.
             </p>
           </div>
         </div>
@@ -470,7 +481,9 @@ function PartPicker({
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Department" required error={errors.department}>
               <SearchSelect
-                options={db.departments.map((d) => ({ value: d, label: d }))}
+                options={db.departments
+                  .filter((d) => d !== CONTENT_WRITER_DEPARTMENT)
+                  .map((d) => ({ value: d, label: d }))}
                 value={draft.department}
                 onChange={(v) => setDraft({ department: v })}
                 placeholder="Select"

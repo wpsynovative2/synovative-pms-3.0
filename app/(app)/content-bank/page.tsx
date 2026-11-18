@@ -166,8 +166,55 @@ export default function ContentBankPage() {
     return visible;
   }, [visible, scope, user.id]);
 
+  /*
+   * Everything a row shows, as one lowercase line per piece, so the search finds
+   * a piece by any of it: its own words, its project and client, the company and
+   * property behind it, its task, who writes and who holds it, and its month,
+   * type, status, placement and billing. Several words must all be found, in any
+   * order: "turner annu" finds Annu's pieces on 36 Turner Road.
+   */
+  const haystack = useMemo(() => {
+    const users = new Map(db.users.map((u) => [u.id, u.fullName]));
+    const projects = new Map(db.projects.map((p) => [p.id, p]));
+    const tasks = new Map(db.tasks.map((t) => [t.id, t]));
+    const name = (id: string | null | undefined) => (id ? (users.get(id) ?? "") : "");
+    return new Map(
+      scoped.map((e) => {
+        const project = projects.get(e.projectId);
+        const task = e.taskId ? tasks.get(e.taskId) : undefined;
+        const writer = e.taskId ? task?.assigneeId : e.createdBy;
+        return [
+          e.id,
+          [
+            e.title,
+            e.caption,
+            e.onPic,
+            // Rich text: the words, not the markup.
+            e.description.replace(/<[^>]*>/g, " "),
+            e.type,
+            e.stage ?? "",
+            e.placement ?? "",
+            e.billingType,
+            formatMonth(e.forMonth),
+            ...e.referenceLinks,
+            project?.name ?? "",
+            project?.clientName ?? "",
+            companyById(project?.companyId ?? null)?.name ?? "",
+            propertyById(project?.propertyId ?? null)?.name ?? "",
+            task ? `${task.code ?? ""} ${task.title}` : "",
+            name(writer),
+            name(e.allottedTo),
+            name(e.motionAllottedTo),
+          ]
+            .join(" \n ")
+            .toLowerCase(),
+        ];
+      }),
+    );
+  }, [scoped, db.users, db.projects, db.tasks, companyById, propertyById]);
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return scoped.filter(
       (e) =>
         (type === "all" || e.type === type) &&
@@ -180,13 +227,9 @@ export default function ContentBankPage() {
         (!billing || e.billingType === billing) &&
         (!placement || (placement === NONE ? !e.placement : e.placement === placement)) &&
         (!progress || isContentStarted(e) === (progress === "started")) &&
-        (!q ||
-          e.caption.toLowerCase().includes(q) ||
-          e.description.toLowerCase().includes(q) ||
-          e.onPic.toLowerCase().includes(q) ||
-          e.type.toLowerCase().includes(q)),
+        (!words.length || words.every((w) => haystack.get(e.id)?.includes(w))),
     );
-  }, [scoped, query, type, forMonth, projectId, assigneeId, writerId, stage, billing, placement, progress]);
+  }, [scoped, haystack, query, type, forMonth, projectId, assigneeId, writerId, stage, billing, placement, progress]);
 
   // Only months some visible piece is actually for, newest first.
   const monthsInUse = useMemo(
@@ -436,7 +479,7 @@ export default function ContentBankPage() {
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput
           className="max-w-md min-w-72 flex-1"
-          placeholder="Search captions, on-pic lines and content…"
+          placeholder="Search projects, pieces, people, captions…"
           value={query}
           active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}

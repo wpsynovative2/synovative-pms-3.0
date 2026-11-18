@@ -566,6 +566,12 @@ export function canAllotContent(u: User, project: Project | null): boolean {
 }
 
 /**
+ * Who a piece may be allotted to, to design or to edit into a reel: anyone but
+ * the writers' desk. Mirrors may_be_allotted_content() in 0038.
+ */
+export const canBeAllottedContent = (u: User) => !isContentWriter(u);
+
+/**
  * Saying where a piece has got to: its writer, the global managers, the
  * Project Leader, whoever may review the writer's task, the person it is
  * allotted to, and the author desks on the project. Mirrors
