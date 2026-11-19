@@ -560,7 +560,7 @@ export type NewProjectTaskInput = Pick<
       | "contentCount"
       | "contentTypes"
       | "durationDays"
-      | "threeDCategory"
+      | "threeDCategories"
       | "threeDSoftware"
       | "shotsBrief"
       | "cameraAngles"

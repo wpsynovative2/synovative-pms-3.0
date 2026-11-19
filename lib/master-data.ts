@@ -59,6 +59,20 @@ export const CAM_SHOTS_CATEGORY: ThreeDCategory = "Cam shots";
 /** What a 3D task in a group asks to be (0024). */
 export const THREE_D_CATEGORIES: ThreeDCategory[] = ["Modeling", "Texture", "Lighting"];
 export const THREE_D_SOFTWARE: ThreeDSoftware[] = ["Blender", "Unreal"];
+/**
+ * A task may be several of each (0043). Picked values are kept in the order
+ * of the list above, so "Modeling · Texture" never reads the other way round.
+ */
+export const inListOrder = <T extends string>(list: readonly T[], picked: readonly string[]): T[] =>
+  list.filter((x) => picked.includes(x));
+/** "Modeling, Texture · Blender": a 3D task's work at a glance. */
+export const threeDSummary = (t: {
+  threeDCategories?: readonly string[];
+  threeDSoftware?: readonly string[];
+}) =>
+  [(t.threeDCategories ?? []).join(", "), (t.threeDSoftware ?? []).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
 export const PROJECT_DRIVE_AREAS = {
   csf: "CSF",
   team3d: "3D Team",

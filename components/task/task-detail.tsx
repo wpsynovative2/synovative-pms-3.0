@@ -232,11 +232,13 @@ export function TaskDetailDrawer({
                 {formatDate(task.dueDate)}
               </span>
             </Fact>
-            {project?.is3d && task.threeDCategory ? (
-              <Fact label="Task category">{task.threeDCategory}</Fact>
+            {project?.is3d && task.threeDCategories?.length ? (
+              <Fact label={task.threeDCategories.length > 1 ? "Task categories" : "Task category"}>
+                {task.threeDCategories.join(", ")}
+              </Fact>
             ) : null}
-            {project?.is3d && task.threeDSoftware ? (
-              <Fact label="Software">{task.threeDSoftware}</Fact>
+            {project?.is3d && task.threeDSoftware?.length ? (
+              <Fact label="Software">{task.threeDSoftware.join(", ")}</Fact>
             ) : null}
             {camShort ? (
               <>

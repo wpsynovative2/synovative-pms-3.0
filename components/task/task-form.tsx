@@ -36,6 +36,8 @@ import {
   THREE_D_DEPARTMENT,
   THREE_D_SOFTWARE,
   WORKDAY_HOURS,
+  inListOrder,
+  threeDSummary,
 } from "@/lib/master-data";
 import { canReviewTask, canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { ruleError, seriesFor } from "@/lib/recurrence";
@@ -71,8 +73,8 @@ interface FormState {
   propertyId: string;
   clientIds: string[];
   /** 3D projects only (0024). */
-  threeDCategory: ThreeDCategory | "";
-  threeDSoftware: ThreeDSoftware | "";
+  threeDCategories: ThreeDCategory[];
+  threeDSoftware: ThreeDSoftware[];
   /** Cam shots tasks only (0025). */
   shotsBrief: string;
   cameraAngles: string;
@@ -205,11 +207,10 @@ export function TaskFormModal({
     propertyId: task?.propertyId ?? "",
     clientIds: task?.clientIds ?? [],
     // Cam shots is no longer offered (0035), so an older task picks again.
-    threeDCategory:
-      task?.threeDCategory === CAM_SHOTS_CATEGORY && !task.shortId
-        ? ""
-        : (task?.threeDCategory ?? ""),
-    threeDSoftware: task?.threeDSoftware ?? "",
+    threeDCategories: task?.shortId
+      ? (task.threeDCategories ?? [])
+      : inListOrder(THREE_D_CATEGORIES, task?.threeDCategories ?? []),
+    threeDSoftware: task?.threeDSoftware ?? [],
     shotsBrief: task?.shotsBrief ?? "",
     cameraAngles: task?.cameraAngles ?? "",
     thumbnailFileId: task?.thumbnailFileId ?? "",
@@ -374,8 +375,7 @@ export function TaskFormModal({
     const group = groups.find((g) => g.id === t.groupId);
     return [
       group ? `${codes.get(group.id) ?? ""} ${group.name}` : "Ungrouped",
-      t.threeDCategory,
-      t.threeDSoftware,
+      threeDSummary(t),
       db.users.find((u) => u.id === t.assigneeId)?.fullName ?? "Nobody yet",
       t.status,
       `due ${formatDate(t.dueDate)}`,
@@ -421,9 +421,12 @@ export function TaskFormModal({
   const framesValue = Number(frames);
   const errors = {
     title: !form.title.trim() ? "A title is required." : undefined,
-    threeDCategory:
-      asksCategory && !form.threeDCategory ? "Pick the task category." : undefined,
-    threeDSoftware: asksCategory && !form.threeDSoftware ? "Pick the software." : undefined,
+    threeDCategories:
+      asksCategory && !form.threeDCategories.length
+        ? "Pick at least one task category."
+        : undefined,
+    threeDSoftware:
+      asksCategory && !form.threeDSoftware.length ? "Pick at least one software." : undefined,
     frames:
       isCam && !(Number.isInteger(framesValue) && framesValue > 0)
         ? "Enter the number of frames, a whole number above 0."
@@ -526,8 +529,8 @@ export function TaskFormModal({
         : {}),
       ...(asks3dDetails
         ? {
-            threeDCategory: isCam ? CAM_SHOTS_CATEGORY : form.threeDCategory || null,
-            threeDSoftware: isCam ? null : form.threeDSoftware || null,
+            threeDCategories: isCam ? [CAM_SHOTS_CATEGORY] : form.threeDCategories,
+            threeDSoftware: isCam ? [] : form.threeDSoftware,
             thumbnailFileId: form.thumbnailFileId || null,
             thumbnailUrl: form.thumbnailUrl || null,
             thumbnailName,
@@ -746,36 +749,32 @@ export function TaskFormModal({
             <Field
               label="Task category"
               required
-              error={touched ? errors.threeDCategory : undefined}
+              error={touched ? errors.threeDCategories : undefined}
+              hint="Pick one or more."
             >
-              <Select
-                value={form.threeDCategory}
-                onChange={(e) => set("threeDCategory", e.target.value as ThreeDCategory | "")}
-              >
-                <option value="">Choose…</option>
-                {THREE_D_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
+              <MultiSelect
+                options={THREE_D_CATEGORIES.map((c) => ({ value: c, label: c }))}
+                value={form.threeDCategories}
+                onChange={(next) =>
+                  set("threeDCategories", inListOrder(THREE_D_CATEGORIES, next))
+                }
+                placeholder="Search categories…"
+                emptyLabel="Choose…"
+              />
             </Field>
             <Field
               label="Software"
               required
               error={touched ? errors.threeDSoftware : undefined}
+              hint="Pick one or more."
             >
-              <Select
+              <MultiSelect
+                options={THREE_D_SOFTWARE.map((s) => ({ value: s, label: s }))}
                 value={form.threeDSoftware}
-                onChange={(e) => set("threeDSoftware", e.target.value as ThreeDSoftware | "")}
-              >
-                <option value="">Choose…</option>
-                {THREE_D_SOFTWARE.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
+                onChange={(next) => set("threeDSoftware", inListOrder(THREE_D_SOFTWARE, next))}
+                placeholder="Search software…"
+                emptyLabel="Choose…"
+              />
             </Field>
           </div>
         ) : null}

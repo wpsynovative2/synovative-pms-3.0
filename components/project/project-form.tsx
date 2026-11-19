@@ -31,6 +31,7 @@ import {
   THREE_D_DEPARTMENT,
   THREE_D_SERVICE,
   THREE_D_SOFTWARE,
+  inListOrder,
 } from "@/lib/master-data";
 import { canSeeClients, canSetRecurrence } from "@/lib/permissions";
 import { occurrenceTitle, ruleError, seriesFor } from "@/lib/recurrence";
@@ -61,8 +62,8 @@ interface TaskDraft {
   department: string;
   assigneeId: string;
   /** 3D projects only (0024). */
-  threeDCategory?: ThreeDCategory | "";
-  threeDSoftware?: ThreeDSoftware | "";
+  threeDCategories?: ThreeDCategory[];
+  threeDSoftware?: ThreeDSoftware[];
   /** Cam shots rows only (0025). */
   shotsBrief?: string;
   cameraAngles?: string;
@@ -146,8 +147,8 @@ const toTaskInput = (
   department: d.department,
   assigneeId: d.assigneeId || null,
   // Rows keep these if the 3D switch is turned off, so they are not sent then.
-  threeDCategory: (is3d && d.threeDCategory) || null,
-  threeDSoftware: (is3d && d.threeDSoftware) || null,
+  threeDCategories: is3d ? (d.threeDCategories ?? []) : [],
+  threeDSoftware: is3d ? (d.threeDSoftware ?? []) : [],
   // Cam shots is no longer a task category: cams live in Shorts (0035).
   shotsBrief: "",
   cameraAngles: "",
@@ -548,39 +549,33 @@ export function ProjectFormModal({
     !d.title.trim() ||
     !d.department ||
     (d.kind === "content" && d.contentCount < 1) ||
-    (is3d && (!d.threeDCategory || !d.threeDSoftware));
+    (is3d && (!d.threeDCategories?.length || !d.threeDSoftware?.length));
   const rowError = is3d
-    ? "Every task needs a title, a task category and a software."
+    ? "Every task needs a title, at least one task category and at least one software."
     : "Every task needs a title and a department, and a content task at least one piece.";
 
   /** What a 3D project asks of each row (0024). */
   const threeDControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => (
     <div className="flex flex-col gap-2.5">
       <div className="grid gap-2.5 sm:grid-cols-2">
-        <Select
-          value={d.threeDCategory ?? ""}
-          onChange={(e) => update({ threeDCategory: e.target.value as ThreeDCategory | "" })}
-          aria-label="Task category"
-        >
-          <option value="">Task category…</option>
-          {THREE_D_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={d.threeDSoftware ?? ""}
-          onChange={(e) => update({ threeDSoftware: e.target.value as ThreeDSoftware | "" })}
-          aria-label="Software"
-        >
-          <option value="">Software…</option>
-          {THREE_D_SOFTWARE.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </Select>
+        <MultiSelect
+          options={THREE_D_CATEGORIES.map((x) => ({ value: x, label: x }))}
+          value={d.threeDCategories ?? []}
+          onChange={(next) =>
+            update({ threeDCategories: inListOrder(THREE_D_CATEGORIES, next) })
+          }
+          placeholder="Search…"
+          emptyLabel="Task categories…"
+        />
+        <MultiSelect
+          options={THREE_D_SOFTWARE.map((x) => ({ value: x, label: x }))}
+          value={d.threeDSoftware ?? []}
+          onChange={(next) =>
+            update({ threeDSoftware: inListOrder(THREE_D_SOFTWARE, next) })
+          }
+          placeholder="Search…"
+          emptyLabel="Software…"
+        />
       </div>
     </div>
   );

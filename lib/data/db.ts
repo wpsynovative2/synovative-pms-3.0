@@ -522,8 +522,8 @@ function buildTasks(
         },
         codes,
       ),
-      threeDCategory: (r.three_d_category as Task["threeDCategory"]) ?? null,
-      threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? null,
+      threeDCategories: (r.three_d_categories as Task["threeDCategories"]) ?? [],
+      threeDSoftware: (r.three_d_software as Task["threeDSoftware"]) ?? [],
       shotsBrief: str(r.shots_brief),
       cameraAngles: str(r.camera_angles),
       thumbnailFileId: nullable(r.thumbnail_file_id),
@@ -1286,7 +1286,7 @@ export function taskRow(
     | "frames"
     | "renderGroupIds"
     | "renderTaskIds"
-    | "threeDCategory"
+    | "threeDCategories"
     | "threeDSoftware"
     | "shotsBrief"
     | "cameraAngles"
@@ -1322,8 +1322,8 @@ export function taskRow(
     frames: t.frames ?? null,
     render_group_ids: t.renderGroupIds ?? [],
     render_task_ids: t.renderTaskIds ?? [],
-    three_d_category: t.threeDCategory ?? null,
-    three_d_software: t.threeDSoftware ?? null,
+    three_d_categories: t.threeDCategories ?? [],
+    three_d_software: t.threeDSoftware ?? [],
     shots_brief: t.shotsBrief ?? "",
     camera_angles: t.cameraAngles ?? "",
     thumbnail_file_id: t.thumbnailFileId ?? null,
@@ -1392,7 +1392,7 @@ export const TASK_COLUMNS: Record<string, string> = {
   frames: "frames",
   renderGroupIds: "render_group_ids",
   renderTaskIds: "render_task_ids",
-  threeDCategory: "three_d_category",
+  threeDCategories: "three_d_categories",
   threeDSoftware: "three_d_software",
   shotsBrief: "shots_brief",
   cameraAngles: "camera_angles",

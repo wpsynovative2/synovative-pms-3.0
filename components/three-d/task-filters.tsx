@@ -57,8 +57,9 @@ export function applyThreeDFilters(
     ) {
       return false;
     }
-    if (f.category !== "all" && t.threeDCategory !== f.category) return false;
-    if (f.software !== "all" && t.threeDSoftware !== f.software) return false;
+    // A task of several categories or software matches each of them (0043).
+    if (f.category !== "all" && !t.threeDCategories?.includes(f.category)) return false;
+    if (f.software !== "all" && !t.threeDSoftware?.includes(f.software)) return false;
     if (f.status === "open") {
       if (t.status === "Approved") return false;
     } else if (f.status === "overdue") {

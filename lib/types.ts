@@ -316,8 +316,9 @@ export interface Task {
   /** "T1.2.3", or "Cam1.2" for a cam. Derived when loaded, never stored. */
   code?: string;
   /** 3D projects only (0024). Empty on a task from before the project was marked 3D. */
-  threeDCategory?: ThreeDCategory | null;
-  threeDSoftware?: ThreeDSoftware | null;
+  /** One or more of each (0043). A cam is ["Cam shots"] with no software. */
+  threeDCategories?: ThreeDCategory[];
+  threeDSoftware?: ThreeDSoftware[];
   /** Cam shots tasks only (0025). The brief is rich text, like `description`. */
   shotsBrief?: string;
   cameraAngles?: string;

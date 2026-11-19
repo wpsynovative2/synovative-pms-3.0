@@ -15,6 +15,7 @@ import { Avatar, Badge, Button, Card, IconButton, ProgressBar, cx } from "@/comp
 import { RichText } from "@/components/ui/rich-text";
 import { groupProgress, type GroupState } from "@/lib/analytics";
 import { formatShortDate } from "@/lib/calendar";
+import { threeDSummary } from "@/lib/master-data";
 import { useStore } from "@/lib/store";
 import { isTaskWaiting, type Project, type Task, type TaskGroup } from "@/lib/types";
 
@@ -94,7 +95,10 @@ export function TaskGroupCard({
   onEdit?: (g: TaskGroup) => void;
   onDelete?: (g: TaskGroup) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  // Closed until opened, so a long project reads as a list of its groups. While
+  // the page is filtering, what matched is opened to show it; a click still wins.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const open = choice ?? !!shownTaskIds;
 
   const subIds = useMemo(() => new Set(subGroups.map((s) => s.id)), [subGroups]);
   // Ungrouped: tasks outside every group. A group: every task in its sub-groups.
@@ -123,7 +127,7 @@ export function TaskGroupCard({
       >
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setChoice(!open)}
           aria-expanded={open}
           className="flex min-w-48 flex-1 items-center gap-2 text-left"
         >
@@ -230,7 +234,10 @@ function SubGroupSection({
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
-  const [open, setOpen] = useState(true);
+  // Closed until opened, so a long project reads as a list of its groups. While
+  // the page is filtering, what matched is opened to show it; a click still wins.
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const open = choice ?? !!shownTaskIds;
   const tasks = useMemo(
     () => allTasks.filter((t) => t.groupId === subGroup.id).sort(byNumber),
     [allTasks, subGroup.id],
@@ -242,7 +249,7 @@ function SubGroupSection({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5">
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setChoice(!open)}
           aria-expanded={open}
           className="flex min-w-44 flex-1 items-center gap-2 text-left"
         >
@@ -385,10 +392,8 @@ function TaskRows({
             ) : null}
             <span className="flex min-w-40 flex-1 flex-col">
               <span className="truncate text-[13px] text-ink">{t.title}</span>
-              {t.threeDCategory || t.threeDSoftware ? (
-                <span className="truncate text-[11px] text-ink-faint">
-                  {[t.threeDCategory, t.threeDSoftware].filter(Boolean).join(" · ")}
-                </span>
+              {threeDSummary(t) ? (
+                <span className="truncate text-[11px] text-ink-faint">{threeDSummary(t)}</span>
               ) : null}
             </span>
             {assignee ? (

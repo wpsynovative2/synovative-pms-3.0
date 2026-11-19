@@ -53,6 +53,7 @@ import {
   THREE_D_SERVICE,
   THREE_D_SOFTWARE,
   WORKDAY_HOURS,
+  inListOrder,
 } from "@/lib/master-data";
 import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
@@ -768,8 +769,8 @@ interface TaskDraft {
   /** Content tasks only: the CB type of each piece, by slot (0015). */
   contentTypes: ContentType[];
   /** A 3D project's tasks only, and then required (0024). */
-  threeDCategory: ThreeDCategory | "";
-  threeDSoftware: ThreeDSoftware | "";
+  threeDCategories: ThreeDCategory[];
+  threeDSoftware: ThreeDSoftware[];
 }
 
 /**
@@ -911,8 +912,8 @@ function ConvertModal({
           kind: item.kind,
           contentCount: item.kind === "content" ? item.contentCount : 0,
           contentTypes: item.kind === "content" ? item.contentTypes : [],
-          threeDCategory: "",
-          threeDSoftware: "",
+          threeDCategories: [],
+          threeDSoftware: [],
         };
       }),
     );
@@ -956,13 +957,15 @@ function ConvertModal({
         // it is expected to set the count that was actually sold.
         contentCount: kind === "content" ? 1 : 0,
         contentTypes: [],
-        threeDCategory: "",
-        threeDSoftware: "",
+        threeDCategories: [],
+        threeDSoftware: [],
       },
     ]);
 
   const badDraft = is3d
-    ? rowsKept.some((d) => !d.title.trim() || !d.threeDCategory || !d.threeDSoftware)
+    ? rowsKept.some(
+        (d) => !d.title.trim() || !d.threeDCategories.length || !d.threeDSoftware.length,
+      )
     : drafts.some(
         (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
       );
@@ -1018,8 +1021,8 @@ function ConvertModal({
           assigneeId,
           ...(is3d
             ? {
-                threeDCategory: d.threeDCategory || null,
-                threeDSoftware: d.threeDSoftware || null,
+                threeDCategories: d.threeDCategories,
+                threeDSoftware: d.threeDSoftware,
               }
             : {}),
           priority: d.priority,
@@ -1352,38 +1355,28 @@ function ConvertModal({
 
                     {is3d ? (
                       <div className="grid gap-2.5 sm:grid-cols-2">
-                        <Select
-                          value={d.threeDCategory}
-                          onChange={(e) =>
+                        <MultiSelect
+                          options={THREE_D_CATEGORIES.map((x) => ({ value: x, label: x }))}
+                          value={d.threeDCategories}
+                          onChange={(next) =>
                             setDraft(d.key, {
-                              threeDCategory: e.target.value as ThreeDCategory | "",
+                              threeDCategories: inListOrder(THREE_D_CATEGORIES, next),
                             })
                           }
-                          aria-label={`Category of task ${i + 1}`}
-                        >
-                          <option value="">Task category…</option>
-                          {THREE_D_CATEGORIES.map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </Select>
-                        <Select
+                          placeholder="Search…"
+                          emptyLabel="Task categories…"
+                        />
+                        <MultiSelect
+                          options={THREE_D_SOFTWARE.map((x) => ({ value: x, label: x }))}
                           value={d.threeDSoftware}
-                          onChange={(e) =>
+                          onChange={(next) =>
                             setDraft(d.key, {
-                              threeDSoftware: e.target.value as ThreeDSoftware | "",
+                              threeDSoftware: inListOrder(THREE_D_SOFTWARE, next),
                             })
                           }
-                          aria-label={`Software of task ${i + 1}`}
-                        >
-                          <option value="">Software…</option>
-                          {THREE_D_SOFTWARE.map((x) => (
-                            <option key={x} value={x}>
-                              {x}
-                            </option>
-                          ))}
-                        </Select>
+                          placeholder="Search…"
+                          emptyLabel="Software…"
+                        />
                         <div className="sm:col-span-2">
                           <SearchSelect
                             options={threeDArtists.map((u) => ({

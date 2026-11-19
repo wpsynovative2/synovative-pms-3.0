@@ -88,9 +88,9 @@ on its ordinary project page, and do not appear in the module.
 | Field | On | Rule |
 | --- | --- | --- |
 | Department | Task | Not asked. Always 3D Artists, and the database refuses another on a new task |
-| Task category | Task | Required by the forms: Modeling, Texture, Lighting or Cam shots |
+| Task categories | Task | Required by the forms, one or more (`0043`): Modeling, Texture, Lighting; a cam is Cam shots |
 | Shots brief (rich text), Camera angles | Task | No longer asked (`0035`): Cam shots is not offered as a category, because a camera is now a cam in Shorts (section 10). Older tasks keep what they have, shown on the task, and pick another category when next edited |
-| Software | Task | Required by the forms: Blender or Unreal |
+| Software | Task | Required by the forms, one or more (`0043`): Blender, Unreal. A cam has none |
 | Thumbnail | Task | Optional, in every category (`0026`). The browser compresses it to a JPEG, at most 1600 px on its longest side, before it goes to Drive |
 | Thumbnail name | Task | Optional (`0027`). Shown under the image, and names the file on Drive |
 | Description | Sub-group | Optional rich text (`0033`) |
@@ -599,7 +599,7 @@ it has run.
 | 11 | Who sees the module? | **3D Artists, Super Admin, Admin, Manager and Business Development Executives** |
 | 12 | Can a 3D project have content tasks? | **No**. An older project marked 3D keeps any it already has, outside the module |
 | 13 | Which department does a 3D task belong to? | **Always 3D Artists**; the forms do not ask. An older project marked 3D keeps the departments its tasks already have |
-| 14 | What else does a 3D task ask for? | **Task category** (Modeling, Texture, Lighting, Cam shots) and **software** (Blender, Unreal), one of each, both required |
+| 14 | What else does a 3D task ask for? | **Task category** (Modeling, Texture, Lighting, Cam shots) and **software** (Blender, Unreal), both required. Since `0043`, one or more of each |
 | 15 | What notes do groups and tasks carry? | **Client Supe Notes, 3D Lead Note and General Notes**, optional rich text, and editable by whoever may edit that group or task |
 | 16 | What does a Cam shots task ask for? | **A shots brief (rich text) and camera angles**, both required, on top of what every 3D task asks |
 | 17 | Can a 3D task have a thumbnail? | **Yes, optional, in any category.** Compressed in the browser and kept privately in one master Drive folder, with the link on the task |
