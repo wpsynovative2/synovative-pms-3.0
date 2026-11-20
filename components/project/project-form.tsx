@@ -1,13 +1,26 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PieceTypesPicker, pieceTypes } from "@/components/content/piece-types";
+import {
+  PieceTypesPicker,
+  piecePlacements,
+  pieceTypes,
+  placementsComplete,
+} from "@/components/content/piece-types";
 import { DatePicker, dateUnavailableReason } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
-import { IconEdit, IconPlus, IconTemplate, IconTrash } from "@/components/ui/icons";
-import { Modal } from "@/components/ui/modal";
+import { TaskFormModal } from "@/components/task/task-form";
+import {
+  IconContent,
+  IconEdit,
+  IconPlus,
+  IconTemplate,
+  IconTrash,
+} from "@/components/ui/icons";
+import { ConfirmDialog, Modal } from "@/components/ui/modal";
 import {
   Avatar,
+  Badge,
   Button,
   Field,
   Input,
@@ -38,11 +51,13 @@ import { occurrenceTitle, ruleError, seriesFor } from "@/lib/recurrence";
 import { useStore, type NewProjectTaskInput } from "@/lib/store";
 import type {
   CalendarConfig,
+  ContentPlacement,
   ContentType,
   Priority,
   Project,
   ProjectStatus,
   RecurrenceRule,
+  Task,
   TaskKind,
   ThreeDCategory,
   ThreeDSoftware,
@@ -82,6 +97,8 @@ interface TaskDraft {
   contentCount: number;
   /** Content tasks only: the CB type of each piece, by slot (0015). */
   contentTypes: ContentType[];
+  /** Content tasks only: where each piece goes, by slot (0044). */
+  contentPlacements?: (ContentPlacement | null)[];
   /**
    * Working days from start to due. In a step-by-step project this is all a
    * task after the first is given; its dates follow the chain (0014).
@@ -160,6 +177,8 @@ const toTaskInput = (
   kind: d.kind,
   contentCount: d.kind === "content" ? d.contentCount : 0,
   contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
+  contentPlacements:
+    d.kind === "content" ? piecePlacements(d.contentCount, d.contentPlacements) : [],
   key: d.key,
   dependsOnKey: link?.after.key,
   durationDays: link ? d.durationDays : undefined,
@@ -548,11 +567,12 @@ export function ProjectFormModal({
   const rowIncomplete = (d: TaskDraft) =>
     !d.title.trim() ||
     !d.department ||
-    (d.kind === "content" && d.contentCount < 1) ||
+    (d.kind === "content" &&
+      (d.contentCount < 1 || !placementsComplete(d.contentCount, d.contentPlacements))) ||
     (is3d && (!d.threeDCategories?.length || !d.threeDSoftware?.length));
   const rowError = is3d
     ? "Every task needs a title, at least one task category and at least one software."
-    : "Every task needs a title and a department, and a content task at least one piece.";
+    : "Every task needs a title and a department, and a content task at least one piece, each with a placement.";
 
   /** What a 3D project asks of each row (0024). */
   const threeDControls = (d: TaskDraft, update: (patch: Partial<TaskDraft>) => void) => (
@@ -1057,7 +1077,9 @@ export function ProjectFormModal({
             ) : (
               <ul className="flex flex-col gap-2.5">
                 {resolvedTemplateDrafts.map((d, i) => {
-                  const open = openRows.includes(d.key);
+                  // A row still missing something stays open once Save is tried,
+                  // so what it needs is on screen.
+                  const open = openRows.includes(d.key) || (touched && rowIncomplete(d));
                   const label = d.title.trim() || `Task ${i + 1}`;
                   const options = db.users
                     .filter((u) => u.active && u.departments.includes(d.department))
@@ -1173,6 +1195,10 @@ export function ProjectFormModal({
                                 types={d.contentTypes}
                                 onChange={(contentTypes) =>
                                   setTemplateDraft(d.key, { contentTypes })
+                                }
+                                placements={d.contentPlacements}
+                                onPlacementsChange={(contentPlacements) =>
+                                  setTemplateDraft(d.key, { contentPlacements })
                                 }
                               />
                             </div>
@@ -1366,12 +1392,16 @@ export function ProjectFormModal({
                     {d.kind === "content" && d.contentCount > 0 ? (
                       <div>
                         <p className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                          CB type of each piece
+                          CB type and placement of each piece
                         </p>
                         <PieceTypesPicker
                           count={d.contentCount}
                           types={d.contentTypes}
                           onChange={(contentTypes) => setDraft(d.key, { contentTypes })}
+                          placements={d.contentPlacements}
+                          onPlacementsChange={(contentPlacements) =>
+                            setDraft(d.key, { contentPlacements })
+                          }
                         />
                       </div>
                     ) : null}
@@ -1495,6 +1525,8 @@ export function ProjectFormModal({
               </div>
             </div>
           </Field>
+        ) : mayRepeat ? (
+          <BlueprintTasks project={project} />
         ) : null}
 
         {form.leaderId ? (
@@ -1513,5 +1545,109 @@ export function ProjectFormModal({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * A repeating project's tasks and content tasks, in its edit form. The
+ * blueprint has no project page of its own, so this is where they are seen,
+ * added and changed. Each one saves as soon as its own form does — the
+ * project's Save / Cancel does not hold them back — and only projects created
+ * after the change copy it.
+ */
+function BlueprintTasks({ project }: { project: Project }) {
+  const { blueprints, userById, deleteTask } = useStore();
+  const [taskForm, setTaskForm] = useState<{ task?: Task; kind?: TaskKind } | null>(null);
+  const [removing, setRemoving] = useState<Task | null>(null);
+
+  const tasks = blueprints.tasks
+    .filter((t) => t.projectId === project.id)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  return (
+    <Field
+      label={`Tasks each time (${tasks.length})`}
+      hint="Every project created from this blueprint copies these. Adding, editing or removing one saves straight away."
+    >
+      <div className="flex flex-col gap-1.5">
+        {tasks.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[12px] text-ink-faint">
+            No tasks yet.
+          </p>
+        ) : (
+          tasks.map((t) => {
+            const assignee = userById(t.assigneeId);
+            return (
+              <div
+                key={t.id}
+                className="flex items-center gap-2.5 rounded-card border border-line-soft bg-surface-2 px-3 py-2"
+              >
+                {assignee ? (
+                  <Avatar name={assignee.fullName} size={24} />
+                ) : (
+                  <span className="h-6 w-6 shrink-0 rounded-full bg-surface-3" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 truncate text-[13px] font-medium text-ink">
+                    {t.kind === "content" ? (
+                      <IconContent size={13} className="shrink-0 text-brand-ink" />
+                    ) : null}
+                    <span className="truncate">{t.title}</span>
+                    {t.kind === "content" ? (
+                      <Badge className="shrink-0">{t.contentCount} pieces</Badge>
+                    ) : null}
+                  </p>
+                  <p className="truncate text-[11px] text-ink-faint">
+                    {t.department} · {assignee?.fullName ?? "Unassigned"} ·{" "}
+                    {formatDate(t.startDate)} → {formatDate(t.dueDate)}
+                  </p>
+                </div>
+                <Button size="sm" aria-label={`Edit ${t.title}`} onClick={() => setTaskForm({ task: t })}>
+                  <IconEdit size={13} />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  aria-label={`Remove ${t.title}`}
+                  onClick={() => setRemoving(t)}
+                >
+                  <IconTrash size={13} />
+                </Button>
+              </div>
+            );
+          })
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setTaskForm({ kind: "standard" })}>
+            <IconPlus size={14} /> Add task
+          </Button>
+          <Button onClick={() => setTaskForm({ kind: "content" })}>
+            <IconPlus size={14} /> Add content task
+          </Button>
+        </div>
+      </div>
+
+      {taskForm ? (
+        <TaskFormModal
+          open
+          onClose={() => setTaskForm(null)}
+          task={taskForm.task}
+          project={project}
+          mode="project"
+          defaultKind={taskForm.kind}
+          defaultDepartment={taskForm.kind === "content" ? CONTENT_WRITER_DEPARTMENT : undefined}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && deleteTask(removing.id)}
+        title={`Remove “${removing?.title ?? ""}” from the blueprint?`}
+        body="Projects created from now on will not include it. Projects already created keep their copy."
+        confirmLabel="Remove task"
+      />
+    </Field>
   );
 }

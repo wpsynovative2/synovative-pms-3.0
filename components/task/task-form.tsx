@@ -3,8 +3,11 @@
 import { useMemo, useState } from "react";
 import {
   DEFAULT_CONTENT_TYPE,
+  PLACEMENT_MISSING,
   PieceTypesPicker,
+  piecePlacements,
   pieceTypes,
+  placementsComplete,
 } from "@/components/content/piece-types";
 import { ThreeDNotesFields } from "@/components/three-d/notes";
 import { RenderPicker, type RenderPick } from "@/components/three-d/render-picker";
@@ -44,6 +47,7 @@ import { ruleError, seriesFor } from "@/lib/recurrence";
 import { groupCodes, groupTree } from "@/lib/task-groups";
 import { useStore } from "@/lib/store";
 import {
+  type ContentPlacement,
   type ContentType,
   type Priority,
   type Project,
@@ -100,6 +104,7 @@ export function TaskFormModal({
   defaultDescription,
   onCreated,
   recurring = false,
+  defaultKind = "standard",
 }: {
   open: boolean;
   onClose: () => void;
@@ -124,6 +129,8 @@ export function TaskFormModal({
   onCreated?: (created: Task) => void;
   /** Opened from the Recurrence page: a repeating blueprint, rule required. */
   recurring?: boolean;
+  /** What a new task starts as, e.g. "Add content task". Ignored when editing. */
+  defaultKind?: TaskKind;
 }) {
   const { db, blueprints, currentUser, createTask, updateTask, showToast } = useStore();
   const calendar = db.calendar;
@@ -229,7 +236,7 @@ export function TaskFormModal({
    * the task exists - pieces already hang off it - but the count is a target
    * and stays editable.
    */
-  const [kind, setKind] = useState<TaskKind>(task?.kind ?? "standard");
+  const [kind, setKind] = useState<TaskKind>(task?.kind ?? defaultKind);
   const [contentCount, setContentCount] = useState(String(task?.contentCount ?? 1));
   /*
    * The CB type of each piece, by slot. Editing starts from what the pieces
@@ -246,6 +253,19 @@ export function TaskFormModal({
     return Array.from(
       { length: task.contentCount },
       (_, i) => bySlot.get(i + 1) ?? task.contentTypes[i] ?? DEFAULT_CONTENT_TYPE,
+    );
+  });
+  // Where each piece goes (0044), read the same way: what the piece says now.
+  const [contentPlacements, setContentPlacements] = useState<(ContentPlacement | null)[]>(() => {
+    if (!task) return [];
+    const bySlot = new Map(
+      db.contentEntries
+        .filter((e) => e.taskId === task.id && e.slot !== null && e.placement)
+        .map((e) => [e.slot as number, e.placement]),
+    );
+    return Array.from(
+      { length: task.contentCount },
+      (_, i) => bySlot.get(i + 1) ?? task.contentPlacements?.[i] ?? null,
     );
   });
   // A 3D project has no content tasks (0023). One already there, in an older
@@ -459,6 +479,10 @@ export function TaskFormModal({
       isContent && (!contentCount || Number.isNaN(pieces) || pieces < 1)
         ? "How many pieces? At least one."
         : undefined,
+    contentPlacements:
+      pieceCount > 0 && !placementsComplete(pieceCount, contentPlacements)
+        ? PLACEMENT_MISSING
+        : undefined,
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -514,6 +538,7 @@ export function TaskFormModal({
       kind: isContent ? ("content" as const) : ("standard" as const),
       contentCount: isContent ? pieces : 0,
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
+      contentPlacements: isContent ? piecePlacements(pieces, contentPlacements) : [],
       dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
       durationDays: dependent ? days : null,
       // Content tasks stay outside the groups, and so does anything not in 3D, and
@@ -677,11 +702,18 @@ export function TaskFormModal({
 
         {pieceCount > 0 ? (
           <Field
-            label="CB type of each piece"
+            label="CB type and placement of each piece"
             required
-            hint="Each piece is created as this type. The writer can still change it."
+            hint="Each piece is created as this type and placement. The writer can still change them."
+            error={touched ? errors.contentPlacements : undefined}
           >
-            <PieceTypesPicker count={pieceCount} types={contentTypes} onChange={setContentTypes} />
+            <PieceTypesPicker
+              count={pieceCount}
+              types={contentTypes}
+              onChange={setContentTypes}
+              placements={contentPlacements}
+              onPlacementsChange={setContentPlacements}
+            />
           </Field>
         ) : null}
 

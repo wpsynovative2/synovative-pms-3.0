@@ -559,6 +559,7 @@ export type NewProjectTaskInput = Pick<
       | "kind"
       | "contentCount"
       | "contentTypes"
+      | "contentPlacements"
       | "durationDays"
       | "threeDCategories"
       | "threeDSoftware"
@@ -621,7 +622,7 @@ export type NewTaskInput = Omit<
 > &
   // A plain task is the overwhelming default, so callers say nothing and get
   // one; only the content-task form fills these in.
-  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes">>;
+  Partial<Pick<Task, "kind" | "contentCount" | "contentTypes" | "contentPlacements">>;
 
 export interface NewUserInput {
   fullName: string;
@@ -963,6 +964,7 @@ function projectTaskRows(project: Project, tasks: NewProjectTaskInput[]): Task[]
       kind: input.kind ?? "standard",
       contentCount: input.kind === "content" ? (input.contentCount ?? 0) : 0,
       contentTypes: input.kind === "content" ? (input.contentTypes ?? []) : [],
+      contentPlacements: input.kind === "content" ? (input.contentPlacements ?? []) : [],
       dependsOnTaskIds: dependsOnTaskId ? [dependsOnTaskId] : [],
       durationDays: dependsOnTaskId ? (input.durationDays ?? 0) : null,
       id: ids[i],
@@ -1205,6 +1207,7 @@ const actions = {
       before.kind === "content" &&
       ("contentCount" in patch ||
         "contentTypes" in patch ||
+        "contentPlacements" in patch ||
         "assigneeId" in patch ||
         "title" in patch);
     // Content allotted to this task goes with it to the new assignee (0014).

@@ -505,6 +505,7 @@ function buildTasks(
       kind: (r.kind as Task["kind"]) ?? "standard",
       contentCount: num(r.content_count),
       contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
+      contentPlacements: (r.content_placements as Task["contentPlacements"] | null) ?? [],
       dependsOnTaskIds: links.get(id) ?? [],
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
@@ -1280,6 +1281,7 @@ export function taskRow(
     | "kind"
     | "contentCount"
     | "contentTypes"
+    | "contentPlacements"
     | "dependsOnTaskIds"
     | "groupId"
     | "shortId"
@@ -1314,6 +1316,7 @@ export function taskRow(
     kind: t.kind,
     content_count: t.contentCount,
     content_types: t.contentTypes,
+    content_placements: t.contentPlacements ?? [],
     // Its links go in task_dependencies once the row exists; the database
     // gives a grouped task its number (0021, 0022).
     group_id: t.groupId ?? null,
@@ -1387,6 +1390,7 @@ export const TASK_COLUMNS: Record<string, string> = {
   tags: "tags",
   contentCount: "content_count",
   contentTypes: "content_types",
+  contentPlacements: "content_placements",
   groupId: "group_id",
   shortId: "short_id",
   frames: "frames",

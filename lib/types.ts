@@ -287,6 +287,11 @@ export interface Task {
    */
   contentTypes: ContentType[];
   /**
+   * Content tasks only: where each target piece goes, by slot, the same way.
+   * A null or missing entry leaves it for the writer (0044).
+   */
+  contentPlacements?: (ContentPlacement | null)[];
+  /**
    * A standard project task can wait on other tasks in its project (0014, 0021):
    * it starts the day the last of them is approved and is due `durationDays`
    * working days later. Until then its dates are projected and it cannot be

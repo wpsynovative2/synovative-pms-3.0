@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
-import { PieceTypesPicker, pieceTypes } from "@/components/content/piece-types";
+import {
+  PieceTypesPicker,
+  piecePlacements,
+  pieceTypes,
+  placementsComplete,
+} from "@/components/content/piece-types";
 import { TaskFormModal } from "@/components/task/task-form";
 import { DatePicker } from "@/components/ui/date-picker";
 import { DurationField } from "@/components/ui/duration-field";
@@ -59,6 +64,7 @@ import { canConvertObc, canDeleteCrm, canManageCrm } from "@/lib/permissions";
 import { useStore, type ObcInput } from "@/lib/store";
 import { OBC_STATUSES, isAllotted, obcProgress } from "@/lib/types";
 import type {
+  ContentPlacement,
   ContentType,
   Obc,
   ObcItem,
@@ -768,6 +774,8 @@ interface TaskDraft {
   contentCount: number;
   /** Content tasks only: the CB type of each piece, by slot (0015). */
   contentTypes: ContentType[];
+  /** Content tasks only: where each piece goes, by slot (0044). */
+  contentPlacements?: (ContentPlacement | null)[];
   /** A 3D project's tasks only, and then required (0024). */
   threeDCategories: ThreeDCategory[];
   threeDSoftware: ThreeDSoftware[];
@@ -967,7 +975,11 @@ function ConvertModal({
         (d) => !d.title.trim() || !d.threeDCategories.length || !d.threeDSoftware.length,
       )
     : drafts.some(
-        (d) => !d.title.trim() || !d.department || (d.kind === "content" && d.contentCount < 1),
+        (d) =>
+          !d.title.trim() ||
+          !d.department ||
+          (d.kind === "content" &&
+            (d.contentCount < 1 || !placementsComplete(d.contentCount, d.contentPlacements))),
       );
   const valid =
     name.trim() &&
@@ -1033,6 +1045,8 @@ function ConvertModal({
           kind: d.kind,
           contentCount: d.kind === "content" ? d.contentCount : 0,
           contentTypes: d.kind === "content" ? pieceTypes(d.contentCount, d.contentTypes) : [],
+          contentPlacements:
+            d.kind === "content" ? piecePlacements(d.contentCount, d.contentPlacements) : [],
         };
       }),
     );
@@ -1256,7 +1270,7 @@ function ConvertModal({
               touched && badDraft
                 ? is3d
                   ? "Every task needs a title, a task category and a software."
-                  : "Every task needs a title and a department, and a content task at least one piece."
+                  : "Every task needs a title and a department, and a content task at least one piece, each with a placement."
                 : undefined
             }
           >
@@ -1330,12 +1344,16 @@ function ConvertModal({
                     {d.kind === "content" && d.contentCount > 0 ? (
                       <div>
                         <p className="mb-1.5 text-[11px] font-medium tracking-wide text-ink-muted uppercase">
-                          CB type of each piece
+                          CB type and placement of each piece
                         </p>
                         <PieceTypesPicker
                           count={d.contentCount}
                           types={d.contentTypes}
                           onChange={(contentTypes) => setDraft(d.key, { contentTypes })}
+                          placements={d.contentPlacements}
+                          onPlacementsChange={(contentPlacements) =>
+                            setDraft(d.key, { contentPlacements })
+                          }
                         />
                       </div>
                     ) : null}
