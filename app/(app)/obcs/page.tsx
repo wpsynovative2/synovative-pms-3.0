@@ -109,15 +109,17 @@ export default function ObcsPage() {
       if (!q) return true;
       const company = companyById(o.companyId)?.name ?? "";
       const client = clientById(o.clientId)?.fullName ?? "";
+      const property = propertyById(o.propertyId)?.name ?? "";
       return (
         obcLabel(o).toLowerCase().includes(q) ||
         o.code.toLowerCase().includes(q) ||
         company.toLowerCase().includes(q) ||
         client.toLowerCase().includes(q) ||
+        property.toLowerCase().includes(q) ||
         o.zohoQuoteNumber.toLowerCase().includes(q)
       );
     });
-  }, [db.obcs, query, status, companyById, clientById]);
+  }, [db.obcs, query, status, companyById, clientById, propertyById]);
 
   const open = openId ? db.obcs.find((o) => o.id === openId) : undefined;
 
@@ -175,7 +177,7 @@ export default function ObcsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput
           className="max-w-md flex-1"
-          placeholder="Search by quote name, code, company or client…"
+          placeholder="Search by quote name, code, company, client or property…"
           value={query}
           active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}

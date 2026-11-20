@@ -39,12 +39,26 @@ import {
  * A Static to Motion piece (0022) is allotted twice, both at once: the static
  * design, then the reel editing - whose task may not start before the static
  * task is due.
+ *
+ * A task takes one piece (0048): one that already has another is shown but
+ * cannot be picked.
  */
 
 /** Marks the "create a new task" choice in the task list. */
 const NEW = "__new__";
 
 type PartKind = "static" | "reel";
+
+/** The other piece already allotted to this task, if any (0048, task_held_piece). */
+function heldPiece(
+  entries: ContentEntry[],
+  taskId: string,
+  entryId: string,
+): ContentEntry | undefined {
+  return entries.find(
+    (e) => e.id !== entryId && (e.allottedTaskId === taskId || e.motionAllottedTaskId === taskId),
+  );
+}
 
 interface NewTaskDraft {
   title: string;
@@ -302,17 +316,19 @@ function PartPicker({
   );
   // The reel can only go on a task that starts once the static is due.
   const fits = (t: Task) => !staticDue || t.startDate >= staticDue;
+  const held = (t: Task) => heldPiece(db.contentEntries, t.id, entry.id);
+  const freeTasks = theirTasks.filter((t) => !held(t));
 
   /** Picking a person settles the task choice where there is only one answer. */
   const pickUser = (id: string) => {
     const user: User | null = db.users.find((u) => u.id === id) ?? null;
     const usable = db.tasks.filter(
-      (t) => t.projectId === project.id && t.assigneeId === id && fits(t),
+      (t) => t.projectId === project.id && t.assigneeId === id && fits(t) && !held(t),
     );
-    const any = db.tasks.some((t) => t.projectId === project.id && t.assigneeId === id);
     setPart({
       userId: id,
-      taskChoice: usable.length === 1 ? usable[0].id : !any ? NEW : "",
+      // None free: a new task is the only way.
+      taskChoice: usable.length === 1 ? usable[0].id : usable.length === 0 ? NEW : "",
       draft: blankTask(
         entry,
         project,
@@ -412,15 +428,20 @@ function PartPicker({
               ? `Only a task starting on or after ${formatDate(staticDue)}, when the static is due.`
               : newcomer
                 ? `They have no task on this project yet, so one has to be created for ${who}.`
-                : theirTasks.length === 1
-                  ? "Their only task on this project is picked; or create a new one."
-                  : undefined
+                : freeTasks.length === 0
+                  ? `Each of their tasks here already has a piece, and a task takes one, so a new one is created for ${who}.`
+                  : freeTasks.length === 1 && theirTasks.length === 1
+                    ? "Their only task on this project is picked; or create a new one."
+                    : theirTasks.length > freeTasks.length
+                      ? "A task takes one piece; those that already have one cannot be picked."
+                      : undefined
           }
           error={errors.task}
         >
           <ul className="flex flex-col gap-1.5">
             {theirTasks.map((t) => {
-              const ok = fits(t);
+              const other = held(t);
+              const ok = fits(t) && !other;
               return (
                 <li key={t.id}>
                   <TaskOption
@@ -430,9 +451,11 @@ function PartPicker({
                     icon={<IconTasks size={14} />}
                     title={t.title}
                     meta={
-                      ok
-                        ? `${t.department} · ${formatDate(t.startDate)} → ${formatDate(t.dueDate)}`
-                        : `Starts ${formatDate(t.startDate)}, before the static is due`
+                      other
+                        ? `Already has “${contentLabel(other)}”`
+                        : ok
+                          ? `${t.department} · ${formatDate(t.startDate)} → ${formatDate(t.dueDate)}`
+                          : `Starts ${formatDate(t.startDate)}, before the static is due`
                     }
                     badge={<Badge className={TASK_STATUS_STYLE[t.status].chip}>{t.status}</Badge>}
                   />

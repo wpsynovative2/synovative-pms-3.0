@@ -769,6 +769,11 @@ interface StoreValue {
   createProjectWithTasks: (input: ProjectWithTasksInput) => Project;
   updateProject: (id: string, patch: Partial<Project>) => void;
   deleteProject: (id: string) => void;
+  /**
+   * A repeat made today rather than on its date (0049). skipNext: it stands for
+   * the upcoming date, which then creates nothing; otherwise it is an extra.
+   */
+  createOccurrenceNow: (kind: "project" | "task", sourceId: string, skipNext: boolean) => Promise<boolean>;
 
   createTask: (input: NewTaskInput) => Task;
   updateTask: (id: string, patch: Partial<Task>) => void;
@@ -1119,6 +1124,19 @@ const actions = {
         }
         if (blueprint && patch.startDate) await run(c.rpc("run_due_recurrences"));
       },
+    );
+  },
+
+  createOccurrenceNow(kind: "project" | "task", sourceId: string, skipNext: boolean) {
+    // Made by the database, laid out as a scheduled copy; reload what it made.
+    return commit(["projects", "tasks", "content", "notifications"], null, (c) =>
+      run(
+        c.rpc("create_occurrence_now", {
+          p_kind: kind,
+          p_source_id: sourceId,
+          p_skip_next: skipNext,
+        }),
+      ),
     );
   },
 

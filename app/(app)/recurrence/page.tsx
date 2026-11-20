@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { CrmChain } from "@/components/crm/crm-chain";
 import { ProjectFormModal } from "@/components/project/project-form";
 import { TaskFormModal } from "@/components/task/task-form";
-import { ConfirmDialog, Drawer } from "@/components/ui/modal";
+import { ConfirmDialog, Drawer, Modal } from "@/components/ui/modal";
 import {
   Avatar,
   Badge,
@@ -27,7 +27,7 @@ import {
   IconRepeat,
   IconTrash,
 } from "@/components/ui/icons";
-import { formatDate, snapToWorkingDay } from "@/lib/calendar";
+import { formatDate, snapToWorkingDay, todayISO } from "@/lib/calendar";
 import { canSetRecurrence, visibleProjects, visibleTasks } from "@/lib/permissions";
 import { describeRule, upcomingOccurrences } from "@/lib/recurrence";
 import { useStore } from "@/lib/store";
@@ -45,6 +45,10 @@ interface SeriesRow {
   next: string | null;
   /** Tasks on the blueprint, i.e. what every occurrence copies. Projects only. */
   taskCount: number;
+  /** Name, company, clients and property, lower-cased, for the search box. */
+  search: string;
+  /** Rule dates that already have their copy: one brought forward (0049) is not next. */
+  made: Set<string>;
 }
 
 /**
@@ -56,8 +60,19 @@ interface SeriesRow {
  * created as soon as it is saved.
  */
 export default function RecurrencePage() {
-  const { db, blueprints, currentUser, updateProject, updateTask, deleteProject, deleteTask, showToast } =
-    useStore();
+  const {
+    db,
+    blueprints,
+    currentUser,
+    updateProject,
+    updateTask,
+    deleteProject,
+    deleteTask,
+    showToast,
+    companyById,
+    clientById,
+    propertyById,
+  } = useStore();
   const user = currentUser!;
   const mayManage = canSetRecurrence(user);
   const searchParams = useSearchParams();
@@ -69,12 +84,31 @@ export default function RecurrencePage() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [creating, setCreating] = useState<"project" | "task" | null>(null);
   const [deleting, setDeleting] = useState<SeriesRow | null>(null);
+  const [makingNow, setMakingNow] = useState<SeriesRow | null>(null);
   // Held by id so the drawer shows edits made while it is open.
   const [openId, setOpenId] = useState<string | null>(highlight);
 
   const rows = useMemo<SeriesRow[]>(() => {
-    const next = (s: RecurrenceSeries) =>
-      upcomingOccurrences(s.rule, s.anchor, s.cursor, 1)[0]?.date ?? null;
+    const next = (s: RecurrenceSeries, made: Set<string>) => nextDate(s, s.cursor, made);
+    const madeDates = (copies: { series?: { date: string } | null }[]) =>
+      new Set(copies.map((x) => x.series?.date).filter((d): d is string => !!d));
+    const searchText = (
+      title: string,
+      companyId: string | null | undefined,
+      clientIds: string[] | undefined,
+      propertyId: string | null | undefined,
+      extra = "",
+    ) =>
+      [
+        title,
+        extra,
+        companyById(companyId)?.name,
+        ...(clientIds ?? []).map((id) => clientById(id)?.fullName),
+        propertyById(propertyId)?.name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
     const projects = (
       mayManage
@@ -89,8 +123,16 @@ export default function RecurrencePage() {
         .filter((x) => x.series?.sourceId === p.id)
         .sort((a, b) => b.startDate.localeCompare(a.startDate))
         .map((x) => ({ id: x.id, name: x.name, href: `/projects/${x.id}`, date: x.startDate })),
-      next: next(p.recurrence!),
+      next: null,
+      made: madeDates(db.projects.filter((x) => x.series?.sourceId === p.id)),
       taskCount: blueprints.tasks.filter((t) => t.projectId === p.id).length,
+      search: searchText(
+        p.name,
+        p.companyId,
+        p.clientIds.length ? p.clientIds : p.clientId ? [p.clientId] : [],
+        p.propertyId,
+        p.clientName,
+      ),
     }));
 
     const tasks = (
@@ -111,18 +153,22 @@ export default function RecurrencePage() {
             href: `/tasks?type=individual&task=${x.id}`,
             date: x.startDate,
           })),
-        next: next(t.recurrence!),
+        next: null,
+        made: madeDates(db.tasks.filter((x) => x.series?.sourceId === t.id)),
         taskCount: 0,
+        search: searchText(t.title, t.companyId, t.clientIds, t.propertyId),
       }));
 
-    return [...projects, ...tasks].sort(
+    return [...projects, ...tasks]
+      .map((r) => ({ ...r, next: next(r.series, r.made) }))
+      .sort(
       (a, b) => (a.next ?? "9999").localeCompare(b.next ?? "9999") || a.title.localeCompare(b.title),
     );
-  }, [blueprints, db.projects, db.tasks, mayManage, user]);
+  }, [blueprints, db.projects, db.tasks, mayManage, user, companyById, clientById, propertyById]);
 
   const q = query.trim().toLowerCase();
   const filtered = rows.filter(
-    (r) => (kind === "all" || r.kind === kind) && (!q || r.title.toLowerCase().includes(q)),
+    (r) => (kind === "all" || r.kind === kind) && (!q || r.search.includes(q)),
   );
 
   const paused = rows.filter((r) => r.series.paused).length;
@@ -187,8 +233,8 @@ export default function RecurrencePage() {
           ]}
         />
         <SearchInput
-          className="min-w-52"
-          placeholder="Search repeats…"
+          className="w-full min-w-52 sm:w-80"
+          placeholder="Search by name, company, client or property…"
           value={query}
           active={!!query.trim()}
           onChange={(e) => setQuery(e.target.value)}
@@ -286,6 +332,15 @@ export default function RecurrencePage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
+                      {mayManage ? (
+                        <Button
+                          size="sm"
+                          title={`Create this ${r.kind} today`}
+                          onClick={() => setMakingNow(r)}
+                        >
+                          <IconPlus size={13} /> Create now
+                        </Button>
+                      ) : null}
                       <Button size="sm" onClick={() => setOpenId(r.id)}>
                         {r.kind === "project" ? "Tasks" : "Open"}
                       </Button>
@@ -323,6 +378,8 @@ export default function RecurrencePage() {
         its tasks and content tasks, dates moved to that date and snapped to working days.
         Changing the blueprint affects only projects created after the change.{" "}
         <strong>Pausing skips</strong> the dates it covers rather than saving them up.{" "}
+        <strong>Create now</strong> makes one today, either in place of the upcoming date or as
+        an extra.{" "}
         <strong>Deleting</strong> ends the repeat; everything it already created stays.
       </Card>
 
@@ -365,6 +422,8 @@ export default function RecurrencePage() {
           mode="individual"
         />
       ) : null}
+
+      {makingNow ? <CreateNowDialog row={makingNow} onClose={() => setMakingNow(null)} /> : null}
 
       <ConfirmDialog
         open={!!deleting}
@@ -597,5 +656,139 @@ function BlueprintCrm({ projectId }: { projectId: string }) {
       propertyId={p.propertyId}
       fallbackCompany={p.clientName}
     />
+  );
+}
+
+/** The first rule date after `after` that has no copy yet. */
+function nextDate(s: RecurrenceSeries, after: string, made: Set<string>): string | null {
+  return (
+    upcomingOccurrences(s.rule, s.anchor, after, made.size + 1).find((o) => !made.has(o.date))
+      ?.date ?? null
+  );
+}
+
+/**
+ * Making a repeat today (0049), and what then happens to its upcoming date:
+ * ignored - the copy made now stands for it - or still created, the copy made
+ * now being an extra.
+ */
+function CreateNowDialog({ row, onClose }: { row: SeriesRow; onClose: () => void }) {
+  const { db, createOccurrenceNow, showToast } = useStore();
+  const [skipNext, setSkipNext] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const today = todayISO();
+  const upcoming = nextDate(
+    row.series,
+    row.series.cursor > today ? row.series.cursor : today,
+    row.made,
+  );
+  const upcomingDay = upcoming ? formatDate(snapToWorkingDay(upcoming, db.calendar)) : null;
+  const noun = row.kind;
+  const startDay = formatDate(snapToWorkingDay(today, db.calendar));
+
+  const create = async () => {
+    if (skipNext === null) return;
+    setBusy(true);
+    const ok = await createOccurrenceNow(row.kind, row.id, skipNext);
+    setBusy(false);
+    if (!ok) return;
+    showToast(
+      skipNext
+        ? `Created “${row.title}” now; nothing will be created on ${upcomingDay}.`
+        : `Created an extra “${row.title}” now.`,
+      "success",
+    );
+    onClose();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={`Create “${row.title}” now?`}
+      subtitle={`A ${noun} is made from this blueprint today, starting ${startDay}, just as it would be on its date.`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={skipNext === null || busy} onClick={create}>
+            {busy ? "Creating…" : `Create ${noun} now`}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2" role="radiogroup">
+        <p className="text-[12px] text-ink-muted">
+          {upcomingDay
+            ? `What should happen to the upcoming repeat on ${upcomingDay}?`
+            : "This repeat has no upcoming date left."}
+        </p>
+        <ChoiceCard
+          selected={skipNext === true}
+          disabled={!upcoming}
+          onSelect={() => setSkipNext(true)}
+          title="Ignore the upcoming repeat"
+          body={
+            upcomingDay
+              ? `The ${noun} made now takes the place of the ${upcomingDay} one and is named for it, so nothing is created on ${upcomingDay}. The repeat after that comes as usual.`
+              : "There is no upcoming repeat to replace."
+          }
+        />
+        <ChoiceCard
+          selected={skipNext === false}
+          onSelect={() => setSkipNext(false)}
+          title="Also create the upcoming repeat"
+          body={
+            upcomingDay
+              ? `The ${noun} made now is an extra one. ${upcomingDay} still creates its own ${noun} as usual.`
+              : `The ${noun} made now is an extra one.`
+          }
+        />
+      </div>
+    </Modal>
+  );
+}
+
+function ChoiceCard({
+  selected,
+  disabled,
+  onSelect,
+  title,
+  body,
+}: {
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+  title: string;
+  body: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      className={cx(
+        "flex w-full items-start gap-2.5 rounded-card border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        selected
+          ? "border-brand-bright/50 bg-brand/10"
+          : "border-line-soft bg-surface-2 hover:border-brand-bright/30",
+      )}
+    >
+      <span
+        className={cx(
+          "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+          selected ? "border-brand-bright" : "border-line",
+        )}
+      >
+        {selected ? <span className="h-2 w-2 rounded-full bg-brand-bright" /> : null}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-ink">{title}</span>
+        <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-faint">{body}</span>
+      </span>
+    </button>
   );
 }
