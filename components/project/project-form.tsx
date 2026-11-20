@@ -31,7 +31,14 @@ import {
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
-import { addDays, addWorkingDays, formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
+import {
+  addDays,
+  addWorkingDays,
+  formatDate,
+  nextWorkingDay,
+  todayISO,
+  workingDaysBetween,
+} from "@/lib/calendar";
 import { projectedAfter } from "@/lib/dependencies";
 import {
   CONTENT_WRITER_DEPARTMENT,
@@ -150,6 +157,50 @@ function templateDates(
 }
 
 /**
+ * A project's tasks as rows of its duplicate, placed in working days from the
+ * project start the way a template's are, so they follow a new start date. Each
+ * keeps its assignee and what it waits on; its status and work stay behind. A
+ * cam belongs to a short, which is not copied, so it is left out.
+ */
+function copiedTaskDrafts(
+  from: Project,
+  tasks: Task[],
+  calendar: CalendarConfig,
+): TemplateDraft[] {
+  const own = tasks
+    .filter((t) => t.projectId === from.id && !t.shortId)
+    // What a task waits on is listed above it, so earlier work goes first.
+    .sort(
+      (a, b) =>
+        a.startDate.localeCompare(b.startDate) || a.createdAt.localeCompare(b.createdAt),
+    );
+  const keyOf = new Map(own.map((t) => [t.id, crypto.randomUUID()]));
+  return own.map((t) => ({
+    key: keyOf.get(t.id)!,
+    title: t.title,
+    description: t.description,
+    department: t.department,
+    assigneeId: t.assigneeId ?? "",
+    threeDCategories: t.threeDCategories ?? [],
+    threeDSoftware: t.threeDSoftware ?? [],
+    priority: t.priority,
+    estimatedHours: t.estimatedHours,
+    startDate: t.startDate,
+    dueDate: t.dueDate,
+    kind: t.kind,
+    contentCount: t.kind === "content" ? t.contentCount : 0,
+    contentTypes: t.kind === "content" ? t.contentTypes : [],
+    contentPlacements: t.kind === "content" ? t.contentPlacements : undefined,
+    startOffsetDays:
+      t.startDate > from.startDate ? workingDaysBetween(from.startDate, t.startDate, calendar) : 0,
+    durationDays: t.durationDays ?? workingDaysBetween(t.startDate, t.dueDate, calendar),
+    waitsOnKey: (t.dependsOnTaskIds ?? []).map((id) => keyOf.get(id)).find((k) => !!k) ?? "",
+    tags: t.tags,
+    datesPinned: false,
+  }));
+}
+
+/**
  * Both kinds of draft become the same thing once the project exists. A link
  * in a step-by-step chain makes the task wait on the one before it.
  */
@@ -249,10 +300,18 @@ export function ProjectFormModal({
   onCreated,
   recurring = false,
   threeD = false,
+  copyOf,
 }: {
   open: boolean;
   onClose: () => void;
   project?: Project;
+  /**
+   * Duplicate: a new project filled in from this one, its tasks listed the way
+   * a template's are - every one editable or removable before it is created.
+   * Repeats, OBC links, Drive folders, 3D groups and the work done are not
+   * carried over.
+   */
+  copyOf?: Project;
   onCreated?: (p: Project) => void;
   /** Opened from the 3D module: always a 3D project, so the tick-box is not offered. */
   threeD?: boolean;
@@ -265,33 +324,49 @@ export function ProjectFormModal({
   const { db, currentUser, projectById, createProjectWithTasks, updateProject } = useStore();
 
   const defaultStart = nextWorkingDay(todayISO(), db.calendar);
+  // A copy keeps its start unless it has gone, and keeps its length either way.
+  const copyStart =
+    copyOf && copyOf.startDate >= defaultStart ? copyOf.startDate : defaultStart;
+  const copyDeadline = copyOf
+    ? copyOf.startDate >= defaultStart
+      ? copyOf.deadline
+      : addWorkingDays(
+          copyStart,
+          workingDaysBetween(copyOf.startDate, copyOf.deadline, db.calendar),
+          db.calendar,
+        )
+    : undefined;
+  // What the form starts from: the project being edited, or the one being copied.
+  const source = project ?? copyOf;
   const [templateId, setTemplateId] = useState("");
-  const [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>([]);
+  const [templateDrafts, setTemplateDrafts] = useState<TemplateDraft[]>(() =>
+    copyOf ? copiedTaskDrafts(copyOf, db.tasks, db.calendar) : [],
+  );
   /** Template rows open for editing; collapsed they read as the old summary. */
   const [openRows, setOpenRows] = useState<string[]>([]);
 
   const [form, setForm] = useState<FormState>({
-    name: project?.name ?? "",
-    color: project?.color ?? PROJECT_COLORS[0],
-    clientName: project?.clientName ?? "",
-    services: project?.services ?? [],
-    startDate: project?.startDate ?? defaultStart,
-    deadline: project?.deadline ?? addDays(defaultStart, 30),
-    description: project?.description ?? "",
+    name: project?.name ?? (copyOf ? `${copyOf.name} (copy)` : ""),
+    color: source?.color ?? PROJECT_COLORS[0],
+    clientName: source?.clientName ?? "",
+    services: source?.services ?? [],
+    startDate: project?.startDate ?? (copyOf ? copyStart : defaultStart),
+    deadline: project?.deadline ?? copyDeadline ?? addDays(defaultStart, 30),
+    description: source?.description ?? "",
     status: project?.status ?? "Planning",
-    priority: project?.priority ?? "Medium",
-    leaderId: project?.leaderId ?? "",
-    memberIds: project?.memberIds ?? [],
-    propertyId: project?.propertyId ?? "",
-    clientIds: project?.clientIds ?? [],
+    priority: source?.priority ?? "Medium",
+    leaderId: source?.leaderId ?? "",
+    memberIds: source?.memberIds ?? [],
+    propertyId: source?.propertyId ?? "",
+    clientIds: source?.clientIds ?? [],
     titleMonth: project?.titleMonth ?? "current",
-    stepByStep: project?.stepByStep ?? false,
-    is3d: project ? !!project.is3d : threeD ? true : null,
+    stepByStep: source?.stepByStep ?? false,
+    is3d: source ? !!source.is3d : threeD ? true : null,
     // Older projects only carry the typed name; match it to a company if one exists.
     companyId:
-      project?.companyId ??
+      source?.companyId ??
       db.companies.find(
-        (c) => c.name.trim().toLowerCase() === project?.clientName.trim().toLowerCase(),
+        (c) => c.name.trim().toLowerCase() === source?.clientName.trim().toLowerCase(),
       )?.id ??
       "",
   });
@@ -348,6 +423,8 @@ export function ProjectFormModal({
     ]);
 
   const template = db.projectTemplates.find((t) => t.id === templateId);
+  // Whose tasks the rows below came from: the template, or the project copied.
+  const draftsFrom = template?.name ?? copyOf?.name;
 
   // A project raised from an OBC takes its chain from the OBC, and edits to
   // the OBC push it down (updateObc), so the two are never allowed to differ.
@@ -730,14 +807,18 @@ export function ProjectFormModal({
             : "New repeating project"
           : project
             ? "Edit project"
-            : "Create project"
+            : copyOf
+              ? `Duplicate “${copyOf.name}”`
+              : "Create project"
       }
       subtitle={
         recurring
           ? "A blueprint: on each date it repeats, a project with these tasks is created in Projects."
           : project
             ? undefined
-            : "Start blank, or pick a template to create the project and its tasks together."
+            : copyOf
+              ? "A new project with the same details and tasks. Change anything before creating it."
+              : "Start blank, or pick a template to create the project and its tasks together."
       }
       size="lg"
       footer={
@@ -750,7 +831,7 @@ export function ProjectFormModal({
       }
     >
       <div className="flex flex-col gap-5">
-        {!project && db.projectTemplates.length ? (
+        {!project && !copyOf && db.projectTemplates.length ? (
           <Field
             label="Project template"
             hint="Pre-fills this form; its tasks are created with the project."
@@ -1051,12 +1132,12 @@ export function ProjectFormModal({
           * plain summary until one is opened, so a template that needs no edits
           * is still a glance and a dropdown.
           */}
-        {template && !project ? (
+        {draftsFrom && !project ? (
           <div className="rounded-xl border border-brand-bright/25 bg-brand/8 p-4">
             <div className="mb-3 flex items-center gap-2">
               <IconTemplate size={15} className="text-brand-ink" />
               <span className="text-[13px] font-semibold text-ink">
-                Tasks from “{template.name}”
+                Tasks from “{draftsFrom}”
               </span>
               <span className="ml-auto text-[11px] text-ink-faint">
                 {templateDrafts.filter((d) => d.assigneeId).length}/{templateDrafts.length}{" "}
@@ -1066,13 +1147,14 @@ export function ProjectFormModal({
             <p className="mb-3 text-[11px] leading-relaxed text-ink-faint">
               Dates are calculated from the project start using working days only, and
               follow it if you move it. Edit any task to change it for this project — the
-              template itself is left alone. Tasks you leave unassigned are still created.
+              {copyOf ? "original project" : "template"} itself is left alone. Tasks you leave
+              unassigned are still created.
             </p>
 
             {templateDrafts.length === 0 ? (
               <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11px] text-ink-faint">
-                Every task from this template has been removed. The project will be created
-                on its own.
+                Every task from this {copyOf ? "project" : "template"} has been removed. The
+                project will be created on its own.
               </p>
             ) : (
               <ul className="flex flex-col gap-2.5">

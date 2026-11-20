@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  IconCopy,
   IconEdit,
   IconPlus,
   IconTasks,
@@ -58,6 +59,8 @@ export default function TemplatesPage() {
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectTemplate | null>(null);
   const [editingTask, setEditingTask] = useState<TaskTemplate | null>(null);
+  // The form is filling in a copy, not editing the template it came from.
+  const [copying, setCopying] = useState(false);
   const [deleting, setDeleting] = useState<{ kind: TabId; id: string; name: string } | null>(
     null,
   );
@@ -84,6 +87,7 @@ export default function TemplatesPage() {
           <Button
             variant="primary"
             onClick={() => {
+              setCopying(false);
               if (tab === "project") {
                 setEditingProject(null);
                 setProjectFormOpen(true);
@@ -155,11 +159,24 @@ export default function TemplatesPage() {
                     <Button
                       size="sm"
                       onClick={() => {
+                        setCopying(false);
                         setEditingProject(t);
                         setProjectFormOpen(true);
                       }}
                     >
                       <IconEdit size={13} />
+                    </Button>
+                    <Button
+                      size="sm"
+                      title="Duplicate this template"
+                      aria-label={`Duplicate ${t.name}`}
+                      onClick={() => {
+                        setCopying(true);
+                        setEditingProject(copyProjectTemplate(t));
+                        setProjectFormOpen(true);
+                      }}
+                    >
+                      <IconCopy size={13} />
                     </Button>
                     <Button
                       size="sm"
@@ -254,11 +271,29 @@ export default function TemplatesPage() {
                   <Button
                     size="sm"
                     onClick={() => {
+                      setCopying(false);
                       setEditingTask(t);
                       setTaskFormOpen(true);
                     }}
                   >
                     <IconEdit size={13} />
+                  </Button>
+                  <Button
+                    size="sm"
+                    title="Duplicate this template"
+                    aria-label={`Duplicate ${t.title}`}
+                    onClick={() => {
+                      setCopying(true);
+                      setEditingTask({
+                        ...t,
+                        id: crypto.randomUUID(),
+                        title: `${t.title} (copy)`,
+                        createdAt: new Date().toISOString(),
+                      });
+                      setTaskFormOpen(true);
+                    }}
+                  >
+                    <IconCopy size={13} />
                   </Button>
                   <Button
                     size="sm"
@@ -294,6 +329,7 @@ export default function TemplatesPage() {
             setEditingProject(null);
           }}
           template={editingProject ?? undefined}
+          copying={copying}
           onSave={saveProjectTemplate}
         />
       ) : null}
@@ -306,6 +342,7 @@ export default function TemplatesPage() {
             setEditingTask(null);
           }}
           template={editingTask ?? undefined}
+          copying={copying}
           onSave={saveTaskTemplate}
         />
       ) : null}
@@ -325,17 +362,34 @@ export default function TemplatesPage() {
   );
 }
 
+/**
+ * A project template's copy, with ids of its own so saving it adds a template
+ * rather than overwriting the original.
+ */
+function copyProjectTemplate(t: ProjectTemplate): ProjectTemplate {
+  return {
+    ...t,
+    id: crypto.randomUUID(),
+    name: `${t.name} (copy)`,
+    tasks: t.tasks.map((x) => ({ ...x, id: crypto.randomUUID() })),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 /* ------------------------------------------------- project template form */
 
 function ProjectTemplateModal({
   open,
   onClose,
   template,
+  copying = false,
   onSave,
 }: {
   open: boolean;
   onClose: () => void;
   template?: ProjectTemplate;
+  /** `template` is a fresh copy to be saved as a new one. */
+  copying?: boolean;
   onSave: (t: ProjectTemplate) => void;
 }) {
   const { db } = useStore();
@@ -353,11 +407,25 @@ function ProjectTemplateModal({
   const tasksValid = tasks.every((t) => t.kind !== "content" || t.contentCount >= 1);
   const valid = name.trim() && services.length > 0 && Number(durationDays) > 0 && tasksValid;
 
-  const addTask = () =>
+  /*
+   * The task just added or duplicated. It is brought into view and its title
+   * selected, so a long list never needs scrolling back to find it.
+   */
+  const [newTaskId, setNewTaskId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!newTaskId) return;
+    const row = document.querySelector<HTMLElement>(`[data-template-task="${newTaskId}"]`);
+    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    row?.querySelector<HTMLInputElement>("input")?.select();
+  }, [newTaskId]);
+
+  const addTask = () => {
+    const id = crypto.randomUUID();
+    setNewTaskId(id);
     setTasks((t) => [
       ...t,
       {
-        id: crypto.randomUUID(),
+        id,
         title: "",
         description: "",
         department: db.departments[0] ?? "",
@@ -371,6 +439,23 @@ function ProjectTemplateModal({
         contentTypes: [],
       },
     ]);
+  };
+
+  /** A copy of a task, straight after it, with an id of its own. */
+  const duplicateTask = (index: number) => {
+    const id = crypto.randomUUID();
+    setNewTaskId(id);
+    setTasks((list) => {
+      const original = list[index];
+      if (!original) return list;
+      const copy = {
+        ...original,
+        id,
+        title: original.title.trim() ? `${original.title} (copy)` : "",
+      };
+      return [...list.slice(0, index + 1), copy, ...list.slice(index + 1)];
+    });
+  };
 
   const patchTask = (id: string, patch: Partial<TaskTemplateItem>) =>
     setTasks((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
@@ -389,7 +474,9 @@ function ProjectTemplateModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={template ? "Edit project template" : "New project template"}
+      title={
+        copying ? "Duplicate project template" : template ? "Edit project template" : "New project template"
+      }
       subtitle="Project defaults plus an ordered task list. Saving without tasks is fine."
       size="lg"
       footer={
@@ -492,7 +579,9 @@ function ProjectTemplateModal({
         </div>
 
         <div className="rounded-xl border border-line bg-surface-2 p-4">
-          <div className="mb-3 flex items-center justify-between">
+          {/* Stays in view while the list scrolls, so Add task is always at hand.
+              -top-5 cancels the dialog body's padding, which a sticky box sticks inside. */}
+          <div className="sticky -top-5 z-10 -mx-4 -mt-4 mb-3 flex items-center justify-between rounded-t-xl border-b border-line-soft bg-surface-2 px-4 py-3">
             <span className="text-[13px] font-semibold text-ink">
               Tasks ({tasks.length})
             </span>
@@ -508,7 +597,11 @@ function ProjectTemplateModal({
           ) : (
             <ol className="flex flex-col gap-3">
               {tasks.map((item, i) => (
-                <li key={item.id} className="rounded-lg border border-line bg-surface p-3">
+                <li
+                  key={item.id}
+                  data-template-task={item.id}
+                  className="scroll-mt-16 rounded-lg border border-line bg-surface p-3"
+                >
                   <div className="mb-2.5 flex items-center gap-2">
                     <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-surface-3 text-[10px] text-ink-muted">
                       {i + 1}
@@ -534,6 +627,14 @@ function ProjectTemplateModal({
                       className="rounded px-1.5 py-1 text-[11px] text-ink-faint hover:text-ink disabled:opacity-30"
                     >
                       ↓
+                    </button>
+                    <button
+                      onClick={() => duplicateTask(i)}
+                      aria-label="Duplicate task"
+                      title="Duplicate task"
+                      className="rounded p-1 text-ink-faint hover:text-ink"
+                    >
+                      <IconCopy size={14} />
                     </button>
                     <button
                       onClick={() => setTasks((l) => l.filter((x) => x.id !== item.id))}
@@ -664,6 +765,17 @@ function ProjectTemplateModal({
               ))}
             </ol>
           )}
+
+          {/* Where the last task was just filled in, the next is added from. */}
+          {tasks.length ? (
+            <button
+              type="button"
+              onClick={addTask}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-2.5 text-[12px] font-medium text-ink-muted transition-colors hover:border-brand-bright/50 hover:bg-surface hover:text-ink"
+            >
+              <IconPlus size={13} /> Add task
+            </button>
+          ) : null}
         </div>
       </div>
     </Modal>
@@ -676,11 +788,14 @@ function TaskTemplateModal({
   open,
   onClose,
   template,
+  copying = false,
   onSave,
 }: {
   open: boolean;
   onClose: () => void;
   template?: TaskTemplate;
+  /** `template` is a fresh copy to be saved as a new one. */
+  copying?: boolean;
   onSave: (t: TaskTemplate) => void;
 }) {
   const { db } = useStore();
@@ -705,7 +820,7 @@ function TaskTemplateModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={template ? "Edit task template" : "New task template"}
+      title={copying ? "Duplicate task template" : template ? "Edit task template" : "New task template"}
       subtitle="A standalone reusable task, offered whenever a task is created."
       footer={
         <>

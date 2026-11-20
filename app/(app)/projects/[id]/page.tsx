@@ -33,6 +33,7 @@ import {
   IconComment,
   IconContact,
   IconContent,
+  IconCopy,
   IconProperty,
   IconQuote,
   IconEdit,
@@ -66,6 +67,7 @@ import {
 } from "@/lib/master-data";
 import {
   canAddExpense,
+  canCreateProjects,
   canCreateTaskInProject,
   canDeleteProject,
   canEditProject,
@@ -134,6 +136,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
     searchParams.get("task"),
   );
   const [editOpen, setEditOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [expenseFormOpen, setExpenseFormOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -363,6 +366,11 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
               {mayEdit ? (
                 <Button onClick={() => setEditOpen(true)}>
                   <IconEdit size={14} /> Edit project
+                </Button>
+              ) : null}
+              {canCreateProjects(user) ? (
+                <Button onClick={() => setCopyOpen(true)} title="Duplicate this project">
+                  <IconCopy size={14} /> Duplicate
                 </Button>
               ) : null}
               {mayDelete ? (
@@ -976,6 +984,15 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
       {editOpen ? (
         <ProjectFormModal open onClose={() => setEditOpen(false)} project={project} />
+      ) : null}
+
+      {copyOpen ? (
+        <ProjectFormModal
+          open
+          onClose={() => setCopyOpen(false)}
+          copyOf={project}
+          onCreated={(created) => router.push(`/projects/${created.id}`)}
+        />
       ) : null}
 
       {taskFormOpen ? (

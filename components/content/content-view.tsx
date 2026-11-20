@@ -548,7 +548,7 @@ export function PipelineSwitch({
 }
 
 /** The dot before a piece: its status at a glance. */
-const STAGE_DOT: Record<string, string> = {
+export const STAGE_DOT: Record<string, string> = {
   none: "bg-ink-faint/50",
   "Ready To Design": "bg-st-inprogress",
   "Design Completed": "bg-st-approved",
@@ -666,7 +666,6 @@ export function ContentCard({
                   config={db.calendar}
                   ignoreWorkingRules
                   allowPast
-                  clearable
                   placeholder="Set date"
                 />
                 {entry.deliveryDate ? <DeliveryDue entry={entry} /> : null}

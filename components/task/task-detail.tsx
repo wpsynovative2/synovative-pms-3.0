@@ -9,6 +9,7 @@ import {
   IconCheck,
   IconClose,
   IconContent,
+  IconCopy,
   IconEdit,
   IconLink,
   IconTrash,
@@ -31,7 +32,9 @@ import {
   canAssignTask,
   canDeleteTask,
   canAssignContentTask,
+  canCreateTaskInProject,
   canEditTaskFully,
+  canManageIndividualTasks,
   canReviewTask,
   canSeeClientDetails,
   canSeeClients,
@@ -78,6 +81,7 @@ export function TaskDetailDrawer({
   } = useStore();
   const [remark, setRemark] = useState("");
   const [editOpen, setEditOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -124,6 +128,10 @@ export function TaskDetailDrawer({
 
   const mayEdit = canEditTaskFully(currentUser, task, project ?? null);
   const mayDelete = canDeleteTask(currentUser, task, project ?? null);
+  // A duplicate is a new task, so it takes whoever may create one here.
+  const mayDuplicate = project
+    ? canCreateTaskInProject(currentUser, project)
+    : !task.projectId && canManageIndividualTasks(currentUser);
   // A task parked with the client is still open for review: whoever parked it
   // comes back and settles it once the client answers.
   const mayReview =
@@ -183,6 +191,11 @@ export function TaskDetailDrawer({
               {mayEdit ? (
                 <Button size="sm" onClick={() => setEditOpen(true)}>
                   <IconEdit size={13} /> Edit
+                </Button>
+              ) : null}
+              {mayDuplicate ? (
+                <Button size="sm" onClick={() => setCopyOpen(true)} title="Duplicate this task">
+                  <IconCopy size={13} /> Duplicate
                 </Button>
               ) : null}
               {mayDelete ? (
@@ -667,6 +680,16 @@ export function TaskDetailDrawer({
           open
           onClose={() => setEditOpen(false)}
           task={task}
+          project={project ?? null}
+          mode={task.projectId ? "project" : "individual"}
+        />
+      ) : null}
+
+      {copyOpen ? (
+        <TaskFormModal
+          open
+          onClose={() => setCopyOpen(false)}
+          copyOf={task}
           project={project ?? null}
           mode={task.projectId ? "project" : "individual"}
         />

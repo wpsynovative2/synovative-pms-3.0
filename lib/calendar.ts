@@ -114,6 +114,14 @@ export function snapToWorkingDay(iso: string, config: CalendarConfig): string {
   return cursor;
 }
 
+/**
+ * How many working days on from `fromISO` is `toISO`: 0 when they are the same
+ * working day. The inverse of addWorkingDays, so a copy keeps the same length.
+ */
+export function workingDaysBetween(fromISO: string, toISO: string, config: CalendarConfig): number {
+  return Math.max(0, workingDaysInRange(fromISO, toISO, config).length - 1);
+}
+
 /** Working days in [from, to] inclusive — used by the workload capacity model. */
 export function workingDaysInRange(
   fromISO: string,

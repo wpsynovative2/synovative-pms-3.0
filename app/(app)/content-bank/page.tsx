@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
+import { ContentCalendar } from "@/components/content/content-calendar";
 import { ContentComposer } from "@/components/content/content-form";
 import {
   ContentCard,
@@ -11,6 +12,7 @@ import {
   PipelineSwitch,
 } from "@/components/content/content-view";
 import {
+  IconCalendar,
   IconContact,
   IconContent,
   IconCrane,
@@ -139,6 +141,8 @@ export default function ContentBankPage() {
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);
   const [deleting, setDeleting] = useState<ContentEntry | null>(null);
+  // The project whose content calendar is open.
+  const [calendarFor, setCalendarFor] = useState<string | null>(null);
 
   const mayWrite = canWriteContent(user);
 
@@ -402,6 +406,7 @@ export default function ContentBankPage() {
   }, [filtered, db.projects, compare, groupBy, companyById, propertyById, clientById, user]);
 
   const open = openId ? visible.find((e) => e.id === openId) : undefined;
+  const calendarProject = calendarFor ? db.projects.find((p) => p.id === calendarFor) : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -677,6 +682,11 @@ export default function ContentBankPage() {
                 {g.subtitle ? (
                   <span className="truncate text-[11px] text-ink-faint">{g.subtitle}</span>
                 ) : null}
+                {groupBy === "project" && g.id !== "__unset__" ? (
+                  <Button size="sm" onClick={() => setCalendarFor(g.id)}>
+                    <IconCalendar size={13} /> Calendar
+                  </Button>
+                ) : null}
                 <span className="ml-auto shrink-0 text-[11px] text-ink-faint">
                   {g.entries.length} {g.entries.length === 1 ? "piece" : "pieces"}
                 </span>
@@ -729,6 +739,16 @@ export default function ContentBankPage() {
             setComposing(false);
             setEditing(null);
           }}
+        />
+      ) : null}
+
+      {calendarProject ? (
+        <ContentCalendar
+          project={calendarProject}
+          // The whole project, not just what the filters let through.
+          entries={visible.filter((e) => e.projectId === calendarProject.id)}
+          onOpen={setOpenId}
+          onClose={() => setCalendarFor(null)}
         />
       ) : null}
 

@@ -20,7 +20,7 @@ import { Button, Field, Input, Select, Switch, cx } from "@/components/ui/primit
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
 import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
-import { formatDate, nextWorkingDay, todayISO } from "@/lib/calendar";
+import { formatDate, nextWorkingDay, todayISO, workingDaysBetween } from "@/lib/calendar";
 import { renameThumbnail } from "@/lib/thumbnail";
 import {
   chainPredecessor,
@@ -105,6 +105,7 @@ export function TaskFormModal({
   onCreated,
   recurring = false,
   defaultKind = "standard",
+  copyOf,
 }: {
   open: boolean;
   onClose: () => void;
@@ -131,9 +132,17 @@ export function TaskFormModal({
   recurring?: boolean;
   /** What a new task starts as, e.g. "Add content task". Ignored when editing. */
   defaultKind?: TaskKind;
+  /**
+   * Duplicate: a new task, filled in from this one. Its status, history,
+   * thumbnail and repeat rule are not carried over, and a date already gone
+   * moves to the next working day.
+   */
+  copyOf?: Task;
 }) {
   const { db, blueprints, currentUser, createTask, updateTask, showToast } = useStore();
   const calendar = db.calendar;
+  // What the form starts from: the task being edited, or the one being copied.
+  const source = task ?? copyOf;
 
   // The project's other tasks, which this one may wait on (0014). A
   // blueprint's tasks live outside `db`.
@@ -163,69 +172,77 @@ export function TaskFormModal({
    * Once in a short it stays there.
    */
   const short = is3d
-    ? db.shorts.find((x) => x.id === (task?.shortId ?? defaultShortId))
+    ? db.shorts.find((x) => x.id === (source?.shortId ?? defaultShortId))
     : undefined;
   const isCam = !!short;
-  const [frames, setFrames] = useState(task?.frames ? String(task.frames) : "");
+  const [frames, setFrames] = useState(source?.frames ? String(source.frames) : "");
   // Any mix of groups, sub-groups and tasks (0036).
   const [renders, setRenders] = useState<RenderPick>({
-    groupIds: task?.renderGroupIds ?? [],
-    taskIds: task?.renderTaskIds ?? [],
+    groupIds: source?.renderGroupIds ?? [],
+    taskIds: source?.renderTaskIds ?? [],
   });
-  const [groupId, setGroupId] = useState(task?.groupId ?? defaultGroupId ?? "");
+  const [groupId, setGroupId] = useState(source?.groupId ?? defaultGroupId ?? "");
   const defaultWaitsOn = (group: string, among: Task[]) =>
     is3d ? chainPredecessor(among, groups, group) : chainTail(among);
   // A new task in a step-by-step project waits on the one before it by default:
   // the last created, or in a 3D project the one before it in number order.
   const sbsTail =
-    !task && project?.stepByStep ? defaultWaitsOn(groupId, projectTasks) : undefined;
+    !source && project?.stepByStep ? defaultWaitsOn(groupId, projectTasks) : undefined;
   const [dependsOn, setDependsOn] = useState(
-    task ? !!task.dependsOnTaskIds?.length : !!sbsTail,
+    source ? !!source.dependsOnTaskIds?.length : !!sbsTail,
   );
   const [waitsOnIds, setWaitsOnIds] = useState<string[]>(
-    task?.dependsOnTaskIds ?? (sbsTail ? [sbsTail.id] : []),
+    source?.dependsOnTaskIds ?? (sbsTail ? [sbsTail.id] : []),
   );
-  const [durationDays, setDurationDays] = useState(String(task?.durationDays ?? 1));
+  const [durationDays, setDurationDays] = useState(String(source?.durationDays ?? 1));
 
   // A 3D project's work is the 3D Artists' (0024). A task from before the project
   // was marked 3D keeps the department it has.
   const initialDepartment =
-    task?.department ??
+    source?.department ??
     (is3d ? THREE_D_DEPARTMENT : (defaultDepartment ?? db.departments[0] ?? ""));
-  const firstStart =
-    task?.startDate ??
-    nextWorkingDay(
-      project && project.startDate > todayISO() ? project.startDate : todayISO(),
-      calendar,
-    );
+  const nextStart = nextWorkingDay(
+    project && project.startDate > todayISO() ? project.startDate : todayISO(),
+    calendar,
+  );
+  // A copy keeps its dates unless they are already gone; then it keeps its length.
+  const copyStart = copyOf && copyOf.startDate >= todayISO() ? copyOf.startDate : nextStart;
+  const firstStart = task?.startDate ?? (copyOf ? copyStart : nextStart);
+  const firstDue =
+    task?.dueDate ??
+    (copyOf
+      ? copyOf.startDate >= todayISO()
+        ? copyOf.dueDate
+        : workingDaysOn(copyStart, workingDaysBetween(copyOf.startDate, copyOf.dueDate, calendar), calendar)
+      : firstStart);
 
   const [form, setForm] = useState<FormState>({
-    title: task?.title ?? defaultTitle ?? "",
-    description: task?.description ?? defaultDescription ?? "",
+    title: task?.title ?? (copyOf ? `${copyOf.title} (copy)` : (defaultTitle ?? "")),
+    description: source?.description ?? defaultDescription ?? "",
     department: initialDepartment,
-    assigneeId: task?.assigneeId ?? "",
+    assigneeId: source?.assigneeId ?? "",
     status: task?.status ?? "Not Started",
-    priority: task?.priority ?? "Medium",
+    priority: source?.priority ?? "Medium",
     startDate: firstStart,
-    dueDate: task?.dueDate ?? firstStart,
-    estimatedHours: task ? String(task.estimatedHours) : "",
-    tags: task?.tags ?? [],
-    companyId: task?.companyId ?? "",
-    propertyId: task?.propertyId ?? "",
-    clientIds: task?.clientIds ?? [],
+    dueDate: firstDue,
+    estimatedHours: source ? String(source.estimatedHours) : "",
+    tags: source?.tags ?? [],
+    companyId: source?.companyId ?? "",
+    propertyId: source?.propertyId ?? "",
+    clientIds: source?.clientIds ?? [],
     // Cam shots is no longer offered (0035), so an older task picks again.
-    threeDCategories: task?.shortId
-      ? (task.threeDCategories ?? [])
-      : inListOrder(THREE_D_CATEGORIES, task?.threeDCategories ?? []),
-    threeDSoftware: task?.threeDSoftware ?? [],
-    shotsBrief: task?.shotsBrief ?? "",
-    cameraAngles: task?.cameraAngles ?? "",
+    threeDCategories: source?.shortId
+      ? (source.threeDCategories ?? [])
+      : inListOrder(THREE_D_CATEGORIES, source?.threeDCategories ?? []),
+    threeDSoftware: source?.threeDSoftware ?? [],
+    shotsBrief: source?.shotsBrief ?? "",
+    cameraAngles: source?.cameraAngles ?? "",
     thumbnailFileId: task?.thumbnailFileId ?? "",
     thumbnailUrl: task?.thumbnailUrl ?? "",
     thumbnailName: task?.thumbnailName ?? "",
-    clientSupeNotes: task?.clientSupeNotes ?? "",
-    leadNote: task?.leadNote ?? "",
-    generalNotes: task?.generalNotes ?? "",
+    clientSupeNotes: source?.clientSupeNotes ?? "",
+    leadNote: source?.leadNote ?? "",
+    generalNotes: source?.generalNotes ?? "",
   });
   const [templateId, setTemplateId] = useState("");
   // Saving mid-upload would lose the image, so the button waits for it.
@@ -236,14 +253,15 @@ export function TaskFormModal({
    * the task exists - pieces already hang off it - but the count is a target
    * and stays editable.
    */
-  const [kind, setKind] = useState<TaskKind>(task?.kind ?? defaultKind);
-  const [contentCount, setContentCount] = useState(String(task?.contentCount ?? 1));
+  const [kind, setKind] = useState<TaskKind>(source?.kind ?? defaultKind);
+  const [contentCount, setContentCount] = useState(String(source?.contentCount ?? 1));
   /*
    * The CB type of each piece, by slot. Editing starts from what the pieces
    * are now - the writer may have changed one - so saving the task without
    * touching these leaves every piece as it is.
    */
   const [contentTypes, setContentTypes] = useState<ContentType[]>(() => {
+    const task = source;
     if (!task) return [];
     const bySlot = new Map(
       db.contentEntries
@@ -257,6 +275,7 @@ export function TaskFormModal({
   });
   // Where each piece goes (0044), read the same way: what the piece says now.
   const [contentPlacements, setContentPlacements] = useState<(ContentPlacement | null)[]>(() => {
+    const task = source;
     if (!task) return [];
     const bySlot = new Map(
       db.contentEntries
@@ -615,6 +634,8 @@ export function TaskFormModal({
           ? isContent
             ? "Edit content task"
             : "Edit task"
+          : copyOf
+            ? `Duplicate “${copyOf.title}”`
           : isContent
             ? "Create content task"
             : mode === "project"
@@ -636,7 +657,7 @@ export function TaskFormModal({
       }
     >
       <div className="flex flex-col gap-4">
-        {!task && !isCam && db.taskTemplates.length ? (
+        {!task && !copyOf && !isCam && db.taskTemplates.length ? (
           <Field label="Start from a task template" hint="Optional — pre-fills the form.">
             <SearchSelect
               options={db.taskTemplates.map((t) => ({
