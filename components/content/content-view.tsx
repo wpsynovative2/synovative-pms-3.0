@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { RecentChanges } from "@/components/collab/recent-changes";
 import { AllotDialog } from "@/components/content/allot-dialog";
 import { ContentJourney } from "@/components/content/content-journey";
 import {
@@ -288,6 +289,10 @@ export function ContentDetail({ entry }: { entry: ContentEntry }) {
         ) : (
           <Empty />
         )}
+      </Section>
+
+      <Section title="Recent changes">
+        <RecentChanges type="content" id={entry.id} version={entry} />
       </Section>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line-soft pt-3 text-[11px] text-ink-faint">

@@ -44,6 +44,7 @@ import { useStore } from "@/lib/store";
 import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import { contentLabel, isTaskWaiting, taskLabel, type Client, type Review, type Submission } from "@/lib/types";
 import { AssignContentTaskBox } from "@/components/content/content-task-sharing";
+import { RecentChanges } from "@/components/collab/recent-changes";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
@@ -529,6 +530,11 @@ export function TaskDetailDrawer({
               </ol>
             </Section>
           ) : null}
+
+          {/* The last few changes to the task itself (0047) */}
+          <Section title="Recent changes">
+            <RecentChanges type="task" id={task.id} version={task} />
+          </Section>
 
           {/* Submission & review history (§12.3) */}
           <Section

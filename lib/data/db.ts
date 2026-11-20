@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  CHANGE_LOG_KEEP,
+  type ChangeEntityType,
+  type ChangeEntry,
+} from "../change-log";
 import type {
   AppNotification,
   Client,
@@ -1137,6 +1142,30 @@ export async function loadInventoryEvents(
     fromLabel: nullable(r.from_label),
     toLabel: nullable(r.to_label),
     note: str(r.note),
+  }));
+}
+
+/** The last few changes on one project, task or piece, newest first (0047). */
+export async function loadChangeLog(
+  sb: SupabaseClient,
+  entityType: ChangeEntityType,
+  entityId: string,
+): Promise<ChangeEntry[]> {
+  const { data, error } = await sb
+    .from("change_log")
+    .select("id, action, changes, changed_by, changed_at")
+    .eq("entity_type", entityType)
+    .eq("entity_id", entityId)
+    .order("changed_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(CHANGE_LOG_KEEP);
+  if (error) throw new Error(`change_log: ${error.message}`);
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: str(r.id),
+    action: r.action === "created" ? "created" : "updated",
+    changes: (r.changes as ChangeEntry["changes"] | null) ?? {},
+    changedBy: nullable(r.changed_by),
+    changedAt: str(r.changed_at),
   }));
 }
 

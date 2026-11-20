@@ -9,6 +9,7 @@ import {
   ExpenseReviewModal,
 } from "@/components/expense/expense-dialogs";
 import { CollabPanel } from "@/components/collab/collab-panel";
+import { RecentChanges } from "@/components/collab/recent-changes";
 import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
 import { ProjectDriveControls } from "@/components/project/project-drive";
 import { AssignTasksDialog, assignableTo } from "@/components/task/assign-tasks-dialog";
@@ -945,13 +946,24 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
 
       {/* ----------------------------------------------------------- Activity */}
       {tab === "activity" ? (
-        <Card>
-          <CardHeader
-            title="Activity"
-            subtitle="Every assignment, submission and review on this project"
-          />
-          <ProjectActivity projectId={project.id} onOpen={setOpenTaskId} />
-        </Card>
+        <div className="flex flex-col gap-5">
+          <Card>
+            <CardHeader
+              title="Recent changes"
+              subtitle="The last five changes to the project itself: who changed what"
+            />
+            <div className="px-5 py-4">
+              <RecentChanges type="project" id={project.id} version={project} />
+            </div>
+          </Card>
+          <Card>
+            <CardHeader
+              title="Activity"
+              subtitle="Every assignment, submission and review on this project"
+            />
+            <ProjectActivity projectId={project.id} onOpen={setOpenTaskId} />
+          </Card>
+        </div>
       ) : null}
 
       {/* Modals */}

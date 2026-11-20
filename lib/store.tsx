@@ -29,6 +29,7 @@ import {
   WORKSTATION_COLUMNS,
   INVENTORY_ITEM_COLUMNS,
   loadInventoryEvents,
+  loadChangeLog,
   loadTaskOpens,
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
@@ -47,6 +48,7 @@ import {
 } from "./data/db";
 import { getSupabase } from "./supabase/client";
 import { isSupabaseConfigured } from "./supabase/config";
+import type { ChangeEntityType, ChangeEntry } from "./change-log";
 import { isAllotted, isContentEmpty, isStmType, stampJourney } from "./types";
 import type {
   Workstation,
@@ -832,6 +834,8 @@ interface StoreValue {
   logTaskOpen: (taskId: string) => void;
   /** One person's task opens between two instants, read when the Activity tab asks. */
   taskOpensFor: (profileId: string, fromISO: string, toISO: string) => Promise<TaskOpen[]>;
+  /** The last few changes on a project, task or piece (0047). */
+  changeLogFor: (entityType: ChangeEntityType, entityId: string) => Promise<ChangeEntry[]>;
 
   saveProjectTemplate: (t: ProjectTemplate) => void;
   deleteProjectTemplate: (id: string) => void;
@@ -2376,6 +2380,10 @@ const activityActions = {
 
   async taskOpensFor(profileId: string, fromISO: string, toISO: string): Promise<TaskOpen[]> {
     return loadTaskOpens(sb(), profileId, fromISO, toISO);
+  },
+
+  async changeLogFor(entityType: ChangeEntityType, entityId: string): Promise<ChangeEntry[]> {
+    return loadChangeLog(sb(), entityType, entityId);
   },
 };
 
