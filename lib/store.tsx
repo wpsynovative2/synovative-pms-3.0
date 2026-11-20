@@ -1241,12 +1241,17 @@ const actions = {
 
     // Set to Approved here by a reviewer: the same as approving it (0037).
     const approving = status === "Approved" && before.status !== "Approved";
-    const designMoves = approving && designsContent(state.db, id);
+    // Moved off Approved, however: the design is reopened (0045).
+    const unapproving = before.status === "Approved" && status !== "Approved";
+    const designMoves = (approving || unapproving) && designsContent(state.db, id);
     void commit(
       withSlots(["tasks"], slotsMove || allotmentMoves || designMoves),
       (db) => {
         const updated = mapTask(db, id, (t) => ({ ...t, ...effective, ...filed }));
-        const next = (designMoves && completeContentDesign(updated, id)) || updated;
+        const next =
+          (designMoves &&
+            (approving ? completeContentDesign(updated, id) : reopenContentDesign(updated, id))) ||
+          updated;
         if (!allotmentMoves) return next;
         return {
           ...next,
@@ -1579,9 +1584,13 @@ const actions = {
 
   reviewTask(taskId: string, input: ReviewInput) {
     const approving = input.decision === "Approved";
+    // Reviewing an approved task again takes the approval back (0045).
+    const unapproving =
+      !approving && state.db.tasks.find((t) => t.id === taskId)?.status === "Approved";
     void commit(
-      // An approval may finish the design of pieces allotted to the task (0037).
-      withSlots(["tasks"], approving && designsContent(state.db, taskId)),
+      // An approval may finish the design of pieces allotted to the task (0037),
+      // and taking one back reopens it (0045).
+      withSlots(["tasks"], (approving || unapproving) && designsContent(state.db, taskId)),
       (db) => {
         const next = mapTask(db, taskId, (task) => {
           const review: Review = {
@@ -1608,7 +1617,11 @@ const actions = {
             dueDate: input.newDueDate ?? task.dueDate,
           };
         });
-        return (approving && completeContentDesign(next, taskId)) || next;
+        return (
+          (approving && completeContentDesign(next, taskId)) ||
+          (unapproving && reopenContentDesign(next, taskId)) ||
+          next
+        );
       },
       (c) =>
         run(
@@ -1971,6 +1984,22 @@ function completeContentDesign(db: Database, approvedId: string): Database | nul
     if (isStmType(e.type) && !approved(e.motionAllottedTaskId)) return e;
     moved = true;
     return stampJourney(e, { ...e, stage: "Design Completed" });
+  });
+  return moved ? { ...db, contentEntries } : null;
+}
+
+/**
+ * A task's approval taken back (0045): each piece allotted to it, static or
+ * reel part, that is Design Completed goes back to Ready To Design. Scheduled,
+ * Cancelled and Carry Forwarded stay. Null when nothing moves.
+ */
+function reopenContentDesign(db: Database, taskId: string): Database | null {
+  let moved = false;
+  const contentEntries = db.contentEntries.map((e) => {
+    if (e.stage !== "Design Completed") return e;
+    if (e.allottedTaskId !== taskId && e.motionAllottedTaskId !== taskId) return e;
+    moved = true;
+    return stampJourney(e, { ...e, stage: "Ready To Design" });
   });
   return moved ? { ...db, contentEntries } : null;
 }
@@ -3140,7 +3169,16 @@ const crmActions = {
       ["content"],
       (db) => ({
         ...db,
-        contentEntries: db.contentEntries.map((e) => (e.id === entryId ? { ...e, deliveryDate: date } : e)),
+        contentEntries: db.contentEntries.map((e) =>
+          e.id === entryId
+            ? {
+                ...e,
+                deliveryDate: date,
+                // A scheduled piece's day is its delivery date (0046).
+                ...(e.stage === "Scheduled" ? { scheduledOn: date } : {}),
+              }
+            : e,
+        ),
       }),
       (c) => run(c.rpc("set_content_delivery_date", { p_content_id: entryId, p_date: date })),
     );

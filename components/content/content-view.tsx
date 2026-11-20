@@ -18,7 +18,7 @@ import {
   type StageValue,
 } from "@/components/content/stage-picker";
 import { DatePicker } from "@/components/ui/date-picker";
-import { FullScreen } from "@/components/ui/modal";
+import { ConfirmDialog, FullScreen } from "@/components/ui/modal";
 import { Popover } from "@/components/ui/popover";
 import { Avatar, Badge, Button, Card, Select, cx } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
@@ -326,6 +326,8 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
   const value = stageValueOf(entry);
   // No status before the writer has started (0027).
   const started = isContentStarted(entry);
+  // A status picked by hand waits here until it is confirmed.
+  const [confirming, setConfirming] = useState<StageValue | null>(null);
 
   if (canSetContentStage(currentUser!, entry, task, project, db.tasks)) {
     return (
@@ -336,7 +338,28 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
           disabled={!started}
           allowDesignCompleted={canMarkDesignCompleted(currentUser!)}
           from={entry}
-          onChange={(next) => setContentStage(entry.id, next.stage, next.date)}
+          onChange={(next) => {
+            // Scheduled and Carry Forwarded were already confirmed in their
+            // date prompt; every other status is asked about here.
+            if (next.stage === "Scheduled" || next.stage === "Carry Forwarded") {
+              setContentStage(entry.id, next.stage, next.date);
+            } else {
+              setConfirming(next);
+            }
+          }}
+        />
+        <ConfirmDialog
+          open={!!confirming}
+          onClose={() => setConfirming(null)}
+          onConfirm={() =>
+            confirming && setContentStage(entry.id, confirming.stage, confirming.date)
+          }
+          title={`Change the status to ${confirming?.stage ?? "Not set"}?`}
+          body={`“${entry.title || "This piece"}” moves from ${entry.stage ?? "Not set"} to ${
+            confirming?.stage ?? "Not set"
+          }. A status only moves forward, so it cannot be set back to an earlier one later; Cancelled and Carry Forwarded can be chosen at any time.`}
+          confirmLabel="Change status"
+          danger={false}
         />
       </span>
     );
@@ -344,10 +367,18 @@ export function ContentStageControl({ entry }: { entry: ContentEntry }) {
   return <StageBadge value={value} />;
 }
 
-/** A piece's stage and the date that goes with it, as the picker reads them. */
+/**
+ * A piece's stage and the date that goes with it, as the picker reads them. A
+ * scheduled piece's day is its delivery date (0046).
+ */
 export const stageValueOf = (entry: ContentEntry): StageValue => ({
   stage: entry.stage,
-  date: entry.stage === "Scheduled" ? entry.scheduledOn : entry.stage === "Carry Forwarded" ? entry.carryMonth : null,
+  date:
+    entry.stage === "Scheduled"
+      ? (entry.deliveryDate ?? entry.scheduledOn)
+      : entry.stage === "Carry Forwarded"
+        ? entry.carryMonth
+        : null,
 });
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {

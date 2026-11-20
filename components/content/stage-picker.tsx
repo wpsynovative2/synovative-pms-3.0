@@ -152,7 +152,7 @@ function StageDatePrompt({
       title={scheduling ? "Scheduled for which date?" : "Carried forward to which month?"}
       subtitle={
         scheduling
-          ? "The day this piece goes out."
+          ? "The day this piece goes out. It becomes the piece's delivery date, and the status cannot be set back to an earlier one later."
           : `It is for ${formatMonth(forMonth)}; pick a later month.`
       }
       footer={

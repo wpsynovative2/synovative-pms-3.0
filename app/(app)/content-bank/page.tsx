@@ -134,7 +134,7 @@ export default function ContentBankPage() {
   const [groupBy, setGroupBy] = useState<GroupKey>("project");
   // The pipeline under each piece shows by default; the switch hides it for a
   // tighter table.
-  const [showPipeline, setShowPipeline] = useState(true);
+  const [showPipeline, setShowPipeline] = useState(false);
   const [openId, setOpenId] = useState<string | null>(params.get("entry"));
   const [composing, setComposing] = useState(false);
   const [editing, setEditing] = useState<ContentEntry | null>(null);

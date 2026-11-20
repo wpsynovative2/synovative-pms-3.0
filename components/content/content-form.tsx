@@ -74,7 +74,7 @@ const fromEntry = (entry: ContentEntry): Draft => ({
     stage: entry.stage,
     date:
       entry.stage === "Scheduled"
-        ? entry.scheduledOn
+        ? (entry.deliveryDate ?? entry.scheduledOn)
         : entry.stage === "Carry Forwarded"
           ? entry.carryMonth
           : null,
