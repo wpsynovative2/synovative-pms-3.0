@@ -35,7 +35,9 @@ cp .env.example .env.local
 | `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | Cloudinary dashboard — optional | server only: signing bill uploads |
 | `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `GOOGLE_DRIVE_PARENT_FOLDER_ID` | Google Cloud service account — optional | server only: creating a property's Drive folders |
 | `GOOGLE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` / `GOOGLE_3D_FOLDER_ID` | Google Cloud OAuth client (Desktop app); refresh token from `npm run google-auth` — optional | server only: 3D projects' Drive folders and media uploads, as the agency account |
-| `ZOHO_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Zoho API console — optional | server only: reading quotes onto an OBC |
+| `ZOHO_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Zoho API console — optional | server only: reading quotes onto an OBC; also Zoho Books when the token carries `ZohoBooks.invoices.READ` |
+| `ZOHO_BOOKS_ORGANIZATION_ID` | Zoho Books → Settings → Organization Profile — optional | server only: reading invoices into the Invoices module |
+| `ZOHO_BOOKS_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | Zoho API console (a Self Client), scope `ZohoBooks.invoices.READ` — optional | server only: a separate Books connection, used instead of the `ZOHO_*` values for Books. A refresh token works only with the client that minted it, so set all three together |
 
 Without the Supabase values the app shows a setup screen instead of failing.
 Without Cloudinary, everything works except attaching bills to expenses.

@@ -86,6 +86,7 @@ app/
     uploads/sign/       Cloudinary signature — secret stays server-side
     drive/property-folders/  creates a property's Drive tree
     zoho/quotes/        reads one quote for the OBC form
+    zoho/invoices/      Zoho Books invoices: sync, fetch / refetch, PDF
 components/
   layout/               app shell, toaster, setup notice, first-sign-in
   ui/                   design system: primitives, selects, modal, popover,
@@ -184,6 +185,7 @@ helper on the client and an `is_*()` SQL function on the server:
 | Content Writers / Copywriters / Brand Strategists | write Content Bank | `isContentWriter` | `is_content_writer()` |
 | Social Media Marketing | write Content Bank | `isSocialMediaMarketer` | `is_smm()` |
 | 3D Artists | the 3D module ([Archi-3d.md](Archi-3d.md)) | `isThreeDArtist` | `is_3d_artist()` |
+| Accounts & Finance | fetch Zoho Books invoices, tie them to projects (with Super Admin) | `canManageInvoices` | `can_manage_invoices()` |
 
 The last two are combined into `canWriteContent()` / `can_write_content()`.
 No role overrides a department right — a Super Admin who is not in Accounts &
@@ -444,7 +446,11 @@ deployed databases have already run the old file, and Postgres cannot use a new
 enum value in the same transaction that adds it, so an `alter type … add value`
 needs a file of its own before anything uses the value.
 
-Since the current baseline: nothing yet.
+Since the current baseline:
+
+| File | What it changes |
+| --- | --- |
+| `0009_invoices.sql` | Invoices module: `invoices`, a read-only copy of Zoho Books invoices — summary columns plus the whole invoice as Books returned it (`details`, read by `readInvoice()` in `lib/invoices.ts`) — and the one project each bills for (`project_id`). Written only by the `/api/zoho/invoices` routes, as the caller. `can_view_invoices()` (Super Admin, Admin, Accounts & Finance, BDEs), `can_manage_invoices()` (Super Admin, Accounts & Finance: sync, fetch, refetch, link, delete). `invoice_projects()` names every non-blueprint project for them, since `projects_read` shows Finance and BDEs few. Mirrors `canViewInvoices` / `canManageInvoices` |
 
 Folded into the current baseline (the files are in `supabase/archive/3-second-baseline/`):
 
@@ -602,6 +608,7 @@ All three are optional — the app degrades rather than breaking.
 | Google Drive (service account) | a property's media folder tree | "Create Directory" is disabled |
 | Google Drive (agency account) | a 3D project's folder, its CSF / 3D Team areas, media uploads, 3D task thumbnails | "Create Drive folder" is refused |
 | Zoho CRM | pulling quote lines onto an OBC | OBC lines are typed by hand |
+| Zoho Books | the Invoices module: sync, fetch, refetch, PDF | Invoices stays empty; the routes answer 503 |
 
 Each has a server route that checks the caller first
 ([`lib/supabase/route-auth.ts`](lib/supabase/route-auth.ts) → `requireCaller`)
@@ -609,6 +616,20 @@ and never lets a secret reach the browser. The Drive route reads folder names
 from the database rather than the request, so a caller cannot build folders for
 a property they cannot see. The Zoho route re-checks the Business Development
 department server-side.
+
+**Zoho Books invoices** are read only. A sync (`GET /api/zoho/invoices/sync`)
+lists Books' Pending Approval, Partially Paid, Unpaid, Overdue and Payment
+Initiated views (`SYNC_FILTERS` — Books refuses a `filter_by` for Pending
+Approval and Payment Initiated, so those use the `status` parameter), keeps only invoices whose status really is one of those (a filter
+Books ignores cannot pull in paid ones), and returns those not yet in the PMS;
+the browser then imports them in batches through `POST /api/zoho/invoices`,
+which also serves Fetch by ID and Refetch (an upsert on `zoho_invoice_id` that
+names only Books' columns, so the linked project survives). Rows already in the
+PMS are never changed or removed by a sync — only a refetch rewrites one, and
+only a person deletes one; a deleted invoice still in those views comes back on
+the next sync. The routes check `can_manage_invoices()` through RPC, so the rule
+lives in SQL once. The PDF route takes the PMS id and reads the row as the
+caller first, so it cannot fetch arbitrary invoices out of Books.
 
 Project media goes through the **agency account**, not the service account: a
 service account owns no storage, so Google refuses its uploads into a personal

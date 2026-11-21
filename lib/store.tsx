@@ -30,6 +30,8 @@ import {
   INVENTORY_ITEM_COLUMNS,
   loadInventoryEvents,
   loadChangeLog,
+  loadInvoiceDetails,
+  loadInvoiceProjects,
   loadTaskOpens,
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
@@ -92,6 +94,7 @@ import type {
   Task,
   TaskGroup,
   TaskTemplate,
+  InvoiceProjectOption,
   User,
   Vendor,
   Website,
@@ -817,6 +820,18 @@ interface StoreValue {
   revealWebsitePassword: (credentialId: string) => Promise<string>;
   /** The renewal is done: recorded, and the due date moves on a year. */
   markWebsiteRenewed: (websiteId: string, amount: number | null, note: string) => void;
+
+  /**
+   * Invoices from Zoho Books (0009). Fetching, syncing and refetching run on
+   * the server (/api/zoho/invoices); these cover what the browser does.
+   */
+  linkInvoiceToProject: (id: string, projectId: string | null) => void;
+  deleteInvoice: (id: string) => void;
+  /** Reload the list after the server has written invoices. */
+  refreshInvoices: () => void;
+  /** The full invoice as Books returned it; read it with readInvoice(). */
+  invoiceDetails: (id: string) => Promise<unknown>;
+  invoiceProjects: () => Promise<InvoiceProjectOption[]>;
 
   /** System Inventory (0011). The ID or code is filled in when the save comes back. */
   addInventoryItem: (input: InventoryItemInput, placement?: InventoryPlacement) => InventoryItem;
@@ -2405,6 +2420,41 @@ const activityActions = {
   },
 };
 
+/* ------------------------------------------------------------ invoices */
+
+const invoiceActions = {
+  linkInvoiceToProject(id: string, projectId: string | null) {
+    void commit(
+      ["invoices"],
+      (db) => ({
+        ...db,
+        invoices: db.invoices.map((i) => (i.id === id ? { ...i, projectId } : i)),
+      }),
+      (c) => run(c.from("invoices").update({ project_id: projectId }).eq("id", id)),
+    );
+  },
+
+  deleteInvoice(id: string) {
+    void commit(
+      ["invoices"],
+      (db) => ({ ...db, invoices: db.invoices.filter((i) => i.id !== id) }),
+      (c) => run(c.from("invoices").delete().eq("id", id)),
+    );
+  },
+
+  refreshInvoices() {
+    requestRefresh(["invoices"]);
+  },
+
+  async invoiceDetails(id: string): Promise<unknown> {
+    return loadInvoiceDetails(sb(), id);
+  },
+
+  async invoiceProjects(): Promise<InvoiceProjectOption[]> {
+    return loadInvoiceProjects(sb());
+  },
+};
+
 const websiteActions = {
   createWebsite(input: WebsiteInput): Website {
     const site: Website = { ...input, id: newId(), createdBy: me(), createdAt: now() };
@@ -3442,6 +3492,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...masterActions,
       ...crmActions,
       ...websiteActions,
+      ...invoiceActions,
       ...inventoryActions,
       ...activityActions,
     }),

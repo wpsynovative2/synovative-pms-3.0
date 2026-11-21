@@ -31,6 +31,7 @@ import {
   IconTruck,
   IconUser,
   IconUsers,
+  IconInvoice,
   IconWallet,
   IconCube,
 } from "@/components/ui/icons";
@@ -183,6 +184,13 @@ function useNavItems(user: User): NavItem[] {
       label: "Expenses",
       icon: <IconWallet size={18} />,
       show: gate.expenses,
+      group: "Operations",
+    },
+    {
+      href: "/invoices",
+      label: "Invoices",
+      icon: <IconInvoice size={18} />,
+      show: gate.invoices,
       group: "Operations",
     },
     {

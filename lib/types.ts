@@ -1019,6 +1019,41 @@ export interface AppNotification {
   createdAt: string;
 }
 
+/* ------------------------------------------------------------- Invoices */
+
+/**
+ * An invoice read from Zoho Books (0009). Read only: Books is the system of
+ * record, and the one thing set here is the project it bills for. The full
+ * invoice (lines, taxes, addresses, payments) is loaded when it is opened,
+ * through `invoiceDetails` — see lib/invoices.ts.
+ */
+export interface Invoice {
+  id: string;
+  /** Books' record id, the long number in the invoice's URL. */
+  zohoInvoiceId: string;
+  invoiceNumber: string;
+  /** Books' status code at the last fetch: sent, overdue, partially_paid, paid, … */
+  status: string;
+  customerName: string;
+  salesperson: string;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  currencyCode: string;
+  total: number;
+  balance: number;
+  projectId: string | null;
+  fetchedAt: string;
+  fetchedBy: string | null;
+  createdAt: string;
+}
+
+/** A project an invoice can be tied to, named for people who cannot otherwise see it. */
+export interface InvoiceProjectOption {
+  id: string;
+  name: string;
+  clientName: string;
+}
+
 /* ------------------------------------------------------------- Websites */
 
 /** How a site was built: the WordPress logins only mean something for one. */
@@ -1434,6 +1469,7 @@ export interface Database {
   websites: Website[];
   websiteCredentials: WebsiteCredential[];
   websiteRenewals: WebsiteRenewal[];
+  invoices: Invoice[];
   workstations: Workstation[];
   inventoryItems: InventoryItem[];
 }

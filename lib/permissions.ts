@@ -38,6 +38,18 @@ export const isSocialMediaMarketer = (u: User) =>
 
 export const isWebsiteDev = (u: User) => u.departments.includes(WEBSITE_DEV_DEPARTMENT);
 
+/* -------------------------------------------------------------- invoices */
+
+/*
+ * Invoices from Zoho Books (0009). Read only — Books is the system of record.
+ * Accounts & Finance and Super Admins fetch, sync, refetch, tie them to a
+ * project and delete them; Admins and Business Development read them.
+ * Mirrors can_view_invoices / can_manage_invoices.
+ */
+export const canManageInvoices = (u: User) => isSuperAdmin(u) || isFinance(u);
+export const canViewInvoices = (u: User) =>
+  canManageInvoices(u) || u.role === "admin" || isBusinessExec(u);
+
 /* ------------------------------------------------------------- 3D module */
 
 /*
@@ -666,6 +678,7 @@ export interface NavGate {
   obcs: boolean;
   contentBank: boolean;
   websites: boolean;
+  invoices: boolean;
   inventory: boolean;
   masterData: boolean;
 }
@@ -697,6 +710,7 @@ export function navGate(u: User): NavGate {
     // through the task that carries it, but the library itself stays open.
     contentBank: true,
     websites: canViewWebsites(u),
+    invoices: canViewInvoices(u),
     // Everyone else sees their own workstation on their Profile.
     inventory: canViewInventory(u),
     // The name lists everything else points at — Super Admin only.

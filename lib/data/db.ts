@@ -37,6 +37,8 @@ import type {
   TaskGroup,
   TaskTemplate,
   TaskTemplateItem,
+  Invoice,
+  InvoiceProjectOption,
   Website,
   WebsiteCredential,
   WebsiteRenewal,
@@ -74,6 +76,7 @@ export type Scope =
   | "content"
   | "collab"
   | "websites"
+  | "invoices"
   | "inventory";
 
 export const ALL_SCOPES: Scope[] = [
@@ -91,6 +94,7 @@ export const ALL_SCOPES: Scope[] = [
   "content",
   "collab",
   "websites",
+  "invoices",
   "inventory",
 ];
 
@@ -121,6 +125,7 @@ export const EMPTY_DB: Database = {
   websites: [],
   websiteCredentials: [],
   websiteRenewals: [],
+  invoices: [],
   workstations: [],
   inventoryItems: [],
 };
@@ -1083,6 +1088,56 @@ async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
   return { websites, websiteCredentials, websiteRenewals };
 }
 
+/*
+ * Invoices (0009): the summary columns only. The full invoice Books returned
+ * (`details`) can run to tens of kilobytes each, and egress is billed, so it
+ * is read one invoice at a time when opened (loadInvoiceDetails). Anyone
+ * without can_view_invoices() simply gets no rows.
+ */
+const INVOICE_LIST_COLUMNS =
+  "id, zoho_invoice_id, invoice_number, status, customer_name, salesperson_name, invoice_date, due_date, currency_code, total, balance, project_id, fetched_at, fetched_by, created_at";
+
+async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
+  const rows = await fetchColumns(sb, "invoices", INVOICE_LIST_COLUMNS, "id");
+  const invoices: Invoice[] = rows.map((r) => ({
+    id: str(r.id),
+    zohoInvoiceId: str(r.zoho_invoice_id),
+    invoiceNumber: str(r.invoice_number),
+    status: str(r.status),
+    customerName: str(r.customer_name),
+    salesperson: str(r.salesperson_name),
+    invoiceDate: nullable(r.invoice_date) ? dateOnly(r.invoice_date) : null,
+    dueDate: nullable(r.due_date) ? dateOnly(r.due_date) : null,
+    currencyCode: str(r.currency_code) || "INR",
+    total: num(r.total),
+    balance: num(r.balance),
+    projectId: nullable(r.project_id),
+    fetchedAt: str(r.fetched_at),
+    fetchedBy: nullable(r.fetched_by),
+    createdAt: str(r.created_at),
+  }));
+  return { invoices };
+}
+
+/** One invoice exactly as Books returned it; read it with readInvoice(). */
+export async function loadInvoiceDetails(sb: SupabaseClient, id: string): Promise<unknown> {
+  const { data, error } = await sb.from("invoices").select("details").eq("id", id).maybeSingle();
+  if (error) throw new Error(`invoices: ${error.message}`);
+  if (!data) throw new Error("That invoice is no longer in the PMS.");
+  return (data as Row).details;
+}
+
+/** Every project an invoice may be tied to (invoice_projects(), 0009). */
+export async function loadInvoiceProjects(sb: SupabaseClient): Promise<InvoiceProjectOption[]> {
+  const { data, error } = await sb.rpc("invoice_projects");
+  if (error) throw new Error(`invoice_projects: ${error.message}`);
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: str(r.id),
+    name: str(r.name),
+    clientName: str(r.client_name),
+  }));
+}
+
 async function loadInventory(sb: SupabaseClient): Promise<Partial<Database>> {
   const [desks, items] = await Promise.all([
     fetchAll(sb, "workstations", "code", "id"),
@@ -1218,6 +1273,7 @@ const LOADERS: Record<
   content: loadContent,
   collab: loadCollab,
   websites: loadWebsites,
+  invoices: loadInvoices,
   inventory: loadInventory,
 };
 

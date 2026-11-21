@@ -367,6 +367,13 @@ export const IconQuote = (p: IconProps) => (
   </Svg>
 );
 
+export const IconInvoice = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2Z" />
+    <path d="M9 7.5h6M9 11h6M9 14.5h3.5" />
+  </Svg>
+);
+
 export const IconContent = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15.5H6.5A2.5 2.5 0 0 0 4 21Z" />

@@ -9,6 +9,7 @@ import {
   ExpenseReviewModal,
 } from "@/components/expense/expense-dialogs";
 import { CollabPanel } from "@/components/collab/collab-panel";
+import { ProjectInvoices } from "@/components/invoice/invoice-parts";
 import { RecentChanges } from "@/components/collab/recent-changes";
 import { ContentDetailScreen, ContentLinkRow } from "@/components/content/content-view";
 import { ProjectDriveControls } from "@/components/project/project-drive";
@@ -37,6 +38,7 @@ import {
   IconProperty,
   IconQuote,
   IconEdit,
+  IconInvoice,
   IconPlus,
   IconTasks,
   IconTrash,
@@ -76,6 +78,7 @@ import {
   isMyReviewQueue,
   canSeeClients,
   canViewClientsModule,
+  canViewInvoices,
 } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 import { formatDuration, taskElapsedMs } from "@/lib/time";
@@ -103,6 +106,7 @@ type TabId =
   | "content"
   | "time"
   | "expenses"
+  | "invoices"
   | "team"
   | "collab"
   | "activity";
@@ -465,6 +469,16 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
             icon: <IconWallet size={14} />,
             count: expenses.length,
           },
+          ...(canViewInvoices(user)
+            ? [
+                {
+                  id: "invoices" as const,
+                  label: "Invoices",
+                  icon: <IconInvoice size={14} />,
+                  count: db.invoices.filter((i) => i.projectId === project.id).length,
+                },
+              ]
+            : []),
           {
             id: "team",
             label: "Team",
@@ -854,6 +868,9 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
           </Card>
         </div>
       ) : null}
+
+      {/* ----------------------------------------------------------- Invoices */}
+      {tab === "invoices" && canViewInvoices(user) ? <ProjectInvoices projectId={project.id} /> : null}
 
       {/* --------------------------------------------------------------- Team */}
       {tab === "team" ? (
