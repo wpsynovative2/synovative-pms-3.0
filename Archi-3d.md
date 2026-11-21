@@ -544,8 +544,8 @@ them no right to edit it.
 
 | Piece | Change |
 | --- | --- |
-| `supabase/migrations/0021_task_dependency_links.sql` | `task_dependencies` with its policies and trigger; copy existing links across; drop `tasks.depends_on_task_id`; update `task_is_waiting`, `schedule_dependent_task`, `follow_task_dependency`, `guard_waiting_task` and `generate_recurring_occurrences` |
-| `supabase/migrations/0022_3d_task_groups.sql` | `task_groups` with its policies, `projects.is_3d` / `next_group_number`, `tasks.group_id` / `group_number`, numbering triggers, the two chain triggers (section 5), `is_3d_artist()`, `is_3d_team_leader()`, `is_3d_project()`, `can_manage_task_groups()`, the wider project visibility, the `projects`, `project_services` and `project_members` write rules |
+| `supabase/archive/3-second-baseline/0021_task_dependency_links.sql` (now in the baseline) | `task_dependencies` with its policies and trigger; copy existing links across; drop `tasks.depends_on_task_id`; update `task_is_waiting`, `schedule_dependent_task`, `follow_task_dependency`, `guard_waiting_task` and `generate_recurring_occurrences` |
+| `supabase/archive/3-second-baseline/0022_3d_task_groups.sql` (now in the baseline) | `task_groups` with its policies, `projects.is_3d` / `next_group_number`, `tasks.group_id` / `group_number`, numbering triggers, the two chain triggers (section 5), `is_3d_artist()`, `is_3d_team_leader()`, `is_3d_project()`, `can_manage_task_groups()`, the wider project visibility, the `projects`, `project_services` and `project_members` write rules |
 | `lib/types.ts` | `TaskGroup`; `Project.is3d`; `Task.groupId` / `groupNumber`; `Database.taskGroups`; `Task.dependsOnTaskIds` and `waitingOnTaskIds` replace the single-link fields |
 | `lib/data/db.ts` | Load groups and links in the `tasks` scope; row writers and column maps |
 | `lib/store.tsx` | Add, rename and delete a group through `commit()`; write a task's links with the task |

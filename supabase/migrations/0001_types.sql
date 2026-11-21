@@ -77,7 +77,8 @@ create type notification_type as enum (
   'overdue',
   'timer_autostop',
   'content_allotted',
-  'website_renewal'
+  'website_renewal',
+  'inventory_assigned'
 );
 
 create type party_status as enum ('active', 'inactive');
@@ -100,7 +101,8 @@ create type cb_type as enum (
   'Website Content',
   'Brochure Content',
   'Static to Motion',
-  'Festival STM'
+  'Festival STM',
+  'Festival Static'
 );
 
 -- Everything a comment or a set of minutes can be filed against.
@@ -126,8 +128,11 @@ create type content_placement as enum ('SMM', 'WhatsApp Share');
 -- ------------------------------------------------------------- sequences ---
 
 create sequence obc_code_seq;
+create sequence workstation_code_seq;
 
--- ---------------------------------------------- needed by column defaults ---
+-- ------------------------------------ needed by tables (defaults, checks) ---
+
+set check_function_bodies = off;
 
 create or replace function ist_today()
  returns date
@@ -135,4 +140,35 @@ create or replace function ist_today()
  stable
 as $function$
   select (now() at time zone 'Asia/Kolkata')::date;
+$function$;
+
+-- The asset ID prefix of each category; null for anything not on the list.
+create or replace function inventory_category_prefix(p_category text)
+ returns text
+ language sql
+ immutable
+as $function$
+  select case p_category
+    when 'Processor'    then 'CPU'
+    when 'Motherboard'  then 'MBD'
+    when 'RAM'          then 'RAM'
+    when 'Storage'      then 'STO'
+    when 'GPU'          then 'GPU'
+    when 'Power supply' then 'PSU'
+    when 'Cabinet'      then 'CAB'
+    when 'Monitor'      then 'MON'
+    when 'Keyboard'     then 'KBD'
+    when 'Mouse'        then 'MOU'
+    when 'UPS'          then 'UPS'
+    when 'Accessory'    then 'ACC'
+    when 'Other'        then 'OTH'
+  end;
+$function$;
+
+create or replace function text_array_distinct(p text[])
+ returns boolean
+ language sql
+ immutable
+as $function$
+  select cardinality(p) = (select count(distinct x) from unnest(p) x);
 $function$;

@@ -72,4 +72,3 @@ insert into services (name) values
   ('Website Maintenance'),
   ('YouTube Ads')
 on conflict do nothing;
-

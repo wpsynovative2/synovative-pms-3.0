@@ -44,3 +44,6 @@ next-env.d.ts
 # supabase cli (link state, local branches)
 supabase/.temp/
 supabase/.branches/
+
+.vercel
+.env*

@@ -7,7 +7,7 @@
 
 create view task_totals as
 select t.id as task_id,
-    coalesce(sum(EXTRACT(epoch from coalesce(s.ended_at, now()) - s.started_at)), 0::numeric)::bigint as seconds_logged
+    coalesce(sum(extract(epoch from coalesce(s.ended_at, now()) - s.started_at)), 0::numeric)::bigint as seconds_logged
    from tasks t
      left join time_sessions s on s.task_id = t.id
   group by t.id;
@@ -35,4 +35,3 @@ select project_id,
     coalesce(sum(amount) filter (where status = 'Rejected'::expense_status), 0::numeric) as rejected_total
    from expenses
   group by project_id;
-

@@ -4,6 +4,10 @@
 -- The real permission boundary (ARCHITECTURE.md §5): every browser read and
 -- write runs as the signed-in user. lib/permissions.ts mirrors these rules for
 -- what the UI shows - change both together.
+--
+-- The grants at the end narrow Supabase's default privileges (every table and
+-- function open to anon and authenticated) column by column and function by
+-- function. A new column on a table listed there must be added to its grant.
 -- =============================================================================
 
 alter table departments enable row level security;
@@ -45,6 +49,17 @@ alter table websites enable row level security;
 alter table website_credentials enable row level security;
 alter table website_renewals enable row level security;
 alter table website_password_reveals enable row level security;
+alter table workstations enable row level security;
+alter table inventory_counters enable row level security;
+alter table inventory_items enable row level security;
+alter table inventory_events enable row level security;
+alter table task_assignments enable row level security;
+alter table task_dependencies enable row level security;
+alter table task_groups enable row level security;
+alter table task_opens enable row level security;
+alter table shorts_plans enable row level security;
+alter table shorts enable row level security;
+alter table change_log enable row level security;
 
 -- departments
 create policy departments_read on departments for select to authenticated
@@ -82,7 +97,7 @@ create policy profile_departments_write on profile_departments for all to authen
 create policy projects_delete on projects for delete to authenticated
   using ((is_global_manager() or (leader_id = auth.uid())));
 create policy projects_insert on projects for insert to authenticated
-  with check (is_global_manager());
+  with check ((is_global_manager() or (is_3d and is_3d_team_leader())));
 create policy projects_read on projects for select to authenticated
   using (((select is_global_manager()) or (id = any ((select my_project_ids())::uuid[])) or ((select is_team_leader()) and (exists (select 1 from content_bank c where (c.project_id = projects.id))))));
 create policy projects_update on projects for update to authenticated
@@ -93,25 +108,21 @@ create policy projects_update on projects for update to authenticated
 create policy project_services_read on project_services for select to authenticated
   using (((select is_global_manager()) or (project_id = any ((select my_project_ids())::uuid[]))));
 create policy project_services_write on project_services for all to authenticated
-  using ((is_global_manager() or leads_project(project_id)))
-  with check ((is_global_manager() or leads_project(project_id)));
+  using ((is_global_manager() or leads_project(project_id) or (is_3d_team_leader() and is_3d_project(project_id))))
+  with check ((is_global_manager() or leads_project(project_id) or (is_3d_team_leader() and is_3d_project(project_id))));
 
 -- project_members
 create policy project_members_read on project_members for select to authenticated
   using (((select is_global_manager()) or (project_id = any ((select my_project_ids())::uuid[]))));
 create policy project_members_write on project_members for all to authenticated
-  using ((is_global_manager() or leads_project(project_id)))
-  with check ((is_global_manager() or leads_project(project_id)));
+  using ((is_global_manager() or leads_project(project_id) or (is_3d_team_leader() and is_3d_project(project_id))))
+  with check ((is_global_manager() or leads_project(project_id) or (is_3d_team_leader() and is_3d_project(project_id))));
 
 -- tasks
 create policy tasks_delete on tasks for delete to authenticated
   using (can_edit_task(id));
 create policy tasks_insert on tasks for insert to authenticated
-  with check (
-case
-    when (project_id is null) then (is_global_manager() or is_team_leader())
-    else (is_global_manager() or leads_project(project_id) or is_team_leader())
-end);
+  with check (case when (project_id is null) then (is_global_manager() or is_team_leader()) else (is_global_manager() or leads_project(project_id) or is_team_leader()) end);
 create policy tasks_read on tasks for select to authenticated
   using (((select is_global_manager()) or (assignee_id = (select auth.uid())) or (created_by = (select auth.uid())) or (project_id = any ((select my_project_ids())::uuid[]))));
 create policy tasks_update on tasks for update to authenticated
@@ -120,9 +131,7 @@ create policy tasks_update on tasks for update to authenticated
 
 -- time_sessions
 create policy time_sessions_insert on time_sessions for insert to authenticated
-  with check (((profile_id = auth.uid()) and (exists ( select 1
-   from tasks t
-  where ((t.id = time_sessions.task_id) and (t.assignee_id = auth.uid()))))));
+  with check (((profile_id = auth.uid()) and (exists (select 1 from tasks t where ((t.id = time_sessions.task_id) and (t.assignee_id = auth.uid()))))));
 create policy time_sessions_read on time_sessions for select to authenticated
   using (((profile_id = (select auth.uid())) or (select is_global_manager()) or (task_id = any ((select my_task_ids())::uuid[]))));
 create policy time_sessions_update on time_sessions for update to authenticated
@@ -131,9 +140,7 @@ create policy time_sessions_update on time_sessions for update to authenticated
 
 -- submissions
 create policy submissions_insert on submissions for insert to authenticated
-  with check (((by_profile_id = auth.uid()) and (exists ( select 1
-   from tasks t
-  where ((t.id = submissions.task_id) and (t.assignee_id = auth.uid()))))));
+  with check (((by_profile_id = auth.uid()) and (exists (select 1 from tasks t where ((t.id = submissions.task_id) and (t.assignee_id = auth.uid()))))));
 create policy submissions_read on submissions for select to authenticated
   using (((select is_global_manager()) or (task_id = any ((select my_task_ids())::uuid[]))));
 
@@ -250,7 +257,7 @@ create policy clients_delete on clients for delete to authenticated
 create policy clients_insert on clients for insert to authenticated
   with check (can_manage_crm());
 create policy clients_read on clients for select to authenticated
-  using ((select is_active_member()));
+  using (((select is_active_member()) and (select can_see_clients())));
 create policy clients_update on clients for update to authenticated
   using (can_manage_crm())
   with check (can_manage_crm());
@@ -315,7 +322,7 @@ create policy comments_delete on comments for delete to authenticated
 create policy comments_insert on comments for insert to authenticated
   with check ((can_see_entity(entity_type, entity_id) and (created_by = auth.uid())));
 create policy comments_read on comments for select to authenticated
-  using ( case entity_type when 'project'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_project_ids())::uuid[]))) when 'task'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_task_ids())::uuid[]))) else (select is_active_member()) end);
+  using (case entity_type when 'project'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_project_ids())::uuid[]))) when 'task'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_task_ids())::uuid[]))) else (select is_active_member()) end);
 create policy comments_update on comments for update to authenticated
   using ((created_by = auth.uid()))
   with check ((created_by = auth.uid()));
@@ -326,7 +333,7 @@ create policy minutes_delete on minutes for delete to authenticated
 create policy minutes_insert on minutes for insert to authenticated
   with check ((can_see_entity(entity_type, entity_id) and (created_by = auth.uid())));
 create policy minutes_read on minutes for select to authenticated
-  using ( case entity_type when 'project'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_project_ids())::uuid[]))) when 'task'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_task_ids())::uuid[]))) else (select is_active_member()) end);
+  using (case entity_type when 'project'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_project_ids())::uuid[]))) when 'task'::collab_entity then ((select is_global_manager()) or (entity_id = any ((select my_task_ids())::uuid[]))) else (select is_active_member()) end);
 create policy minutes_update on minutes for update to authenticated
   using (((created_by = auth.uid()) or is_global_manager()))
   with check (((created_by = auth.uid()) or is_global_manager()));
@@ -345,19 +352,6 @@ create policy property_clients_write on property_clients for all to authenticate
   using (can_manage_crm())
   with check (can_manage_crm());
 
--- website_credentials
-create policy website_credentials_all on website_credentials for all to authenticated
-  using ((select can_see_website_passwords()))
-  with check ((select can_see_website_passwords()));
-
--- website_password_reveals
-create policy website_password_reveals_read on website_password_reveals for select to authenticated
-  using ((select (auth_role() = any (array['super_admin'::app_role, 'admin'::app_role]))));
-
--- website_renewals
-create policy website_renewals_read on website_renewals for select to authenticated
-  using ((select can_view_websites()));
-
 -- websites
 create policy websites_read on websites for select to authenticated
   using ((select can_view_websites()));
@@ -365,9 +359,92 @@ create policy websites_write on websites for all to authenticated
   using ((select can_manage_websites()))
   with check ((select can_manage_websites()));
 
+-- website_credentials
+create policy website_credentials_all on website_credentials for all to authenticated
+  using ((select can_see_website_passwords()))
+  with check ((select can_see_website_passwords()));
+
+-- website_renewals
+create policy website_renewals_read on website_renewals for select to authenticated
+  using ((select can_view_websites()));
+
+-- website_password_reveals
+create policy website_password_reveals_read on website_password_reveals for select to authenticated
+  using ((select (auth_role() = any (array['super_admin'::app_role, 'admin'::app_role]))));
+
+-- workstations
+create policy workstations_read on workstations for select to authenticated
+  using (((select can_view_inventory()) or (assigned_to = (select auth.uid()))));
+create policy workstations_write on workstations for all to authenticated
+  using ((select can_manage_inventory()))
+  with check ((select can_manage_inventory()));
+
+-- inventory_items
+create policy inventory_items_read on inventory_items for select to authenticated
+  using (((select can_view_inventory()) or (id = any ((select my_inventory_item_ids())::uuid[]))));
+create policy inventory_items_write on inventory_items for all to authenticated
+  using ((select can_manage_inventory()))
+  with check ((select can_manage_inventory()));
+
+-- inventory_events
+create policy inventory_events_read on inventory_events for select to authenticated
+  using ((select can_view_inventory()));
+
+-- task_assignments
+create policy task_assignments_read on task_assignments for select to authenticated
+  using (((select is_global_manager()) or (task_id = any ((select my_task_ids())::uuid[]))));
+
+-- task_dependencies
+create policy task_dependencies_delete on task_dependencies for delete to authenticated
+  using (can_edit_task(task_id));
+create policy task_dependencies_insert on task_dependencies for insert to authenticated
+  with check (can_edit_task(task_id));
+create policy task_dependencies_read on task_dependencies for select to authenticated
+  using (((select is_global_manager()) or (task_id = any ((select my_task_ids())::uuid[]))));
+
+-- task_groups
+create policy task_groups_delete on task_groups for delete to authenticated
+  using (can_manage_task_groups(project_id));
+create policy task_groups_insert on task_groups for insert to authenticated
+  with check ((can_manage_task_groups(project_id) and (created_by = auth.uid())));
+create policy task_groups_read on task_groups for select to authenticated
+  using (((select is_global_manager()) or (project_id = any ((select my_project_ids())::uuid[]))));
+create policy task_groups_update on task_groups for update to authenticated
+  using (can_manage_task_groups(project_id))
+  with check (can_manage_task_groups(project_id));
+
+-- task_opens
+create policy task_opens_read on task_opens for select to authenticated
+  using ((select can_view_user_activity()));
+
+-- shorts_plans
+create policy shorts_plans_delete on shorts_plans for delete to authenticated
+  using (can_manage_task_groups(project_id));
+create policy shorts_plans_insert on shorts_plans for insert to authenticated
+  with check ((can_manage_task_groups(project_id) and (created_by = auth.uid())));
+create policy shorts_plans_read on shorts_plans for select to authenticated
+  using (((select is_global_manager()) or (project_id = any ((select my_project_ids())::uuid[]))));
+create policy shorts_plans_update on shorts_plans for update to authenticated
+  using (can_manage_task_groups(project_id))
+  with check (can_manage_task_groups(project_id));
+
+-- shorts
+create policy shorts_delete on shorts for delete to authenticated
+  using (can_manage_task_groups(project_id));
+create policy shorts_insert on shorts for insert to authenticated
+  with check ((can_manage_task_groups(project_id) and (created_by = auth.uid())));
+create policy shorts_read on shorts for select to authenticated
+  using (((select is_global_manager()) or (project_id = any ((select my_project_ids())::uuid[]))));
+create policy shorts_update on shorts for update to authenticated
+  using (can_manage_task_groups(project_id))
+  with check (can_manage_task_groups(project_id));
+
+-- change_log
+create policy change_log_read on change_log for select to authenticated
+  using (case entity_type when 'project'::text then (exists (select 1 from projects p where (p.id = change_log.entity_id))) when 'task'::text then (exists (select 1 from tasks t where (t.id = change_log.entity_id))) when 'content'::text then (exists (select 1 from content_bank c where (c.id = change_log.entity_id))) else false end);
+
 -- ------------------------------------------------------------ grants ---
--- A website's passwords are never selected directly: reveal_website_password()
--- returns one and logs it. Start Writing is only ever the RPC.
+
 revoke select on website_credentials from anon, authenticated;
 grant select (id, website_id, label, login_url, username, recovery, notes, position, created_at)
   on website_credentials to authenticated;
@@ -376,3 +453,69 @@ revoke all on website_password_reveals from anon;
 revoke insert, update, delete on website_renewals, website_password_reveals from anon, authenticated;
 revoke all on function start_content_piece(uuid) from public;
 grant execute on function start_content_piece(uuid) to authenticated;
+revoke select on companies from anon, authenticated;
+grant select (
+  id, name, legal_name, gstin, pan, rera_promoter_id, address, city, website,
+  email, logo_url, account_owner_id, status, created_by, created_at, updated_at,
+  nature
+) on companies to authenticated;
+revoke select on clients from anon, authenticated;
+grant select (
+  id, company_id, full_name, designation, email, role, status, created_by,
+  created_at, updated_at
+) on clients to authenticated;
+revoke all on function crm_phone_numbers() from public;
+grant execute on function crm_phone_numbers() to authenticated;
+revoke all on workstations, inventory_items, inventory_events, inventory_counters from anon;
+revoke insert, update, delete, truncate on inventory_events from authenticated;
+revoke all on inventory_counters from authenticated;
+revoke all on function inventory_install(uuid, uuid, text) from public;
+revoke all on function inventory_place(uuid, uuid, text) from public;
+revoke all on function inventory_remove(uuid, text, text) from public;
+revoke all on function inventory_assign_workstation(uuid, uuid, text) from public;
+grant execute on function inventory_install(uuid, uuid, text) to authenticated;
+grant execute on function inventory_place(uuid, uuid, text) to authenticated;
+grant execute on function inventory_remove(uuid, text, text) to authenticated;
+grant execute on function inventory_assign_workstation(uuid, uuid, text) to authenticated;
+revoke all on function set_content_delivery_date(uuid, date) from public;
+grant execute on function set_content_delivery_date(uuid, date) to authenticated;
+revoke all on function set_project_drive_folders(uuid, text, text, text) from public;
+grant execute on function set_project_drive_folders(uuid, text, text, text) to authenticated;
+grant execute on function can_create_project_drive(uuid) to authenticated;
+revoke insert, update, delete on task_assignments from anon, authenticated;
+revoke all on task_assignments from anon;
+revoke all on function assign_task(uuid, uuid) from public;
+grant execute on function assign_task(uuid, uuid) to authenticated;
+grant execute on function can_assign_task(uuid) to authenticated;
+revoke insert, update on task_groups from authenticated;
+grant insert (id, project_id, name, created_by) on task_groups to authenticated;
+grant update (name) on task_groups to authenticated;
+grant insert (client_supe_notes, lead_note, general_notes) on task_groups to authenticated;
+grant update (client_supe_notes, lead_note, general_notes) on task_groups to authenticated;
+revoke insert, update, delete on task_opens from anon, authenticated;
+revoke all on task_opens from anon;
+revoke all on function log_task_open(uuid) from public;
+grant execute on function log_task_open(uuid) to authenticated;
+grant execute on function can_view_user_activity() to authenticated;
+revoke all on function task_versions() from public, anon;
+grant execute on function task_versions() to authenticated;
+grant insert (parent_id, description) on task_groups to authenticated;
+grant update (description) on task_groups to authenticated;
+revoke insert, update on shorts_plans from authenticated;
+grant insert (project_id, title, frames, description, client_supe_notes, lead_note,
+              general_notes, created_by) on shorts_plans to authenticated;
+grant update (title, frames, description, client_supe_notes, lead_note, general_notes)
+  on shorts_plans to authenticated;
+revoke insert, update on shorts from authenticated;
+grant insert (id, project_id, title, frames, description, client_supe_notes, lead_note,
+              general_notes, created_by) on shorts to authenticated;
+grant update (title, frames, description, client_supe_notes, lead_note, general_notes)
+  on shorts to authenticated;
+revoke all on function set_content_placement(uuid, content_placement) from public;
+grant execute on function set_content_placement(uuid, content_placement) to authenticated;
+revoke insert, update, delete on change_log from anon, authenticated;
+revoke all on change_log from anon;
+revoke all on function make_project_occurrence(uuid, date, integer, date, text, boolean)
+  from public, anon, authenticated;
+revoke all on function make_task_occurrence(uuid, date, integer, date, text, boolean)
+  from public, anon, authenticated;

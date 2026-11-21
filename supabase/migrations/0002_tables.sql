@@ -40,34 +40,41 @@ create table profile_departments (
 create index profile_departments_department_idx on profile_departments (department);
 
 create table projects (
-  id                uuid           not null default uuid_generate_v4(),
-  name              text           not null,
-  color             text           not null default '#5F3CA7',
-  client_name       text           not null,
-  start_date        date           not null,
-  deadline          date           not null,
-  description       text           not null default '',
-  status            project_status not null default 'Planning',
-  priority          priority_level not null default 'Medium',
-  leader_id         uuid,
-  created_by        uuid           default auth.uid(),
-  created_at        timestamptz    not null default now(),
-  recurrence        jsonb,
-  recurrence_anchor date,
-  recurrence_cursor date,
-  series_source_id  uuid,
-  series_index      integer,
-  series_date       date,
-  recurrence_paused boolean        not null default false,
-  company_id        uuid,
-  client_id         uuid,
-  property_id       uuid,
-  obc_id            uuid,
-  client_ids        uuid[]         not null default '{}',
-  title_month       text           not null default 'current',
+  id                     uuid           not null default uuid_generate_v4(),
+  name                   text           not null,
+  color                  text           not null default '#5F3CA7',
+  client_name            text           not null,
+  start_date             date           not null,
+  deadline               date           not null,
+  description            text           not null default '',
+  status                 project_status not null default 'Planning',
+  priority               priority_level not null default 'Medium',
+  leader_id              uuid,
+  created_by             uuid           default auth.uid(),
+  created_at             timestamptz    not null default now(),
+  recurrence             jsonb,
+  recurrence_anchor      date,
+  recurrence_cursor      date,
+  series_source_id       uuid,
+  series_index           integer,
+  series_date            date,
+  recurrence_paused      boolean        not null default false,
+  company_id             uuid,
+  client_id              uuid,
+  property_id            uuid,
+  obc_id                 uuid,
+  client_ids             uuid[]         not null default '{}',
+  title_month            text           not null default 'current',
+  step_by_step           boolean        not null default false,
+  drive_folder_id        text           not null default '',
+  drive_csf_folder_id    text           not null default '',
+  drive_team3d_folder_id text           not null default '',
+  is_3d                  boolean        not null default false,
+  next_group_number      integer        not null default 1,
   constraint projects_pkey primary key (id),
   constraint project_dates_ordered check ((deadline >= start_date)),
   constraint project_recurrence_complete check (((recurrence is null) or ((recurrence_anchor is not null) and (recurrence_cursor is not null)))),
+  constraint projects_3d_does_not_repeat check ((not (is_3d and (recurrence is not null)))),
   constraint projects_title_month_check check ((title_month = any (array['current'::text, 'upcoming'::text])))
 );
 create index projects_company_idx on projects (company_id);
@@ -91,48 +98,88 @@ create index project_members_profile_id_idx on project_members (profile_id);
 
 -- project_id null → individual task (§10).
 create table tasks (
-  id                uuid           not null default uuid_generate_v4(),
-  project_id        uuid,
-  title             text           not null,
-  description       text           not null default '',
-  department        text           not null,
-  assignee_id       uuid,
-  status            task_status    not null default 'Not Started',
-  priority          priority_level not null default 'Medium',
-  start_date        date           not null,
-  due_date          date           not null,
-  estimated_hours   numeric(6,2)   not null,
-  tags              text[]         not null default '{}',
-  created_by        uuid           default auth.uid(),
-  created_at        timestamptz    not null default now(),
-  recurrence        jsonb,
-  recurrence_anchor date,
-  recurrence_cursor date,
-  series_source_id  uuid,
-  series_index      integer,
-  series_date       date,
-  recurrence_paused boolean        not null default false,
-  kind              text           not null default 'standard',
-  content_count     integer        not null default 0,
-  content_types     cb_type[]      not null default '{}',
+  id                 uuid                not null default uuid_generate_v4(),
+  project_id         uuid,
+  title              text                not null,
+  description        text                not null default '',
+  department         text                not null,
+  assignee_id        uuid,
+  status             task_status         not null default 'Not Started',
+  priority           priority_level      not null default 'Medium',
+  start_date         date                not null,
+  due_date           date                not null,
+  estimated_hours    numeric(6,2)        not null,
+  tags               text[]              not null default '{}',
+  created_by         uuid                default auth.uid(),
+  created_at         timestamptz         not null default now(),
+  recurrence         jsonb,
+  recurrence_anchor  date,
+  recurrence_cursor  date,
+  series_source_id   uuid,
+  series_index       integer,
+  series_date        date,
+  recurrence_paused  boolean             not null default false,
+  kind               text                not null default 'standard',
+  content_count      integer             not null default 0,
+  content_types      cb_type[]           not null default '{}',
+  duration_days      integer,
+  company_id         uuid,
+  property_id        uuid,
+  client_ids         uuid[]              not null default '{}',
+  group_id           uuid,
+  group_number       integer,
+  three_d_categories text[]              not null default '{}',
+  three_d_software   text[]              not null default '{}',
+  client_supe_notes  text                not null default '',
+  lead_note          text                not null default '',
+  general_notes      text                not null default '',
+  shots_brief        text                not null default '',
+  camera_angles      text                not null default '',
+  thumbnail_file_id  text,
+  thumbnail_url      text,
+  thumbnail_name     text                not null default '',
+  short_id           uuid,
+  short_number       integer,
+  frames             integer,
+  render_group_ids   uuid[]              not null default '{}',
+  render_task_ids    uuid[]              not null default '{}',
+  content_placements content_placement[] not null default '{}',
   constraint tasks_pkey primary key (id),
+  constraint tasks_group_number_key unique (group_id, group_number),
+  constraint tasks_short_number_key unique (short_id, short_number),
+  constraint task_crm_individual_only check (((project_id is null) or ((company_id is null) and (property_id is null) and (client_ids = '{}'::uuid[])))),
   constraint task_dates_ordered check ((due_date >= start_date)),
   constraint task_recurrence_complete check (((recurrence is null) or ((recurrence_anchor is not null) and (recurrence_cursor is not null)))),
   constraint task_recurrence_individual_only check (((recurrence is null) or (project_id is null))),
+  constraint tasks_cam_frames_check check (((frames is null) or (frames > 0))),
+  constraint tasks_cam_only_fields check (((short_id is not null) or ((frames is null) and (render_group_ids = '{}'::uuid[]) and (render_task_ids = '{}'::uuid[])))),
+  constraint tasks_cam_shape check (((short_id is null) or ((project_id is not null) and (kind = 'standard'::text) and (group_id is null)))),
   constraint tasks_content_count_check check ((content_count >= 0)),
+  constraint tasks_duration_days_check check (((duration_days is null) or (duration_days >= 0))),
   constraint tasks_estimated_hours_check check ((estimated_hours > (0)::numeric)),
-  constraint tasks_kind_check check ((kind = any (array['standard'::text, 'content'::text])))
+  constraint tasks_group_needs_project check (((group_id is null) or ((project_id is not null) and (kind = 'standard'::text)))),
+  constraint tasks_kind_check check ((kind = any (array['standard'::text, 'content'::text]))),
+  constraint tasks_three_d_categories_check check (((three_d_categories <@ array['Modeling'::text, 'Texture'::text, 'Lighting'::text, 'Cam shots'::text]) and text_array_distinct(three_d_categories))),
+  constraint tasks_three_d_software_check check (((three_d_software <@ array['Blender'::text, 'Unreal'::text]) and text_array_distinct(three_d_software))),
+  constraint tasks_thumbnail_url_check check ((thumbnail_url ~ '^https://drive\.google\.com/file/d/[A-Za-z0-9_-]+/view$'::text))
 );
 create index tasks_assignee_id_idx on tasks (assignee_id);
+create index tasks_company_id_idx on tasks (company_id);
 create index tasks_created_by_idx on tasks (created_by);
 create index tasks_department_idx on tasks (department);
 create index tasks_due_date_idx on tasks (due_date);
+create index tasks_group_id_idx on tasks (group_id);
 create index tasks_project_assignee_idx on tasks (project_id, assignee_id);
 create index tasks_project_id_created_at_idx on tasks (project_id, created_at);
 create index tasks_project_id_idx on tasks (project_id);
+create index tasks_property_id_idx on tasks (property_id);
 create index tasks_recurring on tasks (recurrence_cursor) where (recurrence is not null);
+create index tasks_render_group_ids_idx on tasks using gin (render_group_ids);
+create index tasks_render_task_ids_idx on tasks using gin (render_task_ids);
 create index tasks_series_source_id_idx on tasks (series_source_id);
+create index tasks_short_id_idx on tasks (short_id) where (short_id is not null);
 create index tasks_status_idx on tasks (status);
+create index tasks_thumbnail_file_id_idx on tasks (thumbnail_file_id) where (thumbnail_file_id is not null);
 create index tasks_unassigned_idx on tasks (project_id) where (assignee_id is null);
 comment on column tasks.kind is
   'standard = one piece of work; content = a batch of Content Bank pieces. Both are submitted and reviewed as a task.';
@@ -140,6 +187,8 @@ comment on column tasks.content_count is
   'Content tasks: how many pieces were asked for. A target, not a ceiling.';
 comment on column tasks.content_types is
   'Content tasks: the CB type of each target piece, by slot (content_types[1] is Count 1). A missing entry means Static Design.';
+comment on column tasks.content_placements is
+  'Content tasks: the placement of each target piece, by slot (content_placements[1] is Count 1). Null or missing leaves it to the writer.';
 
 -- §11.3.5 — only start/stop timestamps are stored; elapsed time is computed.
 create table time_sessions (
@@ -153,9 +202,9 @@ create table time_sessions (
   constraint time_sessions_pkey primary key (id),
   constraint session_ends_after_start check (((ended_at is null) or (ended_at >= started_at)))
 );
+create unique index one_running_timer_per_user on time_sessions (profile_id) where (ended_at is null);
 create index time_sessions_profile_id_idx on time_sessions (profile_id);
 create index time_sessions_task_id_idx on time_sessions (task_id);
-create unique index one_running_timer_per_user on time_sessions (profile_id) where (ended_at is null);
 
 create table submissions (
   id              uuid            not null default uuid_generate_v4(),
@@ -496,7 +545,7 @@ create table content_bank (
   allotted_task_id        uuid,
   title                   text              not null default '',
   slot                    integer,
-  for_month               date              not null default date_trunc('month', ist_today())::date,
+  for_month               date              not null default (date_trunc('month'::text, (ist_today())::timestamp with time zone))::date,
   scheduled_on            date,
   carry_month             date,
   started_at              timestamptz,
@@ -507,6 +556,7 @@ create table content_bank (
   motion_allotted_task_id uuid,
   placement               content_placement,
   started_by              uuid,
+  delivery_date           date,
   constraint content_bank_pkey primary key (id),
   constraint content_bank_months_are_months check (((extract(day from for_month) = (1)::numeric) and ((carry_month is null) or (extract(day from carry_month) = (1)::numeric)))),
   constraint content_bank_slot_check check (((slot is null) or (slot >= 1)))
@@ -549,6 +599,8 @@ comment on column content_bank.placement is
   'Where the piece will be used: SMM or WhatsApp Share. Required once anything is written in it.';
 comment on column content_bank.started_by is
   'Who started the piece: its writer pressing Start Writing, or whoever first wrote in it.';
+comment on column content_bank.delivery_date is
+  'When the piece is to be delivered. Optional; set by set_content_delivery_date().';
 
 -- Quick internal thread. Plain text, so an @mention is just text we highlight.
 create table comments (
@@ -680,6 +732,186 @@ create table website_password_reveals (
   constraint website_password_reveals_pkey primary key (id)
 );
 
+create table workstations (
+  id          uuid        not null default uuid_generate_v4(),
+  code        text        not null,
+  name        text        not null default '',
+  location    text        not null default '',
+  assigned_to uuid,
+  assigned_at timestamptz,
+  notes       text        not null default '',
+  created_by  uuid        default auth.uid(),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  constraint workstations_pkey primary key (id),
+  constraint workstations_code_key unique (code)
+);
+create index workstations_assigned_to_idx on workstations (assigned_to);
+comment on table workstations is
+  'A desk setup: a cabinet, monitors and peripherals, allotted to at most one person. code (WS-001) is generated.';
+
+-- The last number used per asset ID prefix. Never decremented, so a deleted
+-- item's ID is never handed out again.
+create table inventory_counters (
+  prefix      text    not null,
+  last_number integer not null,
+  constraint inventory_counters_pkey primary key (prefix)
+);
+
+create table inventory_items (
+  id             uuid          not null default uuid_generate_v4(),
+  asset_tag      text          not null,
+  category       text          not null,
+  brand          text          not null default '',
+  model          text          not null default '',
+  serial_number  text          not null default '',
+  specs          jsonb         not null default '{}',
+  status         text          not null default 'Spare',
+  cabinet_id     uuid,
+  workstation_id uuid,
+  purchase_date  date,
+  price          numeric(12,2),
+  vendor_id      uuid,
+  warranty_until date,
+  notes          text          not null default '',
+  created_by     uuid          default auth.uid(),
+  created_at     timestamptz   not null default now(),
+  updated_at     timestamptz   not null default now(),
+  constraint inventory_items_pkey primary key (id),
+  constraint inventory_items_asset_tag_key unique (asset_tag),
+  constraint inventory_items_category_check check ((inventory_category_prefix(category) is not null)),
+  constraint inventory_items_not_in_itself check ((cabinet_id is distinct from id)),
+  constraint inventory_items_one_place check (((cabinet_id is null) or (workstation_id is null))),
+  constraint inventory_items_price_check check (((price is null) or (price >= (0)::numeric))),
+  constraint inventory_items_specs_object check ((jsonb_typeof(specs) = 'object'::text)),
+  constraint inventory_items_status_check check ((status = any (array['In use'::text, 'Spare'::text, 'Under repair'::text, 'Retired'::text])))
+);
+create index inventory_items_cabinet_idx on inventory_items (cabinet_id);
+create index inventory_items_category_idx on inventory_items (category, status);
+create unique index inventory_items_serial_unique on inventory_items (lower(btrim(serial_number))) where (btrim(serial_number) <> ''::text);
+create index inventory_items_workstation_idx on inventory_items (workstation_id);
+comment on column inventory_items.asset_tag is
+  'SYN-<prefix>-0001, generated on insert from inventory_counters; never changes and is never reused.';
+comment on column inventory_items.specs is
+  'Category-specific details (capacity_gb, size_inch, ...). Field list per category: INVENTORY_CATEGORIES in lib/types.ts.';
+
+create table inventory_events (
+  id             uuid        not null default uuid_generate_v4(),
+  at             timestamptz not null default now(),
+  actor          uuid,
+  item_id        uuid,
+  workstation_id uuid,
+  kind           text        not null,
+  subject        text        not null default '',
+  from_label     text,
+  to_label       text,
+  note           text        not null default '',
+  constraint inventory_events_pkey primary key (id)
+);
+create index inventory_events_item_idx on inventory_events (item_id, at desc);
+create index inventory_events_workstation_idx on inventory_events (workstation_id, at desc);
+comment on table inventory_events is
+  'History of the inventory, written only by triggers. subject and the labels are snapshots, so history still reads right after things move, are renamed or deleted.';
+
+create table task_assignments (
+  id              uuid        not null default uuid_generate_v4(),
+  task_id         uuid        not null,
+  from_profile_id uuid,
+  to_profile_id   uuid,
+  by_profile_id   uuid,
+  at              timestamptz not null default now(),
+  constraint task_assignments_pkey primary key (id)
+);
+create index task_assignments_task_id_idx on task_assignments (task_id, at);
+
+create table task_dependencies (
+  task_id            uuid        not null,
+  depends_on_task_id uuid        not null,
+  created_at         timestamptz not null default now(),
+  constraint task_dependencies_pkey primary key (task_id, depends_on_task_id),
+  constraint task_dependencies_not_self check ((task_id <> depends_on_task_id))
+);
+create index task_dependencies_depends_on_task_id_idx on task_dependencies (depends_on_task_id);
+
+create table task_groups (
+  id                   uuid        not null default uuid_generate_v4(),
+  project_id           uuid        not null,
+  number               integer     not null,
+  name                 text        not null,
+  next_task_number     integer     not null default 1,
+  created_by           uuid        not null,
+  created_at           timestamptz not null default now(),
+  client_supe_notes    text        not null default '',
+  lead_note            text        not null default '',
+  general_notes        text        not null default '',
+  parent_id            uuid,
+  description          text        not null default '',
+  next_subgroup_number integer     not null default 1,
+  constraint task_groups_pkey primary key (id),
+  constraint task_groups_id_project_key unique (id, project_id)
+);
+create unique index task_groups_sub_number_key on task_groups (parent_id, number) where (parent_id is not null);
+create unique index task_groups_top_number_key on task_groups (project_id, number) where (parent_id is null);
+
+create table task_opens (
+  id         uuid        not null default uuid_generate_v4(),
+  profile_id uuid        not null,
+  task_id    uuid        not null,
+  opened_at  timestamptz not null default now(),
+  constraint task_opens_pkey primary key (id)
+);
+create index task_opens_profile_opened_idx on task_opens (profile_id, opened_at desc);
+create index task_opens_task_id_idx on task_opens (task_id);
+
+create table shorts_plans (
+  project_id        uuid        not null,
+  title             text        not null,
+  frames            integer     not null,
+  description       text        not null default '',
+  client_supe_notes text        not null default '',
+  lead_note         text        not null default '',
+  general_notes     text        not null default '',
+  next_short_number integer     not null default 1,
+  created_by        uuid        not null,
+  created_at        timestamptz not null default now(),
+  constraint shorts_plans_pkey primary key (project_id),
+  constraint shorts_plans_frames_check check ((frames > 0))
+);
+
+create table shorts (
+  id                uuid        not null default uuid_generate_v4(),
+  project_id        uuid        not null,
+  number            integer     not null,
+  title             text        not null,
+  frames            integer     not null,
+  description       text        not null default '',
+  client_supe_notes text        not null default '',
+  lead_note         text        not null default '',
+  general_notes     text        not null default '',
+  next_cam_number   integer     not null default 1,
+  created_by        uuid        not null,
+  created_at        timestamptz not null default now(),
+  constraint shorts_pkey primary key (id),
+  constraint shorts_id_project_key unique (id, project_id),
+  constraint shorts_project_number_key unique (project_id, number),
+  constraint shorts_frames_check check ((frames > 0))
+);
+
+create table change_log (
+  id          uuid        not null default uuid_generate_v4(),
+  entity_type text        not null,
+  entity_id   uuid        not null,
+  action      text        not null,
+  changes     jsonb       not null default '{}',
+  changed_by  uuid,
+  changed_at  timestamptz not null default clock_timestamp(),
+  tx          bigint      not null default txid_current(),
+  constraint change_log_pkey primary key (id),
+  constraint change_log_action_check check ((action = any (array['created'::text, 'updated'::text]))),
+  constraint change_log_entity_type_check check ((entity_type = any (array['project'::text, 'task'::text, 'content'::text])))
+);
+create index change_log_entity_idx on change_log (entity_type, entity_id, changed_at desc);
+
 -- ---------------------------------------------------------- foreign keys ---
 
 alter table profiles add constraint profiles_id_fkey
@@ -712,14 +944,22 @@ alter table project_members add constraint project_members_project_id_fkey
   foreign key (project_id) references projects(id) on delete cascade;
 alter table tasks add constraint tasks_assignee_id_fkey
   foreign key (assignee_id) references profiles(id);
+alter table tasks add constraint tasks_company_id_fkey
+  foreign key (company_id) references companies(id) on delete set null;
 alter table tasks add constraint tasks_created_by_fkey
   foreign key (created_by) references profiles(id);
 alter table tasks add constraint tasks_department_fkey
   foreign key (department) references departments(name);
+alter table tasks add constraint tasks_group_fkey
+  foreign key (group_id, project_id) references task_groups(id, project_id) on delete cascade;
 alter table tasks add constraint tasks_project_id_fkey
   foreign key (project_id) references projects(id) on delete cascade;
+alter table tasks add constraint tasks_property_id_fkey
+  foreign key (property_id) references properties(id) on delete set null;
 alter table tasks add constraint tasks_series_source_id_fkey
   foreign key (series_source_id) references tasks(id) on delete set null;
+alter table tasks add constraint tasks_short_fkey
+  foreign key (short_id, project_id) references shorts(id, project_id) on delete cascade;
 alter table time_sessions add constraint time_sessions_profile_id_fkey
   foreign key (profile_id) references profiles(id);
 alter table time_sessions add constraint time_sessions_task_id_fkey
@@ -806,8 +1046,14 @@ alter table content_bank add constraint content_bank_allotted_to_fkey
   foreign key (allotted_to) references profiles(id) on delete set null;
 alter table content_bank add constraint content_bank_created_by_fkey
   foreign key (created_by) references profiles(id) on delete set null;
+alter table content_bank add constraint content_bank_motion_allotted_task_id_fkey
+  foreign key (motion_allotted_task_id) references tasks(id) on delete set null;
+alter table content_bank add constraint content_bank_motion_allotted_to_fkey
+  foreign key (motion_allotted_to) references profiles(id) on delete set null;
 alter table content_bank add constraint content_bank_project_id_fkey
   foreign key (project_id) references projects(id) on delete cascade;
+alter table content_bank add constraint content_bank_started_by_fkey
+  foreign key (started_by) references profiles(id) on delete set null;
 alter table content_bank add constraint content_bank_task_id_fkey
   foreign key (task_id) references tasks(id) on delete set null;
 alter table comments add constraint comments_created_by_fkey
@@ -824,12 +1070,6 @@ alter table property_clients add constraint property_clients_client_id_fkey
   foreign key (client_id) references clients(id) on delete cascade;
 alter table property_clients add constraint property_clients_property_id_fkey
   foreign key (property_id) references properties(id) on delete cascade;
-alter table content_bank add constraint content_bank_motion_allotted_task_id_fkey
-  foreign key (motion_allotted_task_id) references tasks(id) on delete set null;
-alter table content_bank add constraint content_bank_motion_allotted_to_fkey
-  foreign key (motion_allotted_to) references profiles(id) on delete set null;
-alter table content_bank add constraint content_bank_started_by_fkey
-  foreign key (started_by) references profiles(id) on delete set null;
 alter table websites add constraint websites_client_id_fkey
   foreign key (client_id) references clients(id) on delete set null;
 alter table websites add constraint websites_company_id_fkey
@@ -848,3 +1088,53 @@ alter table website_password_reveals add constraint website_password_reveals_cre
   foreign key (credential_id) references website_credentials(id) on delete cascade;
 alter table website_password_reveals add constraint website_password_reveals_profile_id_fkey
   foreign key (profile_id) references profiles(id) on delete set null;
+alter table workstations add constraint workstations_assigned_to_fkey
+  foreign key (assigned_to) references profiles(id) on delete set null;
+alter table workstations add constraint workstations_created_by_fkey
+  foreign key (created_by) references profiles(id) on delete set null;
+alter table inventory_items add constraint inventory_items_cabinet_id_fkey
+  foreign key (cabinet_id) references inventory_items(id) on delete set null;
+alter table inventory_items add constraint inventory_items_created_by_fkey
+  foreign key (created_by) references profiles(id) on delete set null;
+alter table inventory_items add constraint inventory_items_vendor_id_fkey
+  foreign key (vendor_id) references vendors(id) on delete set null;
+alter table inventory_items add constraint inventory_items_workstation_id_fkey
+  foreign key (workstation_id) references workstations(id) on delete set null;
+alter table inventory_events add constraint inventory_events_actor_fkey
+  foreign key (actor) references profiles(id) on delete set null;
+alter table inventory_events add constraint inventory_events_item_id_fkey
+  foreign key (item_id) references inventory_items(id) on delete set null;
+alter table inventory_events add constraint inventory_events_workstation_id_fkey
+  foreign key (workstation_id) references workstations(id) on delete set null;
+alter table task_assignments add constraint task_assignments_by_profile_id_fkey
+  foreign key (by_profile_id) references profiles(id) on delete set null;
+alter table task_assignments add constraint task_assignments_from_profile_id_fkey
+  foreign key (from_profile_id) references profiles(id) on delete set null;
+alter table task_assignments add constraint task_assignments_task_id_fkey
+  foreign key (task_id) references tasks(id) on delete cascade;
+alter table task_assignments add constraint task_assignments_to_profile_id_fkey
+  foreign key (to_profile_id) references profiles(id) on delete set null;
+alter table task_dependencies add constraint task_dependencies_depends_on_task_id_fkey
+  foreign key (depends_on_task_id) references tasks(id) on delete cascade;
+alter table task_dependencies add constraint task_dependencies_task_id_fkey
+  foreign key (task_id) references tasks(id) on delete cascade;
+alter table task_groups add constraint task_groups_created_by_fkey
+  foreign key (created_by) references profiles(id);
+alter table task_groups add constraint task_groups_parent_fkey
+  foreign key (parent_id, project_id) references task_groups(id, project_id) on delete cascade;
+alter table task_groups add constraint task_groups_project_id_fkey
+  foreign key (project_id) references projects(id) on delete cascade;
+alter table task_opens add constraint task_opens_profile_id_fkey
+  foreign key (profile_id) references profiles(id) on delete cascade;
+alter table task_opens add constraint task_opens_task_id_fkey
+  foreign key (task_id) references tasks(id) on delete cascade;
+alter table shorts_plans add constraint shorts_plans_created_by_fkey
+  foreign key (created_by) references profiles(id);
+alter table shorts_plans add constraint shorts_plans_project_id_fkey
+  foreign key (project_id) references projects(id) on delete cascade;
+alter table shorts add constraint shorts_created_by_fkey
+  foreign key (created_by) references profiles(id);
+alter table shorts add constraint shorts_plan_fkey
+  foreign key (project_id) references shorts_plans(project_id) on delete cascade;
+alter table change_log add constraint change_log_changed_by_fkey
+  foreign key (changed_by) references profiles(id) on delete set null;

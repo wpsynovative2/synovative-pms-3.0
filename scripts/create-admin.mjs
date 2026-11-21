@@ -80,7 +80,7 @@ const probe = await admin.from("profiles").select("id").limit(1);
 if (probe.error) {
   die(
     `Can't read the profiles table (${probe.error.message}).\n` +
-      "    Run supabase/migrations/0001 → 0006 in order first (see README).",
+      "    Run supabase/migrations/0001 → 0008 in order first (see README).",
   );
 }
 

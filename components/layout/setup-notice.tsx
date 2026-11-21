@@ -18,7 +18,7 @@ export function SetupNotice() {
           </li>
           <li>
             Run the SQL files in <code className="font-mono text-ink">supabase/migrations</code> in
-            order (0001 → 0006).
+            order (0001 → 0008).
           </li>
           <li>
             Create the first Super Admin:{" "}

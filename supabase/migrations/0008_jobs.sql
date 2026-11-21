@@ -35,6 +35,12 @@ select cron.schedule(
   $job$ select notify_website_renewals(); $job$
 );
 
+select cron.schedule(
+  'prune-old-task-opens',
+  '10 20 * * 0',
+  $job$ delete from task_opens where opened_at < now() - interval '90 days'; $job$
+);
+
 alter publication supabase_realtime add table notifications;
 
 notify pgrst, 'reload schema';

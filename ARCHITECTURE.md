@@ -106,7 +106,7 @@ lib/
   supabase/             browser / server / service-role clients, route auth
   google/, zoho/, uploads.ts, theme.ts
 supabase/migrations/    numbered, run in order — the real schema and security
-supabase/archive/       earlier step-by-step migrations the baseline replaces
+supabase/archive/       earlier step-by-step migrations the baseline replaces (3 chains)
 scripts/create-admin.mjs
 proxy.ts                session refresh + routing (Next 16 "middleware")
 ```
@@ -428,7 +428,7 @@ allottee gets a notification and can read the piece. `task_id` is still the
 
 `supabase/migrations/` starts with a **baseline** (`0001`–`0008`): the whole
 schema as it stands, grouped by kind rather than by history. It has been
-rebuilt twice, each time from the final state of the chain before it and checked
+rebuilt three times, each time from the final state of the chain before it and checked
 object by object (tables, columns, constraints, indexes, functions, triggers,
 policies, grants, views, jobs, seed data) to build an identical database:
 
@@ -436,6 +436,7 @@ policies, grants, views, jobs, seed data) to build an identical database:
 | --- | --- |
 | `supabase/archive/1-original/` | The original 28-step chain, `0001_schema` … `0028_drop_content_review_legacy` |
 | `supabase/archive/2-first-baseline/` | The first baseline (`0001`–`0008`, made from the chain above) and the changes run on top of it, `0009_recurring_blueprints` … `0029_series_title_month` |
+| `supabase/archive/3-second-baseline/` | The second baseline (`0001`–`0008`, made from the chain above) and the changes run on top of it, `0009_crm_phone_privacy` … `0049_occurrence_now` |
 
 From here the folder is **append-only**: never edit a shipped file — add
 `0009_…` and onwards, and run it on every database. Two practical reasons:
@@ -443,7 +444,9 @@ deployed databases have already run the old file, and Postgres cannot use a new
 enum value in the same transaction that adds it, so an `alter type … add value`
 needs a file of its own before anything uses the value.
 
-Since the current baseline:
+Since the current baseline: nothing yet.
+
+Folded into the current baseline (the files are in `supabase/archive/3-second-baseline/`):
 
 | File | What it changes |
 | --- | --- |
@@ -489,7 +492,7 @@ Since the current baseline:
 | `0029_overdue_rule.sql` | `task_is_overdue`: Submitted, Waiting for Client Response and Approved are judged by the latest submission (IST day) against the due date, so on-time work isn't late while reviewed or with the client, and work resubmitted after the due date stays late through approval. A rejection's new due date moves the date it is judged by. `notify_due_and_overdue` skips Approved. Mirrors `isOverdue` |
 | `0030_activity_on_reports.sql` | `can_view_user_activity()`: Super Admin and Admin only (was global managers and HR Admin). The Activity view moves from a person's page to an Activity tab on Reports, where they pick the person. Mirrors `canViewUserActivity` |
 
-Folded into the current baseline (the files are in `supabase/archive/2-first-baseline/`):
+Folded into the second baseline (the files are in `supabase/archive/2-first-baseline/`):
 
 | File | What it changes |
 | --- | --- |
@@ -518,10 +521,12 @@ Folded into the current baseline (the files are in `supabase/archive/2-first-bas
 `supabase/archive/` is history, not a second schema: it is what earlier
 databases were built from, one step at a time, with the reasoning for each
 change written out. Code comments that cite a migration number refer to those
-files - `0009`–`0029` (and the content and permission numbers from `0013` on)
-to `2-first-baseline/`, older ones to `1-original/`. A database built from an
-archive needs every file of its chain; after that it takes the same new files
-as a fresh one.
+files: `0009`–`0049` to `3-second-baseline/` (that covers most of them),
+earlier content and permission numbers from `0009`–`0029` to
+`2-first-baseline/`, the oldest to `1-original/`. When unsure, the table above
+names each file's change. A database built from an archive needs every file of
+its chain, and of every chain after it from `0009` on; after that it takes the
+same new files as a fresh one.
 
 **Scheduled jobs** (pg_cron schedules in UTC; IST = UTC+5:30):
 

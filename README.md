@@ -49,13 +49,13 @@ whole schema in its current form:
 
 | File | What it holds |
 | --- | --- |
-| `0001_types.sql` | Extensions (`uuid-ossp`, `pg_cron`), every enum, the OBC code sequence, `ist_today()` |
+| `0001_types.sql` | Extensions (`uuid-ossp`, `pg_cron`), every enum, the OBC and workstation code sequences, the functions a table needs at creation (`ist_today()`, `inventory_category_prefix()`, `text_array_distinct()`) |
 | `0002_tables.sql` | Every table with its keys, checks, indexes and comments; foreign keys at the end |
 | `0003_seed.sql` | Master data: departments and services |
 | `0004_functions.sql` | Permission predicates, workflow functions (timer, submit, review, allot, stage, slots), trigger functions |
 | `0005_views.sql` | Aggregate views |
 | `0006_triggers.sql` | Notification and invariant triggers |
-| `0007_rls.sql` | Row Level Security on every table, and every policy |
+| `0007_rls.sql` | Row Level Security on every table, every policy, and the column and function grants |
 | `0008_jobs.sql` | `pg_cron` schedules and the Realtime publication |
 
 **An existing database** (built before this baseline): do **not** run the
@@ -65,22 +65,21 @@ had yet, in order, and it ends up identical to a fresh baseline install:
 
 | Folder | Built the database from | Run on it |
 | --- | --- | --- |
-| [`archive/1-original`](supabase/archive/1-original) | `0001_schema.sql` … `0028_drop_content_review_legacy.sql` | then everything in `archive/2-first-baseline` from `0009` on |
-| [`archive/2-first-baseline`](supabase/archive/2-first-baseline) | the first baseline `0001`–`0008`, then `0009_recurring_blueprints.sql` … `0029_series_title_month.sql` | any of `0009`–`0029` it has not had yet |
+| [`archive/1-original`](supabase/archive/1-original) | `0001_schema.sql` … `0028_drop_content_review_legacy.sql` | everything in `archive/2-first-baseline` from `0009` on, then everything in `archive/3-second-baseline` from `0009` on |
+| [`archive/2-first-baseline`](supabase/archive/2-first-baseline) | the first baseline `0001`–`0008`, then `0009_recurring_blueprints.sql` … `0029_series_title_month.sql` | any of `0009`–`0029` it has not had yet, then everything in `archive/3-second-baseline` from `0009` on |
+| [`archive/3-second-baseline`](supabase/archive/3-second-baseline) | the second baseline `0001`–`0008`, then `0009_crm_phone_privacy.sql` … `0049_occurrence_now.sql` | any of `0009`–`0049` it has not had yet |
+
+After that, every new file in `supabase/migrations` from `0009` on runs on it
+like on a fresh database.
 
 **Changing the schema later:** add the next number in `supabase/migrations`
 (`0009_…`, `0010_…`) and run it on every database — new and old are the same
 from here on.
 
-Added since the current baseline (run on every database):
-
-| File | What it does |
-| --- | --- |
-| `0009_crm_phone_privacy.sql` | Company phone numbers and client mobile / WhatsApp are readable by Super Admin, Admin and Managers only (`crm_phone_numbers()`) |
-| `0010_inventory_notification.sql` | Notification type for System Inventory (run before 0011) |
-| `0011_system_inventory.sql` | System Inventory: workstations, components with unique asset IDs, history ([Archi-inventory.md](Archi-inventory.md)) |
-| `0012_content_delivery_date.sql` | A delivery date on each Content Bank piece, set from its page |
-| `0013_bde_crm_phones.sql` | Business Development Executives see CRM phone numbers too |
+Added since the current baseline (run on every database): none yet. The
+changes `0009_crm_phone_privacy.sql` … `0049_occurrence_now.sql` are folded
+into it; they are in `archive/3-second-baseline`, listed in
+[ARCHITECTURE.md §8](ARCHITECTURE.md).
 
 ### 4. The first Super Admin
 
