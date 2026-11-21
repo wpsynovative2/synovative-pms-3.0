@@ -197,7 +197,8 @@ export default function TemplatesPage() {
                     {t.tasks.length} task{t.tasks.length === 1 ? "" : "s"}
                   </Badge>
                   <Badge>
-                    {t.tasks.reduce((s, x) => s + x.estimatedHours, 0)}h estimated
+                    {/* Rounded: 0.1h steps add up to 14.799999999999999 in floating point. */}
+                    {Math.round(t.tasks.reduce((s, x) => s + x.estimatedHours, 0) * 100) / 100}h estimated
                   </Badge>
                 </div>
 
