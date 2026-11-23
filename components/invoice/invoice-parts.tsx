@@ -1,17 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ButtonLoader } from "@/components/ui/loader";
-import { IconCheck, IconExternal, IconInvoice, IconRepeat, IconTrash } from "@/components/ui/icons";
+import { LEVEL_STYLE } from "@/components/three-d/task-group-card";
+import {
+  IconCheck,
+  IconChevronDown,
+  IconChevronRight,
+  IconExternal,
+  IconInvoice,
+  IconRepeat,
+  IconTrash,
+} from "@/components/ui/icons";
 import { ConfirmDialog, Drawer } from "@/components/ui/modal";
-import { Badge, Button, Card, EmptyState, Field, StatTile, cx } from "@/components/ui/primitives";
+import { Popover } from "@/components/ui/popover";
+import {
+  Badge,
+  Button,
+  CONTROL_ACTIVE,
+  Card,
+  EmptyState,
+  Field,
+  ProgressBar,
+  StatTile,
+  cx,
+} from "@/components/ui/primitives";
 import { MultiSelect } from "@/components/ui/selects";
 import { FollowUpPanel } from "./follow-ups";
 import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
   customerSubline,
+  formatAge,
   formatMoney,
+  invoiceAgeDays,
+  type InvoiceGroup,
+  type InvoiceGroupKey,
   invoiceStatusLabel,
   invoiceStatusTone,
   readInvoice,
@@ -170,13 +194,15 @@ export function InvoiceTable({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[56rem] text-left text-[12px]">
+      <table className="w-full min-w-[72rem] text-left text-[12px]">
         <thead className="bg-surface-2 text-[10px] tracking-wide text-ink-faint uppercase">
           <tr>
             <th className="px-4 py-2.5 font-medium">Invoice</th>
             <th className="px-4 py-2.5 font-medium">Date</th>
             <th className="px-4 py-2.5 font-medium">Due</th>
             <th className="px-4 py-2.5 font-medium">Status</th>
+            <th className="px-4 py-2.5 font-medium">Invoice age</th>
+            <th className="px-4 py-2.5 font-medium">Salesperson</th>
             {showProject ? <th className="px-4 py-2.5 font-medium">Linked to</th> : null}
             <th className="px-4 py-2.5 text-right font-medium">Total</th>
             <th className="px-4 py-2.5 text-right font-medium">Balance due</th>
@@ -185,50 +211,260 @@ export function InvoiceTable({
         </thead>
         <tbody>
           {invoices.map((i) => (
-            <tr key={i.id} className="border-t border-line-soft align-top hover:bg-surface-2">
-              <td className="px-4 py-3">
-                <button
-                  onClick={() => onOpen(i.id)}
-                  className="text-left text-[13px] font-semibold text-ink hover:text-brand-bright"
-                >
-                  {i.invoiceNumber || "Unnumbered"}
-                </button>
-                <div className="max-w-64 truncate text-ink-muted">{i.customerName || "—"}</div>
-                {customerSubline(i) ? (
-                  <div className="max-w-64 truncate text-[11px] text-ink-faint">{customerSubline(i)}</div>
-                ) : null}
-              </td>
-              <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.invoiceDate)}</td>
-              <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.dueDate)}</td>
-              <td className="px-4 py-3">
-                <InvoiceStatusBadge status={i.status} />
-              </td>
-              {showProject ? (
-                <td className="px-4 py-3">
-                  <LinkedLabels labels={projects.labelsOf(i.id)} />
-                </td>
-              ) : null}
-              <td className="px-4 py-3 text-right font-mono whitespace-nowrap text-ink">
-                {formatMoney(i.total, i.currencyCode)}
-              </td>
-              <td
-                className={cx(
-                  "px-4 py-3 text-right font-mono whitespace-nowrap",
-                  i.balance > 0 ? "text-ink" : "text-ink-faint",
-                )}
-              >
-                {formatMoney(i.balance, i.currencyCode)}
-              </td>
-              {mayManage ? (
-                <td className="px-4 py-3 text-right">
-                  <RefetchButton invoice={i} />
-                </td>
-              ) : null}
-            </tr>
+            <InvoiceRow
+              key={i.id}
+              invoice={i}
+              projects={projects}
+              onOpen={onOpen}
+              showProject={showProject}
+              mayManage={mayManage}
+            />
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/* --------------------------------------------------------- group cards */
+
+const GROUP_LEVEL_LABEL: Record<InvoiceGroupKey, string> = {
+  display: "Display name",
+  company: "Company",
+  contact: "Primary contact",
+  status: "Status",
+};
+
+/**
+ * One group of invoices, laid out as a 3D project lays out its groups
+ * (LEVEL_STYLE): a violet-edged card whose header names the group and carries
+ * its sums, opening onto the group's own table. How much of the group's total
+ * has come in is its progress bar.
+ */
+export function InvoiceGroupCard({
+  group,
+  groupBy,
+  open,
+  onToggle,
+  projects,
+  onOpen,
+}: {
+  group: InvoiceGroup<Invoice>;
+  groupBy: InvoiceGroupKey;
+  open: boolean;
+  onToggle: () => void;
+  projects: InvoiceLinkOptions;
+  onOpen: (id: string) => void;
+}) {
+  const billed = group.invoices.filter((i) => i.status !== "void");
+  const total = billed.reduce((sum, i) => sum + i.total, 0);
+  const due = billed.reduce((sum, i) => sum + i.balance, 0);
+  const collected = total > 0 ? Math.round(((total - due) / total) * 100) : 0;
+  const overdue = group.invoices.filter((i) => i.status === "overdue").length;
+  const style = LEVEL_STYLE.group;
+
+  return (
+    <Card className={style.card}>
+      <div className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", style.header)}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-48 flex-1 items-center gap-2 text-left"
+        >
+          {open ? (
+            <IconChevronDown size={15} className="shrink-0 text-ink-faint" />
+          ) : (
+            <IconChevronRight size={15} className="shrink-0 text-ink-faint" />
+          )}
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className={cx("rounded-md px-1.5 py-0.5 text-[12px] font-semibold", style.chip)}>
+              {group.invoices.length}
+            </span>
+            <span className={cx("text-[10px] font-semibold tracking-wide uppercase", style.label)}>
+              {GROUP_LEVEL_LABEL[groupBy]}
+            </span>
+          </span>
+          <span className="truncate text-sm font-semibold text-ink">{group.label}</span>
+          <span className="shrink-0 text-[11px] text-ink-faint">
+            {group.invoices.length} invoice{group.invoices.length === 1 ? "" : "s"}
+            {overdue ? ` · ${overdue} overdue` : ""}
+          </span>
+        </button>
+
+        <div className="flex w-36 flex-col gap-1">
+          <ProgressBar value={collected} barClassName="bg-st-approved" />
+          <span className="text-[10px] text-ink-faint">{collected}% collected</span>
+        </div>
+
+        <div className="text-right font-mono text-[12px] leading-tight">
+          <div className="text-ink-muted">Total {formatMoney(total)}</div>
+          <div className={due > 0 ? "font-medium text-ink" : "text-ink-faint"}>Due {formatMoney(due)}</div>
+        </div>
+      </div>
+
+      {open ? (
+        <div className="border-t border-line-soft">
+          <InvoiceTable invoices={group.invoices} projects={projects} onOpen={onOpen} />
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+/* --------------------------------------------------- group by status */
+
+/**
+ * Group by status: tick the statuses to group by, and the list shows one
+ * group per ticked status, holding only those invoices. None ticked means
+ * no status grouping. The page lets one grouping apply at a time.
+ */
+export function StatusGroupPicker({
+  statuses,
+  counts,
+  value,
+  onChange,
+}: {
+  statuses: string[];
+  counts: Map<string, number>;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLButtonElement>(null);
+  const label =
+    value.length === 0
+      ? "Group by status"
+      : value.length === 1
+        ? `By status: ${invoiceStatusLabel(value[0])}`
+        : `By status: ${value.length} statuses`;
+  const toggle = (s: string) => onChange(value.includes(s) ? value.filter((x) => x !== s) : [...value, s]);
+
+  return (
+    <>
+      <button
+        ref={boxRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cx(
+          "flex h-9.5 w-full items-center justify-between gap-2 rounded-[10px] border px-3 text-left text-[13px] text-ink",
+          "focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/25 focus:outline-none",
+          value.length ? CONTROL_ACTIVE : "border-line bg-surface-2",
+        )}
+      >
+        <span className="truncate">{label}</span>
+        <IconChevronDown size={14} className="shrink-0 text-ink-faint" />
+      </button>
+      <Popover anchorRef={boxRef} open={open} onClose={() => setOpen(false)} maxHeight={340} className="w-60 rounded-[10px] p-1">
+        <div role="listbox" aria-multiselectable="true">
+          {statuses.map((s) => {
+            const on = value.includes(s);
+            return (
+              <button
+                key={s}
+                type="button"
+                role="option"
+                aria-selected={on}
+                onClick={() => toggle(s)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2"
+              >
+                <span
+                  className={cx(
+                    "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                    on ? "border-brand-bright bg-brand text-on-brand" : "border-line bg-surface",
+                  )}
+                >
+                  {on ? <IconCheck size={11} /> : null}
+                </span>
+                <span className="flex-1">{invoiceStatusLabel(s)}</span>
+                <span className="text-[11px] text-ink-faint">{counts.get(s) ?? 0}</span>
+              </button>
+            );
+          })}
+        </div>
+        {value.length ? (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="mt-1 w-full border-t border-line-soft px-2.5 pt-2 pb-1 text-left text-[12px] text-ink-faint hover:text-ink"
+          >
+            Clear — no status grouping
+          </button>
+        ) : null}
+      </Popover>
+    </>
+  );
+}
+
+function InvoiceRow({
+  invoice: i,
+  projects,
+  onOpen,
+  showProject,
+  mayManage,
+}: {
+  invoice: Invoice;
+  projects: InvoiceLinkOptions;
+  onOpen: (id: string) => void;
+  showProject: boolean;
+  mayManage: boolean;
+}) {
+  const age = invoiceAgeDays(i);
+  return (
+    <tr className="border-t border-line-soft align-top hover:bg-surface-2">
+      <td className="px-4 py-3">
+        <button
+          onClick={() => onOpen(i.id)}
+          className="text-left text-[13px] font-semibold text-ink hover:text-brand-bright"
+        >
+          {i.invoiceNumber || "Unnumbered"}
+        </button>
+        <div className="max-w-64 truncate text-ink-muted">{i.customerName || "—"}</div>
+        {customerSubline(i) ? (
+          <div className="max-w-64 truncate text-[11px] text-ink-faint">{customerSubline(i)}</div>
+        ) : null}
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.invoiceDate)}</td>
+      <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.dueDate)}</td>
+      <td className="px-4 py-3">
+        <InvoiceStatusBadge status={i.status} />
+      </td>
+      <td
+        className={cx(
+          "px-4 py-3 whitespace-nowrap",
+          // Old and still owed is what Accounts chase first.
+          age !== null && age > 90 && i.balance > 0 ? "font-medium text-st-rejected" : "text-ink-muted",
+        )}
+      >
+        {formatAge(age)}
+      </td>
+      <td className="px-4 py-3">
+        <span className="block max-w-36 truncate text-ink-muted">{i.salesperson || "—"}</span>
+      </td>
+      {showProject ? (
+        <td className="px-4 py-3">
+          <LinkedLabels labels={projects.labelsOf(i.id)} />
+        </td>
+      ) : null}
+      <td className="px-4 py-3 text-right font-mono whitespace-nowrap text-ink">
+        {formatMoney(i.total, i.currencyCode)}
+      </td>
+      <td
+        className={cx(
+          "px-4 py-3 text-right font-mono whitespace-nowrap",
+          i.balance > 0 ? "text-ink" : "text-ink-faint",
+        )}
+      >
+        {formatMoney(i.balance, i.currencyCode)}
+      </td>
+      {mayManage ? (
+        <td className="px-4 py-3 text-right">
+          <RefetchButton invoice={i} />
+        </td>
+      ) : null}
+    </tr>
   );
 }
 
@@ -294,6 +530,14 @@ export function InvoiceDrawer({
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 text-xs font-medium text-ink hover:bg-surface-3"
           >
             <IconExternal size={13} /> PDF
+          </a>
+          <a
+            href={`/api/zoho/invoices/${invoice.id}/open`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 text-xs font-medium text-ink hover:bg-surface-3"
+          >
+            <IconExternal size={13} /> Open in Zoho Books
           </a>
           {mayManage ? (
             <Button

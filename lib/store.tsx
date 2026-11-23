@@ -96,6 +96,7 @@ import type {
   TaskGroup,
   TaskTemplate,
   InvoiceCall,
+  CustomerContact,
   InvoiceLink,
   InvoiceProjectOption,
   InvoiceTaskOption,
@@ -848,6 +849,12 @@ interface StoreValue {
   /** Set, move or (null) clear an invoice's next call without logging one. */
   scheduleInvoiceCall: (invoiceId: string, next: InvoiceNextCall | null) => void;
   deleteInvoiceCall: (id: string) => void;
+  /**
+   * A customer's contact person added (or edited) here (0014). Books' own
+   * contacts are rewritten on every fetch, so only `pms` ones are edited.
+   */
+  saveCustomerContact: (input: CustomerContactInput) => CustomerContact;
+  deleteCustomerContact: (id: string) => void;
 
   /** System Inventory (0011). The ID or code is filled in when the save comes back. */
   addInventoryItem: (input: InventoryItemInput, placement?: InventoryPlacement) => InventoryItem;
@@ -2440,6 +2447,16 @@ const activityActions = {
 
 export type InvoiceCallInput = Omit<InvoiceCall, "id" | "createdBy" | "createdAt">;
 
+export interface CustomerContactInput {
+  /** Set to edit an existing contact. */
+  id?: string;
+  zohoCustomerId: string;
+  name: string;
+  designation: string;
+  /** Comma separated. */
+  phones: string;
+}
+
 export interface InvoiceNextCall {
   on: string;
   note: string;
@@ -2553,6 +2570,8 @@ const invoiceActions = {
             invoice_id: call.invoiceId,
             called_on: call.calledOn,
             contact: call.contact,
+            contact_id: call.contactId,
+            phone: call.phone.trim(),
             outcome: call.outcome,
             notes: call.notes,
             promised_on: call.promisedOn,
@@ -2577,6 +2596,54 @@ const invoiceActions = {
       ["invoices"],
       (db) => ({ ...db, invoiceCalls: db.invoiceCalls.filter((x) => x.id !== id) }),
       (c) => run(c.from("invoice_calls").delete().eq("id", id)),
+    );
+  },
+
+  saveCustomerContact(input: CustomerContactInput): CustomerContact {
+    const existing = input.id ? state.db.customerContacts.find((x) => x.id === input.id) : undefined;
+    const contact: CustomerContact = {
+      id: existing?.id ?? newId(),
+      zohoCustomerId: input.zohoCustomerId,
+      zohoContactPersonId: existing?.zohoContactPersonId ?? null,
+      name: input.name.trim(),
+      designation: input.designation.trim(),
+      phones: input.phones,
+      isPrimary: existing?.isPrimary ?? false,
+      source: existing?.source ?? "pms",
+    };
+    const columns = { name: contact.name, designation: contact.designation, phones: contact.phones };
+    void commit(
+      ["invoices"],
+      (db) => ({
+        ...db,
+        customerContacts: existing
+          ? db.customerContacts.map((x) => (x.id === contact.id ? contact : x))
+          : [...db.customerContacts, contact],
+      }),
+      (c) =>
+        run(
+          existing
+            ? c.from("customer_contacts").update({ ...columns, updated_at: now() }).eq("id", contact.id)
+            : c.from("customer_contacts").insert({
+                id: contact.id,
+                zoho_customer_id: contact.zohoCustomerId,
+                source: "pms",
+                ...columns,
+              }),
+        ),
+    );
+    return contact;
+  },
+
+  deleteCustomerContact(id: string) {
+    void commit(
+      ["invoices"],
+      (db) => ({
+        ...db,
+        customerContacts: db.customerContacts.filter((x) => x.id !== id),
+        invoiceCalls: db.invoiceCalls.map((x) => (x.contactId === id ? { ...x, contactId: null } : x)),
+      }),
+      (c) => run(c.from("customer_contacts").delete().eq("id", id)),
     );
   },
 };

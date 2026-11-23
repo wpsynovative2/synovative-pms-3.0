@@ -1041,6 +1041,8 @@ export interface Invoice {
   customerCompany: string;
   /** The customer's Primary Contact, first and last name (0013). */
   contactPerson: string;
+  /** Books' customer id: the key to the customer's contact persons (0014). */
+  zohoCustomerId: string;
   salesperson: string;
   invoiceDate: string | null;
   dueDate: string | null;
@@ -1098,14 +1100,35 @@ export interface InvoiceCall {
   id: string;
   invoiceId: string;
   calledOn: string;
-  /** Who picked up. */
+  /** Who picked up, by name as it was when the call was logged. */
   contact: string;
+  /** The contact person called (0014), while they still exist. */
+  contactId: string | null;
+  /** The number dialled. */
+  phone: string;
   outcome: InvoiceCallOutcome;
   notes: string;
   promisedOn: string | null;
   promisedAmount: number | null;
   createdBy: string | null;
   createdAt: string;
+}
+
+/**
+ * One of a customer's contact persons (0014), shared by every invoice of that
+ * customer. `zoho` rows come from Books and are rewritten on each fetch; `pms`
+ * rows were added here by Accounts and are theirs to edit.
+ */
+export interface CustomerContact {
+  id: string;
+  zohoCustomerId: string;
+  zohoContactPersonId: string | null;
+  name: string;
+  designation: string;
+  /** Work Phone and Mobile (or any numbers added here), comma separated. */
+  phones: string;
+  isPrimary: boolean;
+  source: "zoho" | "pms";
 }
 
 /**
@@ -1554,6 +1577,7 @@ export interface Database {
   invoices: Invoice[];
   invoiceCalls: InvoiceCall[];
   invoiceLinks: InvoiceLink[];
+  customerContacts: CustomerContact[];
   workstations: Workstation[];
   inventoryItems: InventoryItem[];
 }

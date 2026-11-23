@@ -10,6 +10,8 @@
  * Shared by the server routes and the browser — nothing secret in here.
  */
 
+import { daysBetween, todayISO } from "./calendar";
+
 /* ------------------------------------------------------------------ sync */
 
 /**
@@ -146,6 +148,80 @@ export function customerSubline(i: { customerName: string; customerCompany: stri
 /** Everything a customer search should match. */
 export const customerSearchText = (i: { customerName: string; customerCompany: string; contactPerson: string }) =>
   [i.customerName, i.customerCompany, i.contactPerson];
+
+/* ------------------------------------------------------------------- age */
+
+/** Days from the invoice date to today; null for an invoice without a date. */
+export function invoiceAgeDays(i: { invoiceDate: string | null }): number | null {
+  if (!i.invoiceDate) return null;
+  return Math.max(0, daysBetween(i.invoiceDate, todayISO()));
+}
+
+export const formatAge = (days: number | null) =>
+  days === null ? "—" : `${days} Day${days === 1 ? "" : "s"}`;
+
+/** The age filter's ranges, in days since the invoice date (both ends included). */
+export const AGE_BUCKETS = [
+  { id: "0-30", label: "0–30 days", min: 0, max: 30 },
+  { id: "31-60", label: "31–60 days", min: 31, max: 60 },
+  { id: "61-90", label: "61–90 days", min: 61, max: 90 },
+  { id: "91-180", label: "91–180 days", min: 91, max: 180 },
+  { id: "181+", label: "Over 180 days", min: 181, max: Infinity },
+] as const;
+
+/* -------------------------------------------------------------- grouping */
+
+/**
+ * Grouping by who the customer is. Grouping by status is a control of its own
+ * (the statuses to group by are picked), and only one grouping applies at once.
+ */
+export type InvoiceGroupBy = "none" | "display" | "company" | "contact";
+/** What a group is keyed by: one of the customer's names, or the status. */
+export type InvoiceGroupKey = Exclude<InvoiceGroupBy, "none"> | "status";
+
+export const INVOICE_GROUP_BY: { id: InvoiceGroupBy; label: string }[] = [
+  { id: "none", label: "No grouping" },
+  { id: "display", label: "Group by display name" },
+  { id: "company", label: "Group by company name" },
+  { id: "contact", label: "Group by primary contact" },
+];
+
+export interface InvoiceGroup<T> {
+  key: string;
+  label: string;
+  invoices: T[];
+}
+
+/**
+ * Invoices in groups, each keeping the list's own order. Groups run A–Z,
+ * except status, which follows Books' order; blanks ("No company name") last.
+ */
+export function groupInvoices<
+  T extends { customerName: string; customerCompany: string; contactPerson: string; status: string },
+>(list: T[], by: InvoiceGroupKey): InvoiceGroup<T>[] {
+  const empty = { display: "No display name", company: "No company name", contact: "No primary contact", status: "No status" }[by];
+  const keyOf = (i: T) =>
+    (by === "display" ? i.customerName : by === "company" ? i.customerCompany : by === "contact" ? i.contactPerson : i.status).trim();
+  const groups = new Map<string, InvoiceGroup<T>>();
+  for (const i of list) {
+    const raw = keyOf(i);
+    const key = raw.toLowerCase();
+    const label = !raw ? empty : by === "status" ? invoiceStatusLabel(raw) : raw;
+    const g = groups.get(key) ?? { key, label, invoices: [] };
+    g.invoices.push(i);
+    groups.set(key, g);
+  }
+  const order = (g: InvoiceGroup<T>) => (by === "status" ? INVOICE_STATUS_FILTERS.indexOf(g.key) : -1);
+  return Array.from(groups.values()).sort((a, b) => {
+    if (!a.key !== !b.key) return a.key ? -1 : 1;
+    if (by === "status") {
+      const x = order(a);
+      const y = order(b);
+      if (x !== y) return (x < 0 ? 99 : x) - (y < 0 ? 99 : y);
+    }
+    return a.label.localeCompare(b.label);
+  });
+}
 
 /* ----------------------------------------------------------------- money */
 
@@ -464,6 +540,7 @@ export function invoiceColumns(raw: unknown) {
     status: d.status,
     customer_name: d.customerName,
     contact_person: d.contactPerson,
+    zoho_customer_id: text(obj(raw).customer_id),
     salesperson_name: d.salesperson,
     invoice_date: d.date,
     due_date: d.dueDate,
@@ -472,3 +549,45 @@ export function invoiceColumns(raw: unknown) {
     balance: d.balance,
   };
 }
+
+/* ------------------------------------------------------- contact persons */
+
+/** One of a customer's contact persons, as customer_contacts stores it (0014). */
+export interface ContactPersonRow {
+  zohoContactPersonId: string;
+  /** Books' Last Name, where this organisation keeps the whole name; else the First Name. */
+  name: string;
+  /** Empty when read from an invoice, which does not carry it. */
+  designation: string;
+  /** Work Phone and Mobile, comma separated. */
+  phones: string;
+  isPrimary: boolean;
+}
+
+/**
+ * A Books contact-person list — the customer record's `contact_persons` or an
+ * invoice's `contact_persons_details`, which share these fields — as rows.
+ */
+export function contactPersonRows(raw: unknown): ContactPersonRow[] {
+  return list(raw)
+    .map((p) => ({
+      zohoContactPersonId: text(p.contact_person_id),
+      name: text(p.last_name) || text(p.first_name) || "Contact",
+      designation: text(p.designation),
+      phones: joinPhones([text(p.phone), text(p.mobile)]),
+      isPrimary: p.is_primary_contact === true,
+    }))
+    .filter((p) => p.zohoContactPersonId);
+}
+
+/** Numbers in the one comma-separated field, blanks and repeats left out. */
+export function joinPhones(numbers: string[]): string {
+  return Array.from(new Set(numbers.map((n) => n.trim()).filter(Boolean))).join(", ");
+}
+
+/** The numbers in a contact's phone field, one by one. */
+export const splitPhones = (phones: string) =>
+  phones
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean);

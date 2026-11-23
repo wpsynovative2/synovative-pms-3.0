@@ -40,6 +40,7 @@ import type {
   Invoice,
   InvoiceCall,
   InvoiceLink,
+  CustomerContact,
   InvoiceProjectOption,
   InvoiceTaskOption,
   Website,
@@ -131,6 +132,7 @@ export const EMPTY_DB: Database = {
   invoices: [],
   invoiceCalls: [],
   invoiceLinks: [],
+  customerContacts: [],
   workstations: [],
   inventoryItems: [],
 };
@@ -1100,13 +1102,19 @@ async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
  * without can_view_invoices() simply gets no rows.
  */
 const INVOICE_LIST_COLUMNS =
-  "id, zoho_invoice_id, invoice_number, status, customer_name, customer_company, contact_person, salesperson_name, invoice_date, due_date, currency_code, total, balance, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
+  "id, zoho_invoice_id, invoice_number, status, customer_name, customer_company, contact_person, zoho_customer_id, salesperson_name, invoice_date, due_date, currency_code, total, balance, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
 
 async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, calls, links] = await Promise.all([
+  const [rows, calls, links, contacts] = await Promise.all([
     fetchColumns(sb, "invoices", INVOICE_LIST_COLUMNS, "id"),
     fetchAll(sb, "invoice_calls", "id"),
     fetchColumns(sb, "invoice_links", "id, invoice_id, project_id, task_id", "id"),
+    fetchColumns(
+      sb,
+      "customer_contacts",
+      "id, zoho_customer_id, zoho_contact_person_id, name, designation, phones, is_primary, source",
+      "id",
+    ),
   ]);
   const invoices: Invoice[] = rows.map((r) => ({
     id: str(r.id),
@@ -1116,6 +1124,7 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
     customerName: str(r.customer_name),
     customerCompany: str(r.customer_company),
     contactPerson: str(r.contact_person),
+    zohoCustomerId: str(r.zoho_customer_id),
     salesperson: str(r.salesperson_name),
     invoiceDate: nullable(r.invoice_date) ? dateOnly(r.invoice_date) : null,
     dueDate: nullable(r.due_date) ? dateOnly(r.due_date) : null,
@@ -1135,6 +1144,8 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
       invoiceId: str(r.invoice_id),
       calledOn: dateOnly(r.called_on),
       contact: str(r.contact),
+      contactId: nullable(r.contact_id),
+      phone: str(r.phone),
       outcome: str(r.outcome) as InvoiceCall["outcome"],
       notes: str(r.notes),
       promisedOn: nullable(r.promised_on) ? dateOnly(r.promised_on) : null,
@@ -1150,7 +1161,20 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
     projectId: nullable(r.project_id),
     taskId: nullable(r.task_id),
   }));
-  return { invoices, invoiceCalls, invoiceLinks };
+  const customerContacts: CustomerContact[] = contacts
+    .map((r) => ({
+      id: str(r.id),
+      zohoCustomerId: str(r.zoho_customer_id),
+      zohoContactPersonId: nullable(r.zoho_contact_person_id),
+      name: str(r.name),
+      designation: str(r.designation),
+      phones: str(r.phones),
+      isPrimary: !!r.is_primary,
+      source: (str(r.source) === "zoho" ? "zoho" : "pms") as CustomerContact["source"],
+    }))
+    // Primary first, then by name.
+    .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.name.localeCompare(b.name));
+  return { invoices, invoiceCalls, invoiceLinks, customerContacts };
 }
 
 /** One invoice exactly as Books returned it; read it with readInvoice(). */

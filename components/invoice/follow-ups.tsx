@@ -5,8 +5,10 @@ import { DatePicker } from "@/components/ui/date-picker";
 import {
   IconCalendar,
   IconClock,
+  IconEdit,
   IconInvoice,
   IconPhone,
+  IconPlus,
   IconTrash,
   IconWarning,
 } from "@/components/ui/icons";
@@ -32,6 +34,8 @@ import {
   formatMoney,
   invoiceStatusLabel,
   invoiceStatusTone,
+  joinPhones,
+  splitPhones,
 } from "@/lib/invoices";
 import { canDeleteInvoiceCall, canLogInvoiceCalls, canManageInvoices } from "@/lib/permissions";
 import { useStore, type InvoiceNextCall } from "@/lib/store";
@@ -39,6 +43,7 @@ import {
   CALL_AGAIN_OUTCOMES,
   INVOICE_CALL_OUTCOMES,
   PROMISE_OUTCOMES,
+  type CustomerContact,
   type Invoice,
   type InvoiceCall,
   type InvoiceCallOutcome,
@@ -187,10 +192,28 @@ function NextCallFields({
 export function LogCallModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
   const { db, currentUser, logInvoiceCall, showToast } = useStore();
   const today = todayISO();
-  const lastContact = db.invoiceCalls.find((c) => c.invoiceId === invoice.id && c.contact)?.contact ?? "";
+  const contacts = db.customerContacts.filter((c) => c.zohoCustomerId === invoice.zohoCustomerId);
+  const lastCall = db.invoiceCalls.find((c) => c.invoiceId === invoice.id);
 
+  // Whoever was called last time, if they are still listed; else the primary
+  // contact (listed first); else someone typed in.
+  const firstPick =
+    (lastCall?.contactId && contacts.find((c) => c.id === lastCall.contactId)) || contacts[0] || null;
   const [calledOn, setCalledOn] = useState(today);
-  const [contact, setContact] = useState(lastContact);
+  const [contactId, setContactId] = useState<string>(firstPick?.id ?? OTHER);
+  const [otherName, setOtherName] = useState(firstPick ? "" : (lastCall?.contact ?? ""));
+  const [phone, setPhone] = useState(
+    firstPick ? (splitPhones(firstPick.phones)[0] ?? "") : (lastCall?.phone ?? ""),
+  );
+  const [addingContact, setAddingContact] = useState(false);
+  const picked = contacts.find((c) => c.id === contactId) ?? null;
+  const pickedPhones = picked ? splitPhones(picked.phones) : [];
+
+  const pickContact = (id: string) => {
+    setContactId(id);
+    const c = contacts.find((x) => x.id === id);
+    setPhone(c ? (splitPhones(c.phones)[0] ?? "") : "");
+  };
   const [outcome, setOutcome] = useState<InvoiceCallOutcome | "">("");
   const [promisedOn, setPromisedOn] = useState("");
   const [promisedAmount, setPromisedAmount] = useState(invoice.balance > 0 ? String(invoice.balance) : "");
@@ -219,7 +242,9 @@ export function LogCallModal({ invoice, onClose }: { invoice: Invoice; onClose: 
       {
         invoiceId: invoice.id,
         calledOn,
-        contact,
+        contact: picked ? picked.name : otherName,
+        contactId: picked?.id ?? null,
+        phone,
         outcome,
         notes,
         promisedOn: promise ? promisedOn : null,
@@ -262,15 +287,98 @@ export function LogCallModal({ invoice, onClose }: { invoice: Invoice; onClose: 
               ignoreWorkingRules
             />
           </Field>
-          <Field label="Spoke to">
-            <Input
-              value={contact}
-              maxLength={160}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder="Name or designation"
-            />
+          <Field
+            label="Spoke to"
+            hint={contacts.length ? undefined : "No contact persons for this customer yet — add one, or type a name."}
+          >
+            <div className="flex gap-1.5">
+              <Select value={contactId} onChange={(e) => pickContact(e.target.value)} aria-label="Contact person">
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.designation ? ` — ${c.designation}` : ""}
+                    {c.isPrimary ? " (primary)" : ""}
+                  </option>
+                ))}
+                <option value={OTHER}>Someone else…</option>
+              </Select>
+              {invoice.zohoCustomerId ? (
+                <Button
+                  type="button"
+                  onClick={() => setAddingContact(true)}
+                  aria-label="Add a contact person"
+                  title="Add a contact person"
+                >
+                  <IconPlus size={14} />
+                </Button>
+              ) : null}
+            </div>
           </Field>
         </div>
+
+        {picked ? (
+          <Field label="Number called">
+            {pickedPhones.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {pickedPhones.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setPhone(n)}
+                    className={cx(
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[12px] transition-colors",
+                      phone === n
+                        ? "border-brand-bright/50 bg-brand/15 font-medium text-brand-ink"
+                        : "border-line bg-surface-2 text-ink-muted hover:text-ink",
+                    )}
+                  >
+                    <IconPhone size={12} /> {n}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Input
+                value={phone}
+                maxLength={40}
+                inputMode="tel"
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="No number saved for them — type the one you called"
+              />
+            )}
+          </Field>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name">
+              <Input
+                value={otherName}
+                maxLength={160}
+                onChange={(e) => setOtherName(e.target.value)}
+                placeholder="Name or designation"
+              />
+            </Field>
+            <Field label="Number called">
+              <Input
+                value={phone}
+                maxLength={40}
+                inputMode="tel"
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+91…"
+              />
+            </Field>
+          </div>
+        )}
+
+        {addingContact ? (
+          <ContactModal
+            zohoCustomerId={invoice.zohoCustomerId}
+            customerName={invoice.customerName}
+            onClose={() => setAddingContact(false)}
+            onSaved={(c) => {
+              setContactId(c.id);
+              setPhone(splitPhones(c.phones)[0] ?? "");
+            }}
+          />
+        ) : null}
 
         <Field label="Outcome" required>
           <div className="flex flex-wrap gap-1.5">
@@ -407,6 +515,11 @@ function CallItem({ call, heading }: { call: InvoiceCall; heading?: React.ReactN
         <Badge className={outcomeTone(call.outcome)}>{call.outcome}</Badge>
         <span className="text-ink">{formatDate(call.calledOn)}</span>
         {call.contact ? <span className="text-ink-muted">with {call.contact}</span> : null}
+        {call.phone ? (
+          <a href={`tel:${call.phone.replace(/\s+/g, "")}`} className="font-mono text-ink-muted hover:text-brand-bright">
+            {call.phone}
+          </a>
+        ) : null}
         <span className="text-ink-faint">by {by?.fullName ?? "someone"}</span>
         {canDeleteInvoiceCall(currentUser!, call.createdBy) ? (
           <button
@@ -434,6 +547,189 @@ function CallItem({ call, heading }: { call: InvoiceCall; heading?: React.ReactN
         confirmLabel="Delete call"
       />
     </li>
+  );
+}
+
+/* ------------------------------------------------------ contact persons */
+
+/** "Someone else": a call to a person not on the customer's list. */
+const OTHER = "__other__";
+
+/**
+ * Add a contact person here, or edit one added here (0014). Books' own
+ * contacts are edited in Books: the next fetch would overwrite a change made
+ * here.
+ */
+function ContactModal({
+  zohoCustomerId,
+  customerName,
+  contact,
+  onClose,
+  onSaved,
+}: {
+  zohoCustomerId: string;
+  customerName: string;
+  contact?: CustomerContact;
+  onClose: () => void;
+  onSaved?: (c: CustomerContact) => void;
+}) {
+  const { saveCustomerContact, showToast } = useStore();
+  const [name, setName] = useState(contact?.name ?? "");
+  const [designation, setDesignation] = useState(contact?.designation ?? "");
+  const [phones, setPhones] = useState(contact?.phones ?? "");
+  const valid = !!name.trim();
+
+  const save = () => {
+    if (!valid) return;
+    const saved = saveCustomerContact({
+      id: contact?.id,
+      zohoCustomerId,
+      name,
+      designation,
+      phones: joinPhones(phones.split(",")),
+    });
+    showToast(contact ? "Contact saved." : `${saved.name} added to ${customerName}'s contacts.`, "success");
+    onSaved?.(saved);
+    onClose();
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={contact ? "Edit contact person" : "Add a contact person"}
+      subtitle={`${customerName} — shared by every invoice of this customer`}
+      size="sm"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={save} disabled={!valid}>
+            {contact ? "Save" : "Add contact"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Name" required>
+          <Input value={name} maxLength={160} autoFocus onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Designation">
+          <Input
+            value={designation}
+            maxLength={160}
+            onChange={(e) => setDesignation(e.target.value)}
+            placeholder="Accounts head, Director…"
+          />
+        </Field>
+        <Field label="Phone numbers" hint="Separate two numbers with a comma.">
+          <Input
+            value={phones}
+            maxLength={200}
+            inputMode="tel"
+            onChange={(e) => setPhones(e.target.value)}
+            placeholder="+91 98200 00000, +91 22 0000 0000"
+          />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+/** The customer's contact persons, each number a tap to call. */
+function ContactsSection({ invoice }: { invoice: Invoice }) {
+  const { db, currentUser, deleteCustomerContact } = useStore();
+  const mayEdit = canLogInvoiceCalls(currentUser!);
+  const [editing, setEditing] = useState<CustomerContact | "new" | null>(null);
+  const [deleting, setDeleting] = useState<CustomerContact | null>(null);
+  const contacts = db.customerContacts.filter((c) => c.zohoCustomerId === invoice.zohoCustomerId);
+
+  return (
+    <div className="mb-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] tracking-wide text-ink-faint uppercase">Contact persons</span>
+        {mayEdit && invoice.zohoCustomerId ? (
+          <button
+            type="button"
+            onClick={() => setEditing("new")}
+            className="inline-flex items-center gap-1 text-[12px] text-brand-bright hover:underline"
+          >
+            <IconPlus size={12} /> Add contact
+          </button>
+        ) : null}
+      </div>
+      {contacts.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">
+          {invoice.zohoCustomerId
+            ? "None yet. Refetch the invoice to bring them from Books, or add one."
+            : "Refetch this invoice to bring its customer's contacts from Books."}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {contacts.map((c) => (
+            <li
+              key={c.id}
+              className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-line-soft px-3 py-1.5 text-[12px]"
+            >
+              <span className="font-medium text-ink">{c.name}</span>
+              {c.designation ? <span className="text-ink-faint">{c.designation}</span> : null}
+              {c.isPrimary ? <Badge>Primary</Badge> : null}
+              <span className="flex flex-wrap gap-x-2">
+                {splitPhones(c.phones).map((n) => (
+                  <a
+                    key={n}
+                    href={`tel:${n.replace(/\s+/g, "")}`}
+                    className="inline-flex items-center gap-1 font-mono text-brand-bright hover:underline"
+                  >
+                    <IconPhone size={11} /> {n}
+                  </a>
+                ))}
+                {c.phones ? null : <span className="text-ink-faint">No number</span>}
+              </span>
+              <span className="ml-auto flex items-center gap-1.5">
+                <span className="text-[10px] text-ink-faint">{c.source === "zoho" ? "From Books" : "Added here"}</span>
+                {mayEdit && c.source === "pms" ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setEditing(c)}
+                      aria-label={`Edit ${c.name}`}
+                      className="text-ink-faint hover:text-ink"
+                    >
+                      <IconEdit size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(c)}
+                      aria-label={`Delete ${c.name}`}
+                      className="text-ink-faint hover:text-st-rejected"
+                    >
+                      <IconTrash size={12} />
+                    </button>
+                  </>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editing ? (
+        <ContactModal
+          zohoCustomerId={invoice.zohoCustomerId}
+          customerName={invoice.customerName}
+          contact={editing === "new" ? undefined : editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && deleteCustomerContact(deleting.id)}
+        title={`Delete ${deleting?.name ?? "this contact"}?`}
+        body="They are removed from every invoice of this customer. Calls already logged keep their name and number."
+        confirmLabel="Delete contact"
+      />
+    </div>
   );
 }
 
@@ -500,6 +796,8 @@ export function FollowUpPanel({ invoice }: { invoice: Invoice }) {
           {settled ? "Settled in Books — nothing to chase." : "No call scheduled."}
         </p>
       )}
+
+      <ContactsSection invoice={invoice} />
 
       {calls.length ? (
         <ul className="flex flex-col gap-1.5">

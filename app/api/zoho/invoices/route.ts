@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
-import { IMPORT_BATCH, invoiceColumns, type ImportResult } from "@/lib/invoices";
+import { IMPORT_BATCH, contactPersonRows, invoiceColumns, type ImportResult } from "@/lib/invoices";
 import { fail } from "@/lib/supabase/route-auth";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { BOOKS_NOT_CONNECTED, booksConfig, customerCompany, findInvoice } from "@/lib/zoho/books";
+import {
+  BOOKS_NOT_CONNECTED,
+  booksConfig,
+  customerRecord,
+  findInvoice,
+  type CustomerRecord,
+} from "@/lib/zoho/books";
 import { requireInvoiceRight } from "@/lib/zoho/invoice-auth";
 
 export const maxDuration = 60;
@@ -36,10 +42,12 @@ export async function POST(request: Request) {
 
   const sb = await getServerSupabase();
   const results: ImportResult[] = [];
-  // One customer's Company Name serves every invoice of theirs in the batch.
+  // One customer's record serves every invoice of theirs in the batch.
   // `false` once Books has refused the contacts API: no point asking again.
-  const companies = new Map<string, string | null>();
+  const records = new Map<string, CustomerRecord | null>();
   let contactsAllowed = true;
+  // Customers whose contact persons this request has already saved.
+  const contactsSaved = new Set<string>();
 
   for (const ref of refs) {
     try {
@@ -55,12 +63,13 @@ export async function POST(request: Request) {
       }
 
       const customerId = String(raw.customer_id ?? "");
-      let company: string | null = null;
+      let record: CustomerRecord | null = null;
       if (contactsAllowed && customerId) {
-        if (!companies.has(customerId)) companies.set(customerId, await customerCompany(config, customerId));
-        company = companies.get(customerId) ?? null;
-        if (company === null) contactsAllowed = false;
+        if (!records.has(customerId)) records.set(customerId, await customerRecord(config, customerId));
+        record = records.get(customerId) ?? null;
+        if (record === null) contactsAllowed = false;
       }
+      const company = record ? record.company : null;
 
       const { data: before } = await sb
         .from("invoices")
@@ -85,6 +94,31 @@ export async function POST(request: Request) {
         .select("id, invoice_number")
         .single();
       if (error) throw new Error(error.message);
+
+      // The customer's contact persons (0014), once per customer per request:
+      // from their record when Books lets us read it (designation included),
+      // else from the invoice, leaving any designation already saved alone.
+      if (customerId && !contactsSaved.has(customerId)) {
+        contactsSaved.add(customerId);
+        const persons = record ? record.persons : contactPersonRows(raw.contact_persons_details);
+        if (persons.length) {
+          const { error: contactsError } = await sb.from("customer_contacts").upsert(
+            persons.map((p) => ({
+              zoho_customer_id: customerId,
+              zoho_contact_person_id: p.zohoContactPersonId,
+              name: p.name,
+              phones: p.phones,
+              is_primary: p.isPrimary,
+              source: "zoho",
+              updated_at: new Date().toISOString(),
+              ...(record ? { designation: p.designation } : {}),
+            })),
+            { onConflict: "zoho_customer_id,zoho_contact_person_id" },
+          );
+          if (contactsError) throw new Error(`Saved the invoice, but not its contacts: ${contactsError.message}`);
+        }
+      }
+
       results.push({
         ref,
         ok: true,

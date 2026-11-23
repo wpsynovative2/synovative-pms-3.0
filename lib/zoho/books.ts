@@ -1,5 +1,6 @@
 import "server-only";
 
+import { contactPersonRows, type ContactPersonRow } from "@/lib/invoices";
 import { accessToken, type ZohoConfig } from "./auth";
 
 /**
@@ -36,6 +37,18 @@ export function booksConfig(): BooksConfig | null {
     accountsDomain: env("ZOHO_ACCOUNTS_DOMAIN") ?? "https://accounts.zoho.in",
     apiDomain: env("ZOHO_API_DOMAIN") ?? "https://www.zohoapis.in",
   };
+}
+
+/**
+ * Where an invoice opens in Books' web app. The web app shares the accounts
+ * domain's data centre (accounts.zoho.in → books.zoho.in);
+ * ZOHO_BOOKS_WEB_URL overrides it.
+ */
+export function booksWebUrl(config: BooksConfig, invoiceId: string): string {
+  const base =
+    process.env.ZOHO_BOOKS_WEB_URL?.trim().replace(/\/+$/, "") ||
+    config.accountsDomain.replace("://accounts.", "://books.").replace(/\/+$/, "");
+  return `${base}/app/${encodeURIComponent(config.organizationId)}#/invoices/${encodeURIComponent(invoiceId)}`;
 }
 
 export const BOOKS_NOT_CONNECTED =
@@ -175,25 +188,34 @@ export async function findInvoice(
   return match ? getInvoice(config, match.invoice_id) : null;
 }
 
+export interface CustomerRecord {
+  company: string;
+  /** The customer's contact persons as Books lists them (designation included). */
+  persons: ContactPersonRow[];
+}
+
 /**
  * A customer's Company Name, from their contact record — the invoice carries
- * only the Display Name. Needs the ZohoBooks.contacts.READ scope; without it
- * Books answers 401, and this returns `null` so an import goes on without the
- * name rather than failing (the column is then left as it was).
+ * only the Display Name — and their contact persons (0014), whose designation
+ * the invoice's own list leaves out. Needs the ZohoBooks.contacts.READ scope;
+ * without it Books answers 401, and this returns `null` so an import goes on
+ * without them rather than failing (what the PMS has is then left as it was).
  */
-export async function customerCompany(config: BooksConfig, customerId: string): Promise<string | null> {
+export async function customerRecord(config: BooksConfig, customerId: string): Promise<CustomerRecord | null> {
   if (!customerId) return null;
   try {
-    const body = await call<BooksEnvelope & { contact?: { company_name?: string } }>(
-      config,
-      `/contacts/${encodeURIComponent(customerId)}`,
-    );
+    const body = await call<
+      BooksEnvelope & { contact?: { company_name?: string; contact_persons?: unknown } }
+    >(config, `/contacts/${encodeURIComponent(customerId)}`);
     const name = (body.contact?.company_name ?? "").trim();
-    return name === "null" ? "" : name;
+    return {
+      company: name === "null" ? "" : name,
+      persons: contactPersonRows(body.contact?.contact_persons),
+    };
   } catch (err) {
     if (err instanceof BooksError && (err.status === 401 || err.status === 403)) return null;
-    // A customer since deleted in Books: no company to show.
-    if (err instanceof BooksError && err.status === 404) return "";
+    // A customer since deleted in Books: nothing to show.
+    if (err instanceof BooksError && err.status === 404) return { company: "", persons: [] };
     throw err;
   }
 }
