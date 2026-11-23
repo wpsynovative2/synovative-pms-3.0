@@ -94,6 +94,7 @@ import type {
   Task,
   TaskGroup,
   TaskTemplate,
+  InvoiceCall,
   InvoiceProjectOption,
   User,
   Vendor,
@@ -389,6 +390,7 @@ const NOTIFICATION_SCOPES: Partial<Record<NotificationType, Scope[]>> = {
   content_allotted: ["tasks", "content"],
   website_renewal: ["websites"],
   inventory_assigned: ["inventory"],
+  invoice_follow_up: ["invoices"],
 };
 
 function resetSession() {
@@ -832,6 +834,15 @@ interface StoreValue {
   /** The full invoice as Books returned it; read it with readInvoice(). */
   invoiceDetails: (id: string) => Promise<unknown>;
   invoiceProjects: () => Promise<InvoiceProjectOption[]>;
+  /**
+   * Payment follow-ups (0011). Logging a call also sets the invoice's next
+   * call to `next`, or clears it when `next` is null — the call just made
+   * settles whatever was scheduled.
+   */
+  logInvoiceCall: (input: InvoiceCallInput, next: InvoiceNextCall | null) => void;
+  /** Set, move or (null) clear an invoice's next call without logging one. */
+  scheduleInvoiceCall: (invoiceId: string, next: InvoiceNextCall | null) => void;
+  deleteInvoiceCall: (id: string) => void;
 
   /** System Inventory (0011). The ID or code is filled in when the save comes back. */
   addInventoryItem: (input: InventoryItemInput, placement?: InventoryPlacement) => InventoryItem;
@@ -2422,6 +2433,29 @@ const activityActions = {
 
 /* ------------------------------------------------------------ invoices */
 
+export type InvoiceCallInput = Omit<InvoiceCall, "id" | "createdBy" | "createdAt">;
+
+export interface InvoiceNextCall {
+  on: string;
+  note: string;
+  by: string | null;
+}
+
+const nextCallColumns = (next: InvoiceNextCall | null) => ({
+  next_call_on: next?.on ?? null,
+  next_call_note: next?.note.trim() ?? "",
+  next_call_by: next ? next.by : null,
+});
+
+const withNextCall = (db: Database, invoiceId: string, next: InvoiceNextCall | null): Database => ({
+  ...db,
+  invoices: db.invoices.map((i) =>
+    i.id === invoiceId
+      ? { ...i, nextCallOn: next?.on ?? null, nextCallNote: next?.note.trim() ?? "", nextCallBy: next ? next.by : null }
+      : i,
+  ),
+});
+
 const invoiceActions = {
   linkInvoiceToProject(id: string, projectId: string | null) {
     void commit(
@@ -2452,6 +2486,52 @@ const invoiceActions = {
 
   async invoiceProjects(): Promise<InvoiceProjectOption[]> {
     return loadInvoiceProjects(sb());
+  },
+
+  logInvoiceCall(input: InvoiceCallInput, next: InvoiceNextCall | null) {
+    const call: InvoiceCall = {
+      ...input,
+      contact: input.contact.trim(),
+      notes: input.notes.trim(),
+      id: newId(),
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["invoices"],
+      (db) => withNextCall({ ...db, invoiceCalls: [call, ...db.invoiceCalls] }, input.invoiceId, next),
+      async (c) => {
+        await run(
+          c.from("invoice_calls").insert({
+            id: call.id,
+            invoice_id: call.invoiceId,
+            called_on: call.calledOn,
+            contact: call.contact,
+            outcome: call.outcome,
+            notes: call.notes,
+            promised_on: call.promisedOn,
+            promised_amount: call.promisedAmount,
+          }),
+        );
+        await run(c.from("invoices").update(nextCallColumns(next)).eq("id", input.invoiceId));
+      },
+    );
+  },
+
+  scheduleInvoiceCall(invoiceId: string, next: InvoiceNextCall | null) {
+    void commit(
+      ["invoices"],
+      (db) => withNextCall(db, invoiceId, next),
+      (c) => run(c.from("invoices").update(nextCallColumns(next)).eq("id", invoiceId)),
+    );
+  },
+
+  deleteInvoiceCall(id: string) {
+    void commit(
+      ["invoices"],
+      (db) => ({ ...db, invoiceCalls: db.invoiceCalls.filter((x) => x.id !== id) }),
+      (c) => run(c.from("invoice_calls").delete().eq("id", id)),
+    );
   },
 };
 

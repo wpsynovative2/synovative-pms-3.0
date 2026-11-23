@@ -50,6 +50,15 @@ export const canManageInvoices = (u: User) => isSuperAdmin(u) || isFinance(u);
 export const canViewInvoices = (u: User) =>
   canManageInvoices(u) || u.role === "admin" || isBusinessExec(u);
 
+/**
+ * Payment follow-ups (0011): the people who manage invoices log calls and
+ * schedule the next one; whoever logged a call, or a Super Admin, deletes it.
+ * Mirrors the invoice_calls policies.
+ */
+export const canLogInvoiceCalls = canManageInvoices;
+export const canDeleteInvoiceCall = (u: User, createdBy: string | null) =>
+  canManageInvoices(u) && (createdBy === u.id || isSuperAdmin(u));
+
 /* ------------------------------------------------------------- 3D module */
 
 /*

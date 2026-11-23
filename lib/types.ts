@@ -1006,7 +1006,8 @@ export type NotificationType =
   | "timer_autostop"
   | "content_allotted"
   | "website_renewal"
-  | "inventory_assigned";
+  | "inventory_assigned"
+  | "invoice_follow_up";
 
 export interface AppNotification {
   id: string;
@@ -1044,6 +1045,48 @@ export interface Invoice {
   projectId: string | null;
   fetchedAt: string;
   fetchedBy: string | null;
+  createdAt: string;
+  /** The next payment follow-up call (0011): when, what about, and who makes it. */
+  nextCallOn: string | null;
+  nextCallNote: string;
+  nextCallBy: string | null;
+}
+
+/** What a payment follow-up call came to. Mirrors invoice_calls_outcome_check. */
+export type InvoiceCallOutcome =
+  | "Promised to pay"
+  | "Part payment promised"
+  | "Says already paid"
+  | "Needs documents"
+  | "Disputed"
+  | "Call back later"
+  | "No answer"
+  | "Other";
+export const INVOICE_CALL_OUTCOMES: InvoiceCallOutcome[] = [
+  "Promised to pay",
+  "Part payment promised",
+  "Says already paid",
+  "Needs documents",
+  "Disputed",
+  "Call back later",
+  "No answer",
+  "Other",
+];
+/** The outcomes that carry a promise: a date, and usually an amount. */
+export const PROMISE_OUTCOMES: InvoiceCallOutcome[] = ["Promised to pay", "Part payment promised"];
+
+/** One payment follow-up call on an invoice (0011). */
+export interface InvoiceCall {
+  id: string;
+  invoiceId: string;
+  calledOn: string;
+  /** Who picked up. */
+  contact: string;
+  outcome: InvoiceCallOutcome;
+  notes: string;
+  promisedOn: string | null;
+  promisedAmount: number | null;
+  createdBy: string | null;
   createdAt: string;
 }
 
@@ -1470,6 +1513,7 @@ export interface Database {
   websiteCredentials: WebsiteCredential[];
   websiteRenewals: WebsiteRenewal[];
   invoices: Invoice[];
+  invoiceCalls: InvoiceCall[];
   workstations: Workstation[];
   inventoryItems: InventoryItem[];
 }

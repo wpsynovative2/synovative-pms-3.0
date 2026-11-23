@@ -451,6 +451,8 @@ Since the current baseline:
 | File | What it changes |
 | --- | --- |
 | `0009_invoices.sql` | Invoices module: `invoices`, a read-only copy of Zoho Books invoices — summary columns plus the whole invoice as Books returned it (`details`, read by `readInvoice()` in `lib/invoices.ts`) — and the one project each bills for (`project_id`). Written only by the `/api/zoho/invoices` routes, as the caller. `can_view_invoices()` (Super Admin, Admin, Accounts & Finance, BDEs), `can_manage_invoices()` (Super Admin, Accounts & Finance: sync, fetch, refetch, link, delete). `invoice_projects()` names every non-blueprint project for them, since `projects_read` shows Finance and BDEs few. Mirrors `canViewInvoices` / `canManageInvoices` |
+| `0010_invoice_follow_up_notification.sql` | `notification_type` gains `invoice_follow_up` (own file: run before 0011) |
+| `0011_invoice_follow_ups.sql` | Payment follow-ups: `invoice_calls` (each call: date, who picked up, outcome from a fixed list, notes, any promised date and amount) and `invoices.next_call_on` / `_note` / `_by`, at most one next call per invoice. Logging a call sets or clears the next one in the same commit (`logInvoiceCall`); the Zoho upsert never names these columns, so a refetch keeps them. Written by `can_manage_invoices()`; a call is deleted by whoever logged it or a Super Admin. `notify_invoice_follow_ups()` at 09:30 IST sends each caller one notification of their calls due and missed, leaving out settled invoices (no balance, paid, void). Mirrors `canLogInvoiceCalls` / `canDeleteInvoiceCall` and `isSettled` in components/invoice/follow-ups.tsx |
 
 Folded into the current baseline (the files are in `supabase/archive/3-second-baseline/`):
 
@@ -543,6 +545,7 @@ same new files as a fresh one.
 | `generate-recurring-occurrences-0005-ist` | 00:05 | `35 18 * * *` |
 | `prune-old-notifications` | weekly | `0 20 * * 0` |
 | `prune-old-task-opens` | weekly | `10 20 * * 0` |
+| `invoice-follow-ups-0930-ist` | 09:30 | `0 4 * * *` |
 
 **Triggers** fire notifications server-side (`notify_task_assignment`,
 `notify_remark`, `notify_expense_added`, `notify_content_allotment`) and guard

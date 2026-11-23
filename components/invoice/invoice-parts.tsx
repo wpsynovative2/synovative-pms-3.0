@@ -7,6 +7,7 @@ import { IconCheck, IconExternal, IconInvoice, IconRepeat, IconTrash } from "@/c
 import { ConfirmDialog, Drawer } from "@/components/ui/modal";
 import { Badge, Button, Card, EmptyState, Field, StatTile, cx } from "@/components/ui/primitives";
 import { SearchSelect } from "@/components/ui/selects";
+import { FollowUpPanel } from "./follow-ups";
 import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
   formatMoney,
@@ -321,6 +322,8 @@ export function InvoiceDrawer({
             <ProjectName invoice={invoice} projects={projects} />
           )}
         </Field>
+
+        <FollowUpPanel invoice={invoice} />
 
         {!current ? (
           <p className="text-[12px] text-ink-faint">Loading the invoice…</p>

@@ -8,6 +8,7 @@ import {
   IconClock,
   IconSend,
   IconChip,
+  IconInvoice,
   IconGlobe,
   IconSparkle,
   IconTasks,
@@ -41,6 +42,7 @@ const TYPE_LABEL: Record<NotificationType, string> = {
   content_allotted: "Content allotted",
   website_renewal: "Website renewal",
   inventory_assigned: "Workstation",
+  invoice_follow_up: "Payment follow-up",
 };
 
 const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
@@ -56,6 +58,7 @@ const TYPE_ICON: Record<NotificationType, React.ReactNode> = {
   content_allotted: <IconSparkle size={15} />,
   website_renewal: <IconGlobe size={15} />,
   inventory_assigned: <IconChip size={15} />,
+  invoice_follow_up: <IconInvoice size={15} />,
 };
 
 const TYPE_TONE: Record<NotificationType, string> = {
@@ -71,6 +74,7 @@ const TYPE_TONE: Record<NotificationType, string> = {
   content_allotted: "bg-brand/15 text-brand-ink",
   website_renewal: "bg-st-submitted/15 text-st-submitted",
   inventory_assigned: "bg-brand/15 text-brand-ink",
+  invoice_follow_up: "bg-st-submitted/15 text-st-submitted",
 };
 
 /** §17 — in-app only: list, filter, mark as read. */
