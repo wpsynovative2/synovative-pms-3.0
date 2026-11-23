@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { IMPORT_BATCH, invoiceColumns, type ImportResult } from "@/lib/invoices";
 import { fail } from "@/lib/supabase/route-auth";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { BOOKS_NOT_CONNECTED, booksConfig, findInvoice } from "@/lib/zoho/books";
+import { BOOKS_NOT_CONNECTED, booksConfig, customerCompany, findInvoice } from "@/lib/zoho/books";
 import { requireInvoiceRight } from "@/lib/zoho/invoice-auth";
 
 export const maxDuration = 60;
@@ -36,6 +36,10 @@ export async function POST(request: Request) {
 
   const sb = await getServerSupabase();
   const results: ImportResult[] = [];
+  // One customer's Company Name serves every invoice of theirs in the batch.
+  // `false` once Books has refused the contacts API: no point asking again.
+  const companies = new Map<string, string | null>();
+  let contactsAllowed = true;
 
   for (const ref of refs) {
     try {
@@ -50,6 +54,14 @@ export async function POST(request: Request) {
         continue;
       }
 
+      const customerId = String(raw.customer_id ?? "");
+      let company: string | null = null;
+      if (contactsAllowed && customerId) {
+        if (!companies.has(customerId)) companies.set(customerId, await customerCompany(config, customerId));
+        company = companies.get(customerId) ?? null;
+        if (company === null) contactsAllowed = false;
+      }
+
       const { data: before } = await sb
         .from("invoices")
         .select("id")
@@ -62,6 +74,8 @@ export async function POST(request: Request) {
           {
             zoho_invoice_id: zohoId,
             ...invoiceColumns(raw),
+            // Only when Books told us; otherwise keep what the row has.
+            ...(company !== null ? { customer_company: company } : {}),
             details: raw,
             fetched_at: new Date().toISOString(),
             fetched_by: caller.id,

@@ -132,6 +132,21 @@ export const INVOICE_STATUS_FILTERS = [
   "draft",
 ];
 
+/* -------------------------------------------------------------- customer */
+
+/**
+ * The line under a customer's Display Name: their Company Name and Primary
+ * Contact, leaving out either when it only repeats the Display Name.
+ */
+export function customerSubline(i: { customerName: string; customerCompany: string; contactPerson: string }) {
+  const same = (a: string) => a.trim().toLowerCase() === i.customerName.trim().toLowerCase();
+  return [i.customerCompany, i.contactPerson].filter((x) => x && !same(x)).join(" · ");
+}
+
+/** Everything a customer search should match. */
+export const customerSearchText = (i: { customerName: string; customerCompany: string; contactPerson: string }) =>
+  [i.customerName, i.customerCompany, i.contactPerson];
+
 /* ----------------------------------------------------------------- money */
 
 /** Amounts to the paisa, as Books prints them: ₹16,992.00. */
@@ -249,7 +264,10 @@ export interface InvoicePayment {
 export interface InvoiceDetails {
   number: string;
   status: string;
+  /** Books' Display Name for the customer. */
   customerName: string;
+  /** The customer's Primary Contact, first and last name. */
+  contactPerson: string;
   date: string | null;
   dueDate: string | null;
   terms: string;
@@ -400,10 +418,16 @@ export function readInvoice(raw: unknown): InvoiceDetails {
 
   const treatment = text(r.gst_treatment);
 
+  // The primary contact person, else the first listed.
+  const people = list(r.contact_persons_details);
+  const primary = people.find((p) => p.is_primary_contact === true) ?? people[0];
+  const contactPerson = primary ? [text(primary.first_name), text(primary.last_name)].filter(Boolean).join(" ") : "";
+
   return {
     number: text(r.invoice_number),
     status: text(r.status),
     customerName: text(r.customer_name),
+    contactPerson,
     date: dateOrNull(r.date),
     dueDate: dateOrNull(r.due_date),
     terms: firstText(r, ["payment_terms_label"]),
@@ -439,6 +463,7 @@ export function invoiceColumns(raw: unknown) {
     invoice_number: d.number,
     status: d.status,
     customer_name: d.customerName,
+    contact_person: d.contactPerson,
     salesperson_name: d.salesperson,
     invoice_date: d.date,
     due_date: d.dueDate,

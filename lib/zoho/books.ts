@@ -175,6 +175,29 @@ export async function findInvoice(
   return match ? getInvoice(config, match.invoice_id) : null;
 }
 
+/**
+ * A customer's Company Name, from their contact record — the invoice carries
+ * only the Display Name. Needs the ZohoBooks.contacts.READ scope; without it
+ * Books answers 401, and this returns `null` so an import goes on without the
+ * name rather than failing (the column is then left as it was).
+ */
+export async function customerCompany(config: BooksConfig, customerId: string): Promise<string | null> {
+  if (!customerId) return null;
+  try {
+    const body = await call<BooksEnvelope & { contact?: { company_name?: string } }>(
+      config,
+      `/contacts/${encodeURIComponent(customerId)}`,
+    );
+    const name = (body.contact?.company_name ?? "").trim();
+    return name === "null" ? "" : name;
+  } catch (err) {
+    if (err instanceof BooksError && (err.status === 401 || err.status === 403)) return null;
+    // A customer since deleted in Books: no company to show.
+    if (err instanceof BooksError && err.status === 404) return "";
+    throw err;
+  }
+}
+
 /** The invoice's PDF, as Books renders it with the organisation's template. */
 export async function invoicePdf(config: BooksConfig, invoiceId: string): Promise<Response> {
   const res = await request(config, `/invoices/${encodeURIComponent(invoiceId)}`, {

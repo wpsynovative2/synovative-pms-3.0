@@ -26,7 +26,13 @@ import {
   cx,
 } from "@/components/ui/primitives";
 import { addWorkingDays, daysBetween, formatDate, todayISO } from "@/lib/calendar";
-import { formatMoney, invoiceStatusLabel, invoiceStatusTone } from "@/lib/invoices";
+import {
+  customerSearchText,
+  customerSubline,
+  formatMoney,
+  invoiceStatusLabel,
+  invoiceStatusTone,
+} from "@/lib/invoices";
 import { canDeleteInvoiceCall, canLogInvoiceCalls, canManageInvoices } from "@/lib/permissions";
 import { useStore, type InvoiceNextCall } from "@/lib/store";
 import {
@@ -530,7 +536,7 @@ export function FollowUpsTab({ onOpen }: { onOpen: (invoiceId: string) => void }
 
   const q = query.trim().toLowerCase();
   const matches = (i: Invoice) =>
-    !q || [i.invoiceNumber, i.customerName].some((x) => x.toLowerCase().includes(q));
+    !q || [i.invoiceNumber, ...customerSearchText(i)].some((x) => x.toLowerCase().includes(q));
   const mine = (id: string | null) => who === "all" || id === who;
 
   const open = db.invoices.filter((i) => !isSettled(i));
@@ -584,7 +590,7 @@ export function FollowUpsTab({ onOpen }: { onOpen: (invoiceId: string) => void }
       <div className="flex flex-wrap items-center gap-2.5">
         <SearchInput
           className="w-full sm:max-w-xs"
-          placeholder="Search invoice # or customer…"
+          placeholder="Search invoice #, customer, company, contact…"
           value={query}
           active={!!q}
           onChange={(e) => setQuery(e.target.value)}
@@ -718,6 +724,9 @@ function FollowUpTable({
                     {i.invoiceNumber}
                   </button>
                   <div className="max-w-56 truncate text-ink-muted">{i.customerName}</div>
+                  {customerSubline(i) ? (
+                    <div className="max-w-56 truncate text-[11px] text-ink-faint">{customerSubline(i)}</div>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3">
                   <Badge className={invoiceStatusTone(i.status)}>{invoiceStatusLabel(i.status)}</Badge>

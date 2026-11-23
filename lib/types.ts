@@ -1035,7 +1035,12 @@ export interface Invoice {
   invoiceNumber: string;
   /** Books' status code at the last fetch: sent, overdue, partially_paid, paid, … */
   status: string;
+  /** Books' Display Name for the customer. */
   customerName: string;
+  /** The customer's Company Name, from their Books contact record (0013). */
+  customerCompany: string;
+  /** The customer's Primary Contact, first and last name (0013). */
+  contactPerson: string;
   salesperson: string;
   invoiceDate: string | null;
   dueDate: string | null;

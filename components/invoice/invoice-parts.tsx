@@ -10,6 +10,7 @@ import { MultiSelect } from "@/components/ui/selects";
 import { FollowUpPanel } from "./follow-ups";
 import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
+  customerSubline,
   formatMoney,
   invoiceStatusLabel,
   invoiceStatusTone,
@@ -193,6 +194,9 @@ export function InvoiceTable({
                   {i.invoiceNumber || "Unnumbered"}
                 </button>
                 <div className="max-w-64 truncate text-ink-muted">{i.customerName || "—"}</div>
+                {customerSubline(i) ? (
+                  <div className="max-w-64 truncate text-[11px] text-ink-faint">{customerSubline(i)}</div>
+                ) : null}
               </td>
               <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.invoiceDate)}</td>
               <td className="px-4 py-3 whitespace-nowrap text-ink-muted">{formatDate(i.dueDate)}</td>
@@ -279,7 +283,7 @@ export function InvoiceDrawer({
           <InvoiceStatusBadge status={invoice.status} />
         </span>
       }
-      subtitle={invoice.customerName}
+      subtitle={[invoice.customerName, customerSubline(invoice)].filter(Boolean).join(" · ")}
       headerExtra={
         <div className="mt-3 flex flex-wrap gap-1.5">
           {mayManage ? <RefetchButton invoice={invoice} label /> : null}
@@ -328,7 +332,7 @@ export function InvoiceDrawer({
         ) : current.error ? (
           <p className="text-[12px] text-st-rejected">{current.error}</p>
         ) : d ? (
-          <InvoiceBody d={d} />
+          <InvoiceBody d={d} company={invoice.customerCompany} />
         ) : null}
       </div>
 
@@ -461,14 +465,16 @@ function LinkedList({ invoiceId, options }: { invoiceId: string; options: Invoic
 
 /* ------------------------------------------------- the invoice itself */
 
-function InvoiceBody({ d }: { d: InvoiceDetails }) {
+function InvoiceBody({ d, company }: { d: InvoiceDetails; company: string }) {
   const money = (n: number) => formatMoney(n, d.currencyCode);
   const quantity = d.lines.reduce((sum, l) => sum + l.quantity, 0);
 
   return (
     <>
       <dl className="grid gap-x-5 gap-y-3 text-[13px] sm:grid-cols-2">
-        <Fact label="Customer">{d.customerName || "—"}</Fact>
+        <Fact label="Display name">{d.customerName || "—"}</Fact>
+        <Fact label="Company name">{company || "—"}</Fact>
+        <Fact label="Primary contact">{d.contactPerson || "—"}</Fact>
         <Fact label="Place of supply">{d.placeOfSupply || "—"}</Fact>
         <Fact label="Invoice date">{formatDate(d.date)}</Fact>
         <Fact label="Terms">{d.terms || "—"}</Fact>

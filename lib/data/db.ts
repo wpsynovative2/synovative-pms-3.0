@@ -1100,7 +1100,7 @@ async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
  * without can_view_invoices() simply gets no rows.
  */
 const INVOICE_LIST_COLUMNS =
-  "id, zoho_invoice_id, invoice_number, status, customer_name, salesperson_name, invoice_date, due_date, currency_code, total, balance, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
+  "id, zoho_invoice_id, invoice_number, status, customer_name, customer_company, contact_person, salesperson_name, invoice_date, due_date, currency_code, total, balance, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
 
 async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
   const [rows, calls, links] = await Promise.all([
@@ -1114,6 +1114,8 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
     invoiceNumber: str(r.invoice_number),
     status: str(r.status),
     customerName: str(r.customer_name),
+    customerCompany: str(r.customer_company),
+    contactPerson: str(r.contact_person),
     salesperson: str(r.salesperson_name),
     invoiceDate: nullable(r.invoice_date) ? dateOnly(r.invoice_date) : null,
     dueDate: nullable(r.due_date) ? dateOnly(r.due_date) : null,

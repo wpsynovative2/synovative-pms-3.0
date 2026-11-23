@@ -28,7 +28,12 @@ import {
   Tabs,
 } from "@/components/ui/primitives";
 import { todayISO } from "@/lib/calendar";
-import { INVOICE_STATUS_FILTERS, formatMoney, invoiceStatusLabel } from "@/lib/invoices";
+import {
+  INVOICE_STATUS_FILTERS,
+  customerSearchText,
+  formatMoney,
+  invoiceStatusLabel,
+} from "@/lib/invoices";
 import { canManageInvoices, canViewInvoices } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
 
@@ -92,7 +97,7 @@ function Invoices() {
       .filter((i) => (link === "any" ? true : link === "linked" ? linkedIds.has(i.id) : !linkedIds.has(i.id)))
       .filter((i) => {
         if (!q) return true;
-        return [i.invoiceNumber, i.customerName, i.salesperson, ...projects.labelsOf(i.id)].some((x) =>
+        return [i.invoiceNumber, ...customerSearchText(i), i.salesperson, ...projects.labelsOf(i.id)].some((x) =>
           x.toLowerCase().includes(q),
         );
       })
@@ -166,7 +171,7 @@ function Invoices() {
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
               className="w-full sm:max-w-xs"
-              placeholder="Search invoice #, customer, project, task…"
+              placeholder="Search invoice #, customer, company, contact, project…"
               value={query}
               active={!!query.trim()}
               onChange={(e) => setQuery(e.target.value)}
