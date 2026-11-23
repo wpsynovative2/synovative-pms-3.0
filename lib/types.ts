@@ -1042,7 +1042,6 @@ export interface Invoice {
   currencyCode: string;
   total: number;
   balance: number;
-  projectId: string | null;
   fetchedAt: string;
   fetchedBy: string | null;
   createdAt: string;
@@ -1074,6 +1073,20 @@ export const INVOICE_CALL_OUTCOMES: InvoiceCallOutcome[] = [
 ];
 /** The outcomes that carry a promise: a date, and usually an amount. */
 export const PROMISE_OUTCOMES: InvoiceCallOutcome[] = ["Promised to pay", "Part payment promised"];
+/**
+ * The outcomes that leave the client to be called again, so logging one asks
+ * for the next call: a promise is checked on, documents are sent and chased,
+ * a dispute is followed through, and no answer is tried again. "Says already
+ * paid" is checked in Books instead, and "Other" is the caller's judgement.
+ */
+export const CALL_AGAIN_OUTCOMES: InvoiceCallOutcome[] = [
+  "Promised to pay",
+  "Part payment promised",
+  "Needs documents",
+  "Disputed",
+  "Call back later",
+  "No answer",
+];
 
 /** One payment follow-up call on an invoice (0011). */
 export interface InvoiceCall {
@@ -1088,6 +1101,27 @@ export interface InvoiceCall {
   promisedAmount: number | null;
   createdBy: string | null;
   createdAt: string;
+}
+
+/**
+ * What an invoice bills for (0012): one row per project or individual task.
+ * An invoice can name several, and a project or task can be on several
+ * invoices. Exactly one of projectId / taskId is set.
+ */
+export interface InvoiceLink {
+  id: string;
+  invoiceId: string;
+  projectId: string | null;
+  taskId: string | null;
+}
+
+/** An individual task an invoice can be tied to (invoice_tasks(), 0012). */
+export interface InvoiceTaskOption {
+  id: string;
+  title: string;
+  status: string;
+  dueDate: string | null;
+  assigneeName: string;
 }
 
 /** A project an invoice can be tied to, named for people who cannot otherwise see it. */
@@ -1514,6 +1548,7 @@ export interface Database {
   websiteRenewals: WebsiteRenewal[];
   invoices: Invoice[];
   invoiceCalls: InvoiceCall[];
+  invoiceLinks: InvoiceLink[];
   workstations: Workstation[];
   inventoryItems: InventoryItem[];
 }

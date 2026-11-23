@@ -6,7 +6,7 @@ import { FollowUpsTab, isSettled } from "@/components/invoice/follow-ups";
 import {
   InvoiceDrawer,
   InvoiceTable,
-  useInvoiceProjects,
+  useInvoiceLinkOptions,
 } from "@/components/invoice/invoice-parts";
 import { FetchInvoiceDialog, SyncDialog } from "@/components/invoice/sync-dialogs";
 import {
@@ -67,30 +67,32 @@ export default function InvoicesPage() {
 function Invoices() {
   const { db, currentUser } = useStore();
   const mayManage = canManageInvoices(currentUser!);
-  const projects = useInvoiceProjects();
+  const projects = useInvoiceLinkOptions();
   const params = useSearchParams();
   const [tab, setTab] = useState<PageTab>(params.get("tab") === "follow-ups" ? "follow-ups" : "invoices");
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
   const [link, setLink] = useState<LinkFilter>("any");
-  const [openId, setOpenId] = useState<string | null>(null);
+  // A task's invoice list links straight to one invoice.
+  const [openId, setOpenId] = useState<string | null>(params.get("invoice"));
   const [syncing, setSyncing] = useState(false);
   const [fetching, setFetching] = useState(false);
 
   const all = db.invoices;
   const outstanding = all.reduce((sum, i) => sum + (i.status === "void" ? 0 : i.balance), 0);
   const overdue = all.filter((i) => i.status === "overdue");
-  const unlinked = all.filter((i) => !i.projectId);
+  const linkedIds = useMemo(() => new Set(db.invoiceLinks.map((l) => l.invoiceId)), [db.invoiceLinks]);
+  const unlinked = all.filter((i) => !linkedIds.has(i.id));
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return all
       .filter((i) => status === "all" || i.status === status)
-      .filter((i) => (link === "any" ? true : link === "linked" ? !!i.projectId : !i.projectId))
+      .filter((i) => (link === "any" ? true : link === "linked" ? linkedIds.has(i.id) : !linkedIds.has(i.id)))
       .filter((i) => {
         if (!q) return true;
-        return [i.invoiceNumber, i.customerName, i.salesperson, projects.nameOf(i.projectId)].some((x) =>
+        return [i.invoiceNumber, i.customerName, i.salesperson, ...projects.labelsOf(i.id)].some((x) =>
           x.toLowerCase().includes(q),
         );
       })
@@ -100,7 +102,7 @@ function Invoices() {
           (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? "") ||
           b.invoiceNumber.localeCompare(a.invoiceNumber),
       );
-  }, [all, query, status, link, projects]);
+  }, [all, query, status, link, projects, linkedIds]);
 
   const filtered = !!query.trim() || status !== "all" || link !== "any";
   const today = todayISO();
@@ -158,13 +160,13 @@ function Invoices() {
               tone="red"
               icon={<IconWarning size={17} />}
             />
-            <StatTile label="Not linked to a project" value={unlinked.length} tone="amber" />
+            <StatTile label="Not linked to any work" value={unlinked.length} tone="amber" />
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             <SearchInput
               className="w-full sm:max-w-xs"
-              placeholder="Search invoice #, customer, project…"
+              placeholder="Search invoice #, customer, project, task…"
               value={query}
               active={!!query.trim()}
               onChange={(e) => setQuery(e.target.value)}
@@ -192,7 +194,7 @@ function Invoices() {
                 aria-label="Project"
               >
                 <option value="any">Linked or not</option>
-                <option value="linked">Linked to a project</option>
+                <option value="linked">Linked to work</option>
                 <option value="unlinked">Not linked</option>
               </Select>
             </div>

@@ -30,6 +30,7 @@ import { formatMoney, invoiceStatusLabel, invoiceStatusTone } from "@/lib/invoic
 import { canDeleteInvoiceCall, canLogInvoiceCalls, canManageInvoices } from "@/lib/permissions";
 import { useStore, type InvoiceNextCall } from "@/lib/store";
 import {
+  CALL_AGAIN_OUTCOMES,
   INVOICE_CALL_OUTCOMES,
   PROMISE_OUTCOMES,
   type Invoice,
@@ -90,11 +91,14 @@ function NextCallFields({
   value,
   onChange,
   promisedOn,
+  required,
 }: {
   value: InvoiceNextCall;
   onChange: (next: InvoiceNextCall) => void;
   /** Offers "day after the promise" when a payment date was just promised. */
   promisedOn?: string;
+  /** The outcome means calling the client again, so a date must be picked. */
+  required?: boolean;
 }) {
   const { db } = useStore();
   const callers = useCallers();
@@ -110,14 +114,23 @@ function NextCallFields({
 
   return (
     <div className="flex flex-col gap-3">
-      <Field label="Date" hint="Leave empty when no further call is needed.">
+      <Field
+        label="Date"
+        required={required}
+        error={required && !value.on ? "This outcome means calling the client again — pick a date." : undefined}
+        hint={
+          required
+            ? "Needed for this outcome: the client is to be called again."
+            : "Leave empty when no further call is needed."
+        }
+      >
         <DatePicker
           value={value.on}
           onChange={(on) => onChange({ ...value, on })}
           config={db.calendar}
           min={today}
-          clearable
-          placeholder="No call scheduled"
+          clearable={!required}
+          placeholder={required ? "Pick the next call date" : "No call scheduled"}
         />
         <div className="flex flex-wrap gap-1.5">
           {shortcuts.map((s) => (
@@ -185,7 +198,14 @@ export function LogCallModal({ invoice, onClose }: { invoice: Invoice; onClose: 
   const promise = !!outcome && PROMISE_OUTCOMES.includes(outcome);
   const amount = promisedAmount.trim() === "" ? null : Number(promisedAmount);
   const badAmount = promise && amount !== null && (!Number.isFinite(amount) || amount < 0);
-  const valid = !!outcome && !!calledOn && calledOn <= today && (!promise || !!promisedOn) && !badAmount;
+  const callAgain = !!outcome && CALL_AGAIN_OUTCOMES.includes(outcome);
+  const valid =
+    !!outcome &&
+    !!calledOn &&
+    calledOn <= today &&
+    (!promise || !!promisedOn) &&
+    !badAmount &&
+    (!callAgain || !!next.on);
 
   const save = () => {
     if (!valid || !outcome) return;
@@ -305,7 +325,12 @@ export function LogCallModal({ invoice, onClose }: { invoice: Invoice; onClose: 
 
         <section className="rounded-card border border-line-soft bg-surface-2 p-3">
           <h3 className="mb-2 text-[11px] font-medium tracking-wide text-ink-muted uppercase">Next call</h3>
-          <NextCallFields value={next} onChange={setNext} promisedOn={promise ? promisedOn : undefined} />
+          <NextCallFields
+            value={next}
+            onChange={setNext}
+            promisedOn={promise ? promisedOn : undefined}
+            required={callAgain}
+          />
         </section>
       </div>
     </Modal>

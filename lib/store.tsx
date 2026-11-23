@@ -32,6 +32,7 @@ import {
   loadChangeLog,
   loadInvoiceDetails,
   loadInvoiceProjects,
+  loadInvoiceTasks,
   loadTaskOpens,
   WEBSITE_CREDENTIAL_COLUMNS,
   configRow,
@@ -95,7 +96,9 @@ import type {
   TaskGroup,
   TaskTemplate,
   InvoiceCall,
+  InvoiceLink,
   InvoiceProjectOption,
+  InvoiceTaskOption,
   User,
   Vendor,
   Website,
@@ -827,13 +830,15 @@ interface StoreValue {
    * Invoices from Zoho Books (0009). Fetching, syncing and refetching run on
    * the server (/api/zoho/invoices); these cover what the browser does.
    */
-  linkInvoiceToProject: (id: string, projectId: string | null) => void;
+  /** Replace what an invoice bills for: these projects and individual tasks (0012). */
+  setInvoiceLinks: (invoiceId: string, projectIds: string[], taskIds: string[]) => void;
   deleteInvoice: (id: string) => void;
   /** Reload the list after the server has written invoices. */
   refreshInvoices: () => void;
   /** The full invoice as Books returned it; read it with readInvoice(). */
   invoiceDetails: (id: string) => Promise<unknown>;
   invoiceProjects: () => Promise<InvoiceProjectOption[]>;
+  invoiceTasks: () => Promise<InvoiceTaskOption[]>;
   /**
    * Payment follow-ups (0011). Logging a call also sets the invoice's next
    * call to `next`, or clears it when `next` is null — the call just made
@@ -2457,21 +2462,58 @@ const withNextCall = (db: Database, invoiceId: string, next: InvoiceNextCall | n
 });
 
 const invoiceActions = {
-  linkInvoiceToProject(id: string, projectId: string | null) {
+  setInvoiceLinks(invoiceId: string, projectIds: string[], taskIds: string[]) {
+    const current = state.db.invoiceLinks.filter((l) => l.invoiceId === invoiceId);
+    const wantProjects = new Set(projectIds);
+    const wantTasks = new Set(taskIds);
+    const removed = current.filter((l) =>
+      l.projectId ? !wantProjects.has(l.projectId) : !wantTasks.has(l.taskId ?? ""),
+    );
+    const added: InvoiceLink[] = [
+      ...projectIds
+        .filter((id) => !current.some((l) => l.projectId === id))
+        .map((projectId) => ({ id: newId(), invoiceId, projectId, taskId: null })),
+      ...taskIds
+        .filter((id) => !current.some((l) => l.taskId === id))
+        .map((taskId) => ({ id: newId(), invoiceId, projectId: null, taskId })),
+    ];
+    if (!removed.length && !added.length) return;
+    const gone = new Set(removed.map((l) => l.id));
     void commit(
       ["invoices"],
       (db) => ({
         ...db,
-        invoices: db.invoices.map((i) => (i.id === id ? { ...i, projectId } : i)),
+        invoiceLinks: [...db.invoiceLinks.filter((l) => !gone.has(l.id)), ...added],
       }),
-      (c) => run(c.from("invoices").update({ project_id: projectId }).eq("id", id)),
+      async (c) => {
+        if (removed.length) {
+          await run(c.from("invoice_links").delete().in("id", [...gone]));
+        }
+        if (added.length) {
+          await run(
+            c.from("invoice_links").insert(
+              added.map((l) => ({
+                id: l.id,
+                invoice_id: l.invoiceId,
+                project_id: l.projectId,
+                task_id: l.taskId,
+              })),
+            ),
+          );
+        }
+      },
     );
   },
 
   deleteInvoice(id: string) {
     void commit(
       ["invoices"],
-      (db) => ({ ...db, invoices: db.invoices.filter((i) => i.id !== id) }),
+      (db) => ({
+        ...db,
+        invoices: db.invoices.filter((i) => i.id !== id),
+        invoiceLinks: db.invoiceLinks.filter((l) => l.invoiceId !== id),
+        invoiceCalls: db.invoiceCalls.filter((x) => x.invoiceId !== id),
+      }),
       (c) => run(c.from("invoices").delete().eq("id", id)),
     );
   },
@@ -2486,6 +2528,10 @@ const invoiceActions = {
 
   async invoiceProjects(): Promise<InvoiceProjectOption[]> {
     return loadInvoiceProjects(sb());
+  },
+
+  async invoiceTasks(): Promise<InvoiceTaskOption[]> {
+    return loadInvoiceTasks(sb());
   },
 
   logInvoiceCall(input: InvoiceCallInput, next: InvoiceNextCall | null) {

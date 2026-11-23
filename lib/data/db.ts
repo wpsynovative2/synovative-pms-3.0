@@ -39,7 +39,9 @@ import type {
   TaskTemplateItem,
   Invoice,
   InvoiceCall,
+  InvoiceLink,
   InvoiceProjectOption,
+  InvoiceTaskOption,
   Website,
   WebsiteCredential,
   WebsiteRenewal,
@@ -128,6 +130,7 @@ export const EMPTY_DB: Database = {
   websiteRenewals: [],
   invoices: [],
   invoiceCalls: [],
+  invoiceLinks: [],
   workstations: [],
   inventoryItems: [],
 };
@@ -1097,12 +1100,13 @@ async function loadWebsites(sb: SupabaseClient): Promise<Partial<Database>> {
  * without can_view_invoices() simply gets no rows.
  */
 const INVOICE_LIST_COLUMNS =
-  "id, zoho_invoice_id, invoice_number, status, customer_name, salesperson_name, invoice_date, due_date, currency_code, total, balance, project_id, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
+  "id, zoho_invoice_id, invoice_number, status, customer_name, salesperson_name, invoice_date, due_date, currency_code, total, balance, fetched_at, fetched_by, created_at, next_call_on, next_call_note, next_call_by";
 
 async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
-  const [rows, calls] = await Promise.all([
+  const [rows, calls, links] = await Promise.all([
     fetchColumns(sb, "invoices", INVOICE_LIST_COLUMNS, "id"),
     fetchAll(sb, "invoice_calls", "id"),
+    fetchColumns(sb, "invoice_links", "id, invoice_id, project_id, task_id", "id"),
   ]);
   const invoices: Invoice[] = rows.map((r) => ({
     id: str(r.id),
@@ -1116,7 +1120,6 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
     currencyCode: str(r.currency_code) || "INR",
     total: num(r.total),
     balance: num(r.balance),
-    projectId: nullable(r.project_id),
     fetchedAt: str(r.fetched_at),
     fetchedBy: nullable(r.fetched_by),
     createdAt: str(r.created_at),
@@ -1139,7 +1142,13 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
     }))
     // Latest call first.
     .sort((a, b) => b.calledOn.localeCompare(a.calledOn) || b.createdAt.localeCompare(a.createdAt));
-  return { invoices, invoiceCalls };
+  const invoiceLinks: InvoiceLink[] = links.map((r) => ({
+    id: str(r.id),
+    invoiceId: str(r.invoice_id),
+    projectId: nullable(r.project_id),
+    taskId: nullable(r.task_id),
+  }));
+  return { invoices, invoiceCalls, invoiceLinks };
 }
 
 /** One invoice exactly as Books returned it; read it with readInvoice(). */
@@ -1148,6 +1157,19 @@ export async function loadInvoiceDetails(sb: SupabaseClient, id: string): Promis
   if (error) throw new Error(`invoices: ${error.message}`);
   if (!data) throw new Error("That invoice is no longer in the PMS.");
   return (data as Row).details;
+}
+
+/** Every individual task an invoice may be tied to (invoice_tasks(), 0012). */
+export async function loadInvoiceTasks(sb: SupabaseClient): Promise<InvoiceTaskOption[]> {
+  const { data, error } = await sb.rpc("invoice_tasks");
+  if (error) throw new Error(`invoice_tasks: ${error.message}`);
+  return ((data ?? []) as Row[]).map((r) => ({
+    id: str(r.id),
+    title: str(r.title),
+    status: str(r.status),
+    dueDate: nullable(r.due_date) ? dateOnly(r.due_date) : null,
+    assigneeName: str(r.assignee_name),
+  }));
 }
 
 /** Every project an invoice may be tied to (invoice_projects(), 0009). */

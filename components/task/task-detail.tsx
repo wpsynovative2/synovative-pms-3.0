@@ -39,6 +39,7 @@ import {
   canSeeClientDetails,
   canSeeClients,
   canViewClientsModule,
+  canViewInvoices,
   isAssignee,
   visibleTasks,
 } from "@/lib/permissions";
@@ -48,6 +49,7 @@ import { formatDuration, sessionMs, taskElapsedMs } from "@/lib/time";
 import { contentLabel, isTaskWaiting, taskLabel, type Client, type Review, type Submission } from "@/lib/types";
 import { AssignContentTaskBox } from "@/components/content/content-task-sharing";
 import { RecentChanges } from "@/components/collab/recent-changes";
+import { TaskInvoiceList } from "@/components/invoice/invoice-parts";
 import { TaskContentSection } from "@/components/content/task-content";
 import { OverdueBadge, PriorityBadge, ProjectChip, RecurrenceBadge, StatusBadge } from "./task-bits";
 import { ReviewDialog } from "./task-dialogs";
@@ -541,6 +543,15 @@ export function TaskDetailDrawer({
                   );
                 })}
               </ol>
+            </Section>
+          ) : null}
+
+          {/* Invoices billing this individual task (0012) */}
+          {!task.projectId &&
+          canViewInvoices(currentUser) &&
+          db.invoiceLinks.some((l) => l.taskId === task.id) ? (
+            <Section title="Invoices">
+              <TaskInvoiceList taskId={task.id} />
             </Section>
           ) : null}
 

@@ -475,7 +475,7 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
                   id: "invoices" as const,
                   label: "Invoices",
                   icon: <IconInvoice size={14} />,
-                  count: db.invoices.filter((i) => i.projectId === project.id).length,
+                  count: db.invoiceLinks.filter((l) => l.projectId === project.id).length,
                 },
               ]
             : []),

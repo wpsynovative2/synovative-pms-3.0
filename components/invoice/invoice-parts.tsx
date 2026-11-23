@@ -6,7 +6,7 @@ import { ButtonLoader } from "@/components/ui/loader";
 import { IconCheck, IconExternal, IconInvoice, IconRepeat, IconTrash } from "@/components/ui/icons";
 import { ConfirmDialog, Drawer } from "@/components/ui/modal";
 import { Badge, Button, Card, EmptyState, Field, StatTile, cx } from "@/components/ui/primitives";
-import { SearchSelect } from "@/components/ui/selects";
+import { MultiSelect } from "@/components/ui/selects";
 import { FollowUpPanel } from "./follow-ups";
 import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
@@ -20,12 +20,13 @@ import {
 } from "@/lib/invoices";
 import { canManageInvoices } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import type { Invoice, InvoiceProjectOption } from "@/lib/types";
+import type { Invoice, InvoiceProjectOption, InvoiceTaskOption } from "@/lib/types";
 
 /*
  * The pieces of the Invoices module (0009) shared by its page and a project's
- * Invoices tab. Everything here reads; the one change a person makes is which
- * project an invoice belongs to. Books stays the system of record.
+ * Invoices tab. Everything here reads; what a person changes is what an
+ * invoice bills for — any projects and individual tasks (0012) — and its
+ * payment follow-ups. Books stays the system of record.
  */
 
 /* --------------------------------------------------------- server calls */
@@ -44,51 +45,70 @@ export async function importInvoices(refs: string[]): Promise<ImportResult[]> {
   return body.results;
 }
 
-/* ------------------------------------------------- projects to link to */
+/* ------------------------------------- what an invoice can be linked to */
 
 /**
- * Every project an invoice can be tied to, with its name. Finance and
- * Business Development see few projects in the store, so the names come from
- * invoice_projects() (0009) instead.
+ * Every project and individual task an invoice can be tied to (0012), with
+ * their names. Finance and Business Development see few of either in the
+ * store, so the names come from invoice_projects() / invoice_tasks() instead.
  */
-export function useInvoiceProjects() {
-  const { invoiceProjects, projectById } = useStore();
-  const [loaded, setLoaded] = useState<{ options: InvoiceProjectOption[]; error?: string } | null>(
-    null,
-  );
+export function useInvoiceLinkOptions() {
+  const { db, invoiceProjects, invoiceTasks, projectById, taskById } = useStore();
+  const [loaded, setLoaded] = useState<{
+    projects: InvoiceProjectOption[];
+    tasks: InvoiceTaskOption[];
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     let live = true;
-    invoiceProjects().then(
-      (options) => {
-        if (live) setLoaded({ options });
+    Promise.all([invoiceProjects(), invoiceTasks()]).then(
+      ([projects, tasks]) => {
+        if (live) setLoaded({ projects, tasks });
       },
       (err: unknown) => {
         if (live)
           setLoaded({
-            options: [],
-            error: err instanceof Error ? err.message : "Couldn't load the projects.",
+            projects: [],
+            tasks: [],
+            error: err instanceof Error ? err.message : "Couldn't load the projects and tasks.",
           });
       },
     );
     return () => {
       live = false;
     };
-  }, [invoiceProjects]);
+  }, [invoiceProjects, invoiceTasks]);
 
   return useMemo(() => {
-    const byId = new Map((loaded?.options ?? []).map((p) => [p.id, p]));
+    const projectsById = new Map((loaded?.projects ?? []).map((p) => [p.id, p]));
+    const tasksById = new Map((loaded?.tasks ?? []).map((t) => [t.id, t]));
+    const projectName = (id: string) =>
+      projectById(id)?.name ?? projectsById.get(id)?.name ?? "A project you can't see";
+    const taskName = (id: string) =>
+      taskById(id)?.title ?? tasksById.get(id)?.title ?? "A task you can't see";
+    const linksOf = (invoiceId: string) => db.invoiceLinks.filter((l) => l.invoiceId === invoiceId);
     return {
-      options: loaded?.options ?? [],
+      projects: loaded?.projects ?? [],
+      tasks: loaded?.tasks ?? [],
       loading: !loaded,
       error: loaded?.error,
-      nameOf: (id: string | null) =>
-        id ? (projectById(id)?.name ?? byId.get(id)?.name ?? "A deleted project") : "",
+      projectName,
+      taskName,
+      linksOf,
+      /** What an invoice bills for, in words: projects first, then tasks. */
+      labelsOf: (invoiceId: string) => {
+        const links = linksOf(invoiceId);
+        return [
+          ...links.filter((l) => l.projectId).map((l) => projectName(l.projectId!)),
+          ...links.filter((l) => l.taskId).map((l) => taskName(l.taskId!)),
+        ];
+      },
     };
-  }, [loaded, projectById]);
+  }, [loaded, db.invoiceLinks, projectById, taskById]);
 }
 
-export type InvoiceProjects = ReturnType<typeof useInvoiceProjects>;
+export type InvoiceLinkOptions = ReturnType<typeof useInvoiceLinkOptions>;
 
 /* ------------------------------------------------------------ status */
 
@@ -140,7 +160,7 @@ export function InvoiceTable({
   showProject = true,
 }: {
   invoices: Invoice[];
-  projects: InvoiceProjects;
+  projects: InvoiceLinkOptions;
   onOpen: (id: string) => void;
   showProject?: boolean;
 }) {
@@ -156,7 +176,7 @@ export function InvoiceTable({
             <th className="px-4 py-2.5 font-medium">Date</th>
             <th className="px-4 py-2.5 font-medium">Due</th>
             <th className="px-4 py-2.5 font-medium">Status</th>
-            {showProject ? <th className="px-4 py-2.5 font-medium">Project</th> : null}
+            {showProject ? <th className="px-4 py-2.5 font-medium">Linked to</th> : null}
             <th className="px-4 py-2.5 text-right font-medium">Total</th>
             <th className="px-4 py-2.5 text-right font-medium">Balance due</th>
             {mayManage ? <th className="px-4 py-2.5 font-medium"></th> : null}
@@ -181,13 +201,7 @@ export function InvoiceTable({
               </td>
               {showProject ? (
                 <td className="px-4 py-3">
-                  {i.projectId ? (
-                    <span className="block max-w-48 truncate text-ink-muted">
-                      {projects.nameOf(i.projectId)}
-                    </span>
-                  ) : (
-                    <span className="text-ink-faint">Not linked</span>
-                  )}
+                  <LinkedLabels labels={projects.labelsOf(i.id)} />
                 </td>
               ) : null}
               <td className="px-4 py-3 text-right font-mono whitespace-nowrap text-ink">
@@ -224,10 +238,10 @@ export function InvoiceDrawer({
   onClose,
 }: {
   invoice: Invoice;
-  projects: InvoiceProjects;
+  projects: InvoiceLinkOptions;
   onClose: () => void;
 }) {
-  const { currentUser, userById, invoiceDetails, linkInvoiceToProject, deleteInvoice } = useStore();
+  const { currentUser, userById, invoiceDetails, setInvoiceLinks, deleteInvoice } = useStore();
   const mayManage = canManageInvoices(currentUser!);
   const [deleting, setDeleting] = useState(false);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -297,31 +311,15 @@ export function InvoiceDrawer({
           {fetchedBy ? ` by ${fetchedBy.fullName}` : ""}.
         </p>
 
-        <Field
-          label="Project"
-          hint={
-            mayManage
-              ? projects.error ?? "The one project this invoice bills for."
-              : undefined
-          }
-        >
-          {mayManage ? (
-            <SearchSelect
-              options={projects.options.map((p) => ({
-                value: p.id,
-                label: p.name,
-                hint: p.clientName || undefined,
-              }))}
-              value={invoice.projectId ?? ""}
-              onChange={(next) => linkInvoiceToProject(invoice.id, next || null)}
-              placeholder={projects.loading ? "Loading projects…" : "Not linked to a project"}
-              disabled={projects.loading}
-              allowClear
-            />
-          ) : (
-            <ProjectName invoice={invoice} projects={projects} />
-          )}
-        </Field>
+        {mayManage ? (
+          <InvoiceLinkFields
+            invoiceId={invoice.id}
+            options={projects}
+            onChange={(projectIds, taskIds) => setInvoiceLinks(invoice.id, projectIds, taskIds)}
+          />
+        ) : (
+          <LinkedList invoiceId={invoice.id} options={projects} />
+        )}
 
         <FollowUpPanel invoice={invoice} />
 
@@ -349,16 +347,115 @@ export function InvoiceDrawer({
   );
 }
 
-function ProjectName({ invoice, projects }: { invoice: Invoice; projects: InvoiceProjects }) {
-  const { projectById } = useStore();
-  if (!invoice.projectId) return <p className="text-[13px] text-ink-faint">Not linked to a project</p>;
-  const visible = projectById(invoice.projectId);
-  return visible ? (
-    <Link href={`/projects/${visible.id}`} className="text-[13px] text-brand-bright hover:underline">
-      {visible.name}
-    </Link>
-  ) : (
-    <p className="text-[13px] text-ink">{projects.nameOf(invoice.projectId)}</p>
+/** A cell's worth of what an invoice bills for: two names, then "+3 more". */
+function LinkedLabels({ labels }: { labels: string[] }) {
+  if (!labels.length) return <span className="text-ink-faint">Not linked</span>;
+  const shown = labels.slice(0, 2);
+  return (
+    <span className="block max-w-56 text-ink-muted" title={labels.join(", ")}>
+      {shown.map((l, at) => (
+        <span key={at} className="block truncate">
+          {l}
+        </span>
+      ))}
+      {labels.length > shown.length ? (
+        <span className="text-[11px] text-ink-faint">+{labels.length - shown.length} more</span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Pick the projects and individual tasks an invoice bills for. */
+function InvoiceLinkFields({
+  invoiceId,
+  options,
+  onChange,
+}: {
+  invoiceId: string;
+  options: InvoiceLinkOptions;
+  onChange: (projectIds: string[], taskIds: string[]) => void;
+}) {
+  const links = options.linksOf(invoiceId);
+  const projectIds = links.filter((l) => l.projectId).map((l) => l.projectId!);
+  const taskIds = links.filter((l) => l.taskId).map((l) => l.taskId!);
+
+  // A linked project or task missing from the options (still loading, or made
+  // a blueprint since) still shows as a chip rather than vanishing.
+  const projectOptions = [
+    ...options.projects.map((p) => ({ value: p.id, label: p.name, hint: p.clientName || undefined })),
+    ...projectIds
+      .filter((id) => !options.projects.some((p) => p.id === id))
+      .map((id) => ({ value: id, label: options.projectName(id) })),
+  ];
+  const taskOptions = [
+    ...options.tasks.map((t) => ({
+      value: t.id,
+      label: t.title,
+      hint:
+        [t.assigneeName, t.dueDate ? `due ${formatDate(t.dueDate)}` : ""].filter(Boolean).join(" · ") ||
+        undefined,
+    })),
+    ...taskIds
+      .filter((id) => !options.tasks.some((t) => t.id === id))
+      .map((id) => ({ value: id, label: options.taskName(id) })),
+  ];
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <Field label="Projects" hint={options.error ?? "Every project this invoice bills for."}>
+        <MultiSelect
+          options={projectOptions}
+          value={projectIds}
+          onChange={(next) => onChange(next, taskIds)}
+          placeholder={options.loading ? "Loading projects…" : "Search projects…"}
+          emptyLabel="No projects"
+          disabled={options.loading}
+        />
+      </Field>
+      <Field label="Individual tasks" hint="Work raised without a project.">
+        <MultiSelect
+          options={taskOptions}
+          value={taskIds}
+          onChange={(next) => onChange(projectIds, next)}
+          placeholder={options.loading ? "Loading tasks…" : "Search individual tasks…"}
+          emptyLabel="No individual tasks"
+          disabled={options.loading}
+        />
+      </Field>
+    </div>
+  );
+}
+
+/** What an invoice bills for, read only, linking to whatever the viewer can open. */
+function LinkedList({ invoiceId, options }: { invoiceId: string; options: InvoiceLinkOptions }) {
+  const { projectById, taskById } = useStore();
+  const links = options.linksOf(invoiceId);
+  return (
+    <Field label="Bills for">
+      {links.length === 0 ? (
+        <p className="text-[13px] text-ink-faint">Not linked to a project or task</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-[13px]">
+          {links.map((l) => {
+            const visible = l.projectId ? projectById(l.projectId) : taskById(l.taskId!);
+            const label = l.projectId ? options.projectName(l.projectId) : options.taskName(l.taskId!);
+            const href = l.projectId ? "/projects/" + l.projectId : "/tasks?type=individual&task=" + l.taskId;
+            return (
+              <li key={l.id} className="flex items-center gap-2">
+                <Badge>{l.projectId ? "Project" : "Task"}</Badge>
+                {visible ? (
+                  <Link href={href} className="truncate text-brand-bright hover:underline">
+                    {label}
+                  </Link>
+                ) : (
+                  <span className="truncate text-ink">{label}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Field>
   );
 }
 
@@ -592,14 +689,19 @@ function TotalRow({
 
 /* ------------------------------------------------ a project's invoices */
 
-/** The Invoices tab on a project: what has been billed against it, read from Books. */
+/**
+ * The Invoices tab on a project: what has been billed against it, read from
+ * Books. An invoice can bill several projects, so its whole total shows here
+ * even when it covers others too.
+ */
 export function ProjectInvoices({ projectId }: { projectId: string }) {
   const { db } = useStore();
-  const projects = useInvoiceProjects();
+  const projects = useInvoiceLinkOptions();
   const [openId, setOpenId] = useState<string | null>(null);
 
+  const linked = new Set(db.invoiceLinks.filter((l) => l.projectId === projectId).map((l) => l.invoiceId));
   const list = db.invoices
-    .filter((i) => i.projectId === projectId)
+    .filter((i) => linked.has(i.id))
     .sort((a, b) => (b.invoiceDate ?? "").localeCompare(a.invoiceDate ?? ""));
   const billed = list.filter((i) => i.status !== "void");
   const invoiced = billed.reduce((sum, i) => sum + i.total, 0);
@@ -631,5 +733,36 @@ export function ProjectInvoices({ projectId }: { projectId: string }) {
       </Card>
       {open ? <InvoiceDrawer invoice={open} projects={projects} onClose={() => setOpenId(null)} /> : null}
     </div>
+  );
+}
+
+/* ------------------------------------------- an individual task's invoices */
+
+/** The invoices billing an individual task (0012), each opening on the Invoices page. */
+export function TaskInvoiceList({ taskId }: { taskId: string }) {
+  const { db } = useStore();
+  const ids = new Set(db.invoiceLinks.filter((l) => l.taskId === taskId).map((l) => l.invoiceId));
+  const list = db.invoices.filter((i) => ids.has(i.id));
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {list.map((i) => (
+        <li
+          key={i.id}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-surface-2 px-3 py-2 text-[12px]"
+        >
+          <Link
+            href={"/invoices?invoice=" + i.id}
+            className="font-semibold text-ink hover:text-brand-bright"
+          >
+            {i.invoiceNumber}
+          </Link>
+          <InvoiceStatusBadge status={i.status} />
+          <span className="ml-auto font-mono text-ink-muted">
+            {formatMoney(i.total, i.currencyCode)}
+            {i.balance > 0 ? ` · ${formatMoney(i.balance, i.currencyCode)} due` : ""}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

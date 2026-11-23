@@ -14,8 +14,8 @@ export const maxDuration = 60;
  *
  * Each ref is Books' record id or the printed invoice number. One that is new
  * is added; one already here is rewritten from Books (that is what Refetch
- * does), keeping the project it is tied to — the upsert names only the
- * columns that come from Books.
+ * does). Its links (0012) and follow-ups (0011) are kept: they live in
+ * their own tables or columns, and the upsert names only Books' columns.
  *
  * Writes run as the caller, so RLS (can_manage_invoices) is checked again on
  * every row.
