@@ -5,6 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
+  QuickCompanyFields,
+  blankQuickCompany,
+  quickCompanyInput,
+  quickCompanyValid,
+  type QuickCompany,
+} from "@/components/crm/quick-company";
+import {
   IconCrane,
   IconContact,
   IconEdit,
@@ -496,7 +503,10 @@ function ClientFormModal({
   defaultCompanyId: string;
   onClose: () => void;
 }) {
-  const { db, createClient, updateClient } = useStore();
+  const { db, createClient, updateClient, createCompany } = useStore();
+  // A company typed here instead of picked: the rest of its record (GSTIN,
+  // address, owner…) is filled in later from Companies.
+  const [newCompany, setNewCompany] = useState<QuickCompany | null>(null);
   const [form, setForm] = useState<ClientInput>({
     companyId: client?.companyId ?? defaultCompanyId ?? "",
     fullName: client?.fullName ?? "",
@@ -512,7 +522,10 @@ function ClientFormModal({
   const set = <K extends keyof ClientInput>(key: K, value: ClientInput[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
-  const valid = form.companyId && form.fullName.trim();
+  const companyOk = newCompany
+    ? quickCompanyValid(newCompany, db.companies)
+    : !!form.companyId;
+  const valid = companyOk && form.fullName.trim();
 
   return (
     <Modal
@@ -528,7 +541,16 @@ function ClientFormModal({
             onClick={() => {
               setTouched(true);
               if (!valid) return;
-              const payload: ClientInput = { ...form, fullName: form.fullName.trim() };
+              // The company is written first; commit() queues the client
+              // behind it, so the row it points at already exists.
+              const companyId = newCompany
+                ? createCompany(quickCompanyInput(newCompany)).id
+                : form.companyId;
+              const payload: ClientInput = {
+                ...form,
+                companyId,
+                fullName: form.fullName.trim(),
+              };
               if (client) updateClient(client.id, payload);
               else createClient(payload);
               onClose();
@@ -540,22 +562,41 @@ function ClientFormModal({
       }
     >
       <div className="flex flex-col gap-4">
-        <Field
-          label="Company"
-          required
-          error={touched && !form.companyId ? "Pick the company they work for." : undefined}
-        >
-          <SearchSelect
-            options={db.companies.map((c) => ({
-              value: c.id,
-              label: c.name,
-              hint: c.city,
-            }))}
-            value={form.companyId}
-            onChange={(v) => set("companyId", v)}
-            placeholder="Select a company"
+        {newCompany ? (
+          <QuickCompanyFields
+            value={newCompany}
+            onChange={setNewCompany}
+            onCancel={() => setNewCompany(null)}
+            companies={db.companies}
+            touched={touched}
           />
-        </Field>
+        ) : (
+          <Field
+            label="Company"
+            required
+            error={touched && !form.companyId ? "Pick the company they work for." : undefined}
+          >
+            <SearchSelect
+              options={db.companies.map((c) => ({
+                value: c.id,
+                label: c.name,
+                hint: c.city,
+              }))}
+              value={form.companyId}
+              onChange={(v) => set("companyId", v)}
+              placeholder="Select a company"
+            />
+            <div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setNewCompany(blankQuickCompany())}
+              >
+                <IconPlus size={13} /> New company
+              </Button>
+            </div>
+          </Field>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field

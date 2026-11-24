@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
+import { PropertyWorkToggle, propertyWork } from "@/components/crm/property-work";
+import {
+  QuickCompanyFields,
+  blankQuickCompany,
+  quickCompanyInput,
+  quickCompanyValid,
+  type QuickCompany,
+} from "@/components/crm/quick-company";
 import {
   IconCrane,
   IconChevronDown,
@@ -15,6 +23,7 @@ import {
   IconFolder,
   IconMinutes,
   IconPlus,
+  IconInvoice,
   IconProperty,
   IconTrash,
 } from "@/components/ui/icons";
@@ -40,7 +49,12 @@ import {
   CONFIG_STATUS_STYLE,
   PROPERTY_MEDIA_FOLDERS,
 } from "@/lib/master-data";
-import { canDeleteCrm, canManageCrm, canSeeClients } from "@/lib/permissions";
+import {
+  canDeleteCrm,
+  canManageCrm,
+  canSeeClients,
+  canSeeNotInvoicedProperties,
+} from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type DriveResult, type PropertyInput } from "@/lib/store";
 import {
@@ -66,21 +80,35 @@ export default function PropertiesPage() {
   const [editing, setEditing] = useState<Property | null>(null);
   const [deleting, setDeleting] = useState<Property | null>(null);
   const [openId, setOpenId] = useState<string | null>(params.get("property"));
+  // Not invoiced: properties with work no invoice bills yet (needs invoices to tell).
+  const mayTrackBilling = canSeeNotInvoicedProperties(user);
+  const [view, setView] = useState<"all" | "uninvoiced">("all");
 
   const mayManage = canManageCrm(user);
   const noCompanies = db.companies.length === 0;
+
+  const uninvoiced = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of db.properties) {
+      const w = propertyWork(db, p.id, true);
+      if (w.projects.length || w.tasks.length) ids.add(p.id);
+    }
+    return ids;
+  }, [db]);
+  const notInvoicedView = mayTrackBilling && view === "uninvoiced";
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return db.properties.filter(
       (p) =>
+        (!notInvoicedView || uninvoiced.has(p.id)) &&
         (!companyId || p.companyId === companyId) &&
         (!q ||
           p.name.toLowerCase().includes(q) ||
           p.address.toLowerCase().includes(q) ||
           p.maharera.toLowerCase().includes(q)),
     );
-  }, [db.properties, query, companyId]);
+  }, [db.properties, query, companyId, notInvoicedView, uninvoiced]);
 
   const open = openId ? db.properties.find((p) => p.id === openId) : undefined;
   const withDrive = db.properties.filter((p) => p.driveFolderId).length;
@@ -136,6 +164,34 @@ export default function PropertiesPage() {
         />
       </div>
 
+      {mayTrackBilling ? (
+        <Tabs<"all" | "uninvoiced">
+          active={view}
+          onChange={setView}
+          tabs={[
+            {
+              id: "all",
+              label: "All properties",
+              icon: <IconProperty size={14} />,
+              count: db.properties.length,
+            },
+            {
+              id: "uninvoiced",
+              label: "Not invoiced",
+              icon: <IconInvoice size={14} />,
+              count: uninvoiced.size,
+            },
+          ]}
+        />
+      ) : null}
+
+      {notInvoicedView ? (
+        <p className="-mt-2 text-[12px] text-ink-faint">
+          Properties with a project or individual task that no invoice is linked to yet (cancelled
+          projects left out). Open a card to see which.
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-3">
         <SearchInput
           className="max-w-md flex-1"
@@ -173,12 +229,16 @@ export default function PropertiesPage() {
         <Card>
           <EmptyState
             icon={<IconProperty size={30} />}
-            title="No properties match"
-            body="Add the towers, plots and townships you are marketing."
+            title={notInvoicedView ? "Everything is invoiced" : "No properties match"}
+            body={
+              notInvoicedView
+                ? "Every project and individual task on these properties has an invoice linked."
+                : "Add the towers, plots and townships you are marketing."
+            }
           />
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((p) => {
             const company = companyById(p.companyId);
             const contacts = contactNames(p, clientById);
@@ -240,7 +300,12 @@ export default function PropertiesPage() {
                   <p className="mt-2.5 text-[12px] text-ink-faint">No unit mix entered.</p>
                 )}
 
-                <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
+                {/* Opening it grows this card only: the grid aligns cards to the top. */}
+                <div className="mt-3 border-t border-line-soft pt-3">
+                  <PropertyWorkToggle propertyId={p.id} onlyUninvoiced={notInvoicedView} />
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
                   <Badge>{open} open</Badge>
                   {p.maharera ? <Badge>RERA {p.maharera}</Badge> : null}
                   <div className="ml-auto flex gap-1">
@@ -644,6 +709,27 @@ const blankConfig = (): PropertyConfig => ({
   status: "Open",
 });
 
+/**
+ * A contact typed into the property form instead of picked. Created under the
+ * property's company on save, then linked to the property after any picked
+ * ones. The rest of their record is filled in from Clients.
+ */
+interface NewContact {
+  key: string;
+  fullName: string;
+  designation: string;
+  mobile: string;
+  email: string;
+}
+
+const blankContact = (): NewContact => ({
+  key: crypto.randomUUID(),
+  fullName: "",
+  designation: "",
+  mobile: "",
+  email: "",
+});
+
 function PropertyFormModal({
   property,
   defaultCompanyId,
@@ -653,7 +739,9 @@ function PropertyFormModal({
   defaultCompanyId: string;
   onClose: () => void;
 }) {
-  const { db, createProperty, updateProperty } = useStore();
+  const { db, createProperty, updateProperty, createCompany, createClient } = useStore();
+  const [newCompany, setNewCompany] = useState<QuickCompany | null>(null);
+  const [newContacts, setNewContacts] = useState<NewContact[]>([]);
   const [form, setForm] = useState<PropertyInput>({
     companyId: property?.companyId ?? defaultCompanyId ?? "",
     clientId: property?.clientId ?? null,
@@ -681,8 +769,16 @@ function PropertyFormModal({
       form.configs.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     );
 
+  const setContact = (key: string, patch: Partial<NewContact>) =>
+    setNewContacts((list) => list.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+
   const badConfig = form.configs.some((c) => !c.config.trim());
-  const valid = form.companyId && form.name.trim() && !badConfig;
+  const contactMissingName = newContacts.some((c) => !c.fullName.trim());
+  const companyOk = newCompany
+    ? quickCompanyValid(newCompany, db.companies)
+    : !!form.companyId;
+  const hasCompany = !!newCompany || !!form.companyId;
+  const valid = companyOk && form.name.trim() && !badConfig && !contactMissingName;
 
   return (
     <Modal
@@ -699,8 +795,28 @@ function PropertyFormModal({
             onClick={() => {
               setTouched(true);
               if (!valid) return;
+              // commit() runs these in order: company, then its new contacts,
+              // then the property that points at both.
+              const companyId = newCompany
+                ? createCompany(quickCompanyInput(newCompany)).id
+                : form.companyId;
+              const added = newContacts.map(
+                (c) =>
+                  createClient({
+                    companyId,
+                    fullName: c.fullName.trim(),
+                    designation: c.designation.trim(),
+                    mobile: c.mobile.trim(),
+                    whatsapp: "",
+                    email: c.email.trim(),
+                    role: null,
+                    status: "active",
+                  }).id,
+              );
               const payload: PropertyInput = {
                 ...form,
+                companyId,
+                clientIds: [...form.clientIds, ...added],
                 name: form.name.trim(),
                 configs: form.configs.map((c) => ({ ...c, config: c.config.trim() })),
               };
@@ -715,43 +831,129 @@ function PropertyFormModal({
       }
     >
       <div className="flex flex-col gap-4">
+        {newCompany ? (
+          <QuickCompanyFields
+            value={newCompany}
+            onChange={setNewCompany}
+            onCancel={() => setNewCompany(null)}
+            companies={db.companies}
+            touched={touched}
+          />
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Company"
-            required
-            error={touched && !form.companyId ? "Pick the developer." : undefined}
-          >
-            <SearchSelect
-              options={db.companies.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
-              value={form.companyId}
-              onChange={(v) =>
-                setForm((f) => ({
-                  ...f,
-                  companyId: v,
-                  // The old contacts belong to the old company.
-                  clientId: null,
-                  clientIds: [],
-                }))
-              }
-              placeholder="Select a company"
-            />
-          </Field>
+          {newCompany ? null : (
+            <Field
+              label="Company"
+              required
+              error={touched && !form.companyId ? "Pick the developer." : undefined}
+            >
+              <SearchSelect
+                options={db.companies.map((c) => ({ value: c.id, label: c.name, hint: c.city }))}
+                value={form.companyId}
+                onChange={(v) =>
+                  setForm((f) => ({
+                    ...f,
+                    companyId: v,
+                    // The old contacts belong to the old company.
+                    clientId: null,
+                    clientIds: [],
+                  }))
+                }
+                placeholder="Select a company"
+              />
+              <div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setNewCompany(blankQuickCompany());
+                    // A new company has no contacts on record yet.
+                    setForm((f) => ({ ...f, clientId: null, clientIds: [] }));
+                  }}
+                >
+                  <IconPlus size={13} /> New company
+                </Button>
+              </div>
+            </Field>
+          )}
           <Field
             label="Clients"
+            className={newCompany ? "sm:col-span-2" : undefined}
+            error={
+              touched && contactMissingName ? "Every new client needs a full name." : undefined
+            }
             hint={
-              form.companyId
-                ? "Only this company's contacts are listed. The first one names the Drive folder."
-                : "Pick a company first."
+              newCompany
+                ? "A new company has no contacts yet. Add them below."
+                : form.companyId
+                  ? "Only this company's contacts are listed. The first one names the Drive folder."
+                  : "Pick a company first."
             }
           >
-            <MultiSelect
-              disabled={!form.companyId}
-              options={clientOptions}
-              value={form.clientIds}
-              onChange={(v) => set("clientIds", v)}
-              placeholder="Search contacts…"
-              emptyLabel="Nobody linked yet"
-            />
+            {newCompany ? null : (
+              <MultiSelect
+                disabled={!form.companyId}
+                options={clientOptions}
+                value={form.clientIds}
+                onChange={(v) => set("clientIds", v)}
+                placeholder="Search contacts…"
+                emptyLabel="Nobody linked yet"
+              />
+            )}
+            {newContacts.map((c) => (
+              <div
+                key={c.key}
+                className="flex items-start gap-2 rounded-card border border-line-soft bg-surface-2 p-2.5"
+              >
+                <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+                  <Input
+                    autoFocus
+                    value={c.fullName}
+                    onChange={(e) => setContact(c.key, { fullName: e.target.value })}
+                    placeholder="Full name *"
+                    aria-label="Full name"
+                  />
+                  <Input
+                    value={c.designation}
+                    onChange={(e) => setContact(c.key, { designation: e.target.value })}
+                    placeholder="Designation"
+                    aria-label="Designation"
+                  />
+                  <Input
+                    value={c.mobile}
+                    onChange={(e) => setContact(c.key, { mobile: e.target.value })}
+                    placeholder="Mobile"
+                    aria-label="Mobile"
+                  />
+                  <Input
+                    type="email"
+                    value={c.email}
+                    onChange={(e) => setContact(c.key, { email: e.target.value })}
+                    placeholder="Email"
+                    aria-label="Email"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  aria-label="Remove client"
+                  onClick={() =>
+                    setNewContacts((list) => list.filter((x) => x.key !== c.key))
+                  }
+                >
+                  <IconTrash size={14} />
+                </Button>
+              </div>
+            ))}
+            <div>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!hasCompany}
+                onClick={() => setNewContacts((list) => [...list, blankContact()])}
+              >
+                <IconPlus size={13} /> New client
+              </Button>
+            </div>
           </Field>
         </div>
 

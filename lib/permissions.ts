@@ -59,6 +59,28 @@ export const canLogInvoiceCalls = canManageInvoices;
 export const canDeleteInvoiceCall = (u: User, createdBy: string | null) =>
   canManageInvoices(u) && (createdBy === u.id || isSuperAdmin(u));
 
+/**
+ * People given the Properties page's Not invoiced tab by name, beyond the
+ * roles and department below. Matched on the full name, ignoring case and
+ * spacing. They must also be able to read invoices (canViewInvoices): without
+ * that the tab would show every project as not invoiced.
+ */
+const NOT_INVOICED_VIEWERS = ["hasim shaikh", "hasim shaik"];
+
+const normalName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+
+/**
+ * The Properties page's Not invoiced tab: Super Admin, Admin, Accounts &
+ * Finance, and the people named above. A view, not a right of its own — the
+ * invoice data behind it is guarded by can_view_invoices() (0009).
+ */
+export const canSeeNotInvoicedProperties = (u: User) =>
+  canViewInvoices(u) &&
+  (isSuperAdmin(u) ||
+    u.role === "admin" ||
+    isFinance(u) ||
+    NOT_INVOICED_VIEWERS.includes(normalName(u.fullName)));
+
 /* ------------------------------------------------------------- 3D module */
 
 /*

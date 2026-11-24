@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
 import {
   IconCrane,
@@ -28,7 +28,7 @@ import {
   Tabs,
   Textarea,
 } from "@/components/ui/primitives";
-import { SearchSelect } from "@/components/ui/selects";
+import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { PARTY_STATUS_STYLE } from "@/lib/master-data";
 import {
   canDeleteCrm,
@@ -40,7 +40,13 @@ import {
 } from "@/lib/permissions";
 import { formatDate } from "@/lib/calendar";
 import { useStore, type CompanyInput } from "@/lib/store";
-import { COMPANY_NATURES, type Company, type PartyStatus } from "@/lib/types";
+import {
+  CLIENT_ROLES,
+  COMPANY_NATURES,
+  type ClientRole,
+  type Company,
+  type PartyStatus,
+} from "@/lib/types";
 
 /**
  * Module 1 — the real-estate developer master. Everything else in the CRM
@@ -453,6 +459,51 @@ function Fact({ label, value, href }: { label: string; value: string; href?: str
 
 /* ----------------------------------------------------------------- form */
 
+/**
+ * Contacts and properties typed alongside a new company. They are written
+ * after the company, in the order listed — `commit()` queues each write behind
+ * the last, so the company row exists before anything points at it. `key` is
+ * only for the form; the property's contact picks are mapped to the real
+ * client ids at save time.
+ */
+interface DraftClient {
+  key: string;
+  fullName: string;
+  designation: string;
+  mobile: string;
+  whatsapp: string;
+  email: string;
+  role: ClientRole | null;
+}
+
+interface DraftProperty {
+  key: string;
+  name: string;
+  maharera: string;
+  address: string;
+  clientKeys: string[];
+}
+
+const draftKey = () => crypto.randomUUID();
+
+const blankClient = (): DraftClient => ({
+  key: draftKey(),
+  fullName: "",
+  designation: "",
+  mobile: "",
+  whatsapp: "",
+  email: "",
+  role: null,
+});
+
+const blankProperty = (): DraftProperty => ({
+  key: draftKey(),
+  name: "",
+  maharera: "",
+  address: "",
+  clientKeys: [],
+});
+
 function CompanyFormModal({
   company,
   onClose,
@@ -460,7 +511,22 @@ function CompanyFormModal({
   company: Company | null;
   onClose: () => void;
 }) {
-  const { db, currentUser, createCompany, updateCompany } = useStore();
+  const { db, currentUser, createCompany, updateCompany, createClient, createProperty } =
+    useStore();
+  const [clients, setClients] = useState<DraftClient[]>([]);
+  const [properties, setProperties] = useState<DraftProperty[]>([]);
+
+  const setClient = (key: string, patch: Partial<DraftClient>) =>
+    setClients((list) => list.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  const setProperty = (key: string, patch: Partial<DraftProperty>) =>
+    setProperties((list) => list.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  const removeClient = (key: string) => {
+    setClients((list) => list.filter((c) => c.key !== key));
+    // A property cannot keep a contact who is no longer being added.
+    setProperties((list) =>
+      list.map((p) => ({ ...p, clientKeys: p.clientKeys.filter((k) => k !== key) })),
+    );
+  };
   // Someone who cannot see the number must not be able to wipe it either.
   const mayPhones = canSeeCrmPhones(currentUser!);
   const [form, setForm] = useState<CompanyInput>({
@@ -495,13 +561,21 @@ function CompanyFormModal({
       c.name.trim().toLowerCase() === form.name.trim().toLowerCase(),
   );
   const natureMissing = natureOther && !form.nature.trim();
-  const valid = form.name.trim() && !duplicate && !natureMissing;
+  const clientMissingName = clients.some((c) => !c.fullName.trim());
+  const propertyMissingName = properties.some((p) => !p.name.trim());
+  const valid =
+    form.name.trim() && !duplicate && !natureMissing && !clientMissingName && !propertyMissingName;
+
+  // Properties may name the contacts being added here, once they have a name.
+  const draftClientOptions = clients
+    .filter((c) => c.fullName.trim())
+    .map((c) => ({ value: c.key, label: c.fullName.trim(), hint: c.designation }));
 
   return (
     <Modal
       open
       onClose={onClose}
-      size="lg"
+      size={company ? "lg" : "xl"}
       title={company ? "Edit company" : "Add company"}
       subtitle="Everything a project needs to trace back to its developer"
       footer={
@@ -520,7 +594,33 @@ function CompanyFormModal({
               if (company) {
                 const { phone, ...rest } = payload;
                 updateCompany(company.id, mayPhones ? { ...rest, phone } : rest);
-              } else createCompany(payload);
+              } else {
+                const created = createCompany(payload);
+                const clientIds = new Map<string, string>();
+                for (const c of clients) {
+                  const { key, ...rest } = c;
+                  const client = createClient({
+                    ...rest,
+                    companyId: created.id,
+                    fullName: c.fullName.trim(),
+                    status: "active",
+                  });
+                  clientIds.set(key, client.id);
+                }
+                for (const p of properties) {
+                  createProperty({
+                    companyId: created.id,
+                    clientId: null,
+                    clientIds: p.clientKeys.flatMap((k) => clientIds.get(k) ?? []),
+                    name: p.name.trim(),
+                    description: "",
+                    address: p.address,
+                    mapsUrl: "",
+                    maharera: p.maharera,
+                    configs: [],
+                  });
+                }
+              }
               onClose();
             }}
           >
@@ -697,7 +797,184 @@ function CompanyFormModal({
             <option value="inactive">Inactive</option>
           </Select>
         </Field>
+
+        {company ? null : (
+          <>
+            <DraftSection
+              title="Clients"
+              count={clients.length}
+              hint="People at this company. More can be added from Clients later."
+              error={
+                touched && clientMissingName ? "Every client needs a full name." : undefined
+              }
+              addLabel="Add client"
+              onAdd={() => setClients((list) => [...list, blankClient()])}
+            >
+              {clients.map((c) => (
+                <DraftRow key={c.key} onRemove={() => removeClient(c.key)} label="Remove client">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <Input
+                      value={c.fullName}
+                      onChange={(e) => setClient(c.key, { fullName: e.target.value })}
+                      placeholder="Full name *"
+                      aria-label="Full name"
+                    />
+                    <Input
+                      value={c.designation}
+                      onChange={(e) => setClient(c.key, { designation: e.target.value })}
+                      placeholder="Designation"
+                      aria-label="Designation"
+                    />
+                    <Select
+                      value={c.role ?? ""}
+                      onChange={(e) =>
+                        setClient(c.key, { role: (e.target.value || null) as ClientRole | null })
+                      }
+                      aria-label="Role"
+                    >
+                      <option value="">Role not set</option>
+                      {CLIENT_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      value={c.mobile}
+                      onChange={(e) => setClient(c.key, { mobile: e.target.value })}
+                      placeholder="Mobile"
+                      aria-label="Mobile"
+                    />
+                    <Input
+                      value={c.whatsapp}
+                      onChange={(e) => setClient(c.key, { whatsapp: e.target.value })}
+                      placeholder="WhatsApp (if different)"
+                      aria-label="WhatsApp"
+                    />
+                    <Input
+                      type="email"
+                      value={c.email}
+                      onChange={(e) => setClient(c.key, { email: e.target.value })}
+                      placeholder="Email"
+                      aria-label="Email"
+                    />
+                  </div>
+                </DraftRow>
+              ))}
+            </DraftSection>
+
+            <DraftSection
+              title="Properties"
+              count={properties.length}
+              hint="Unit mix and the Drive folder are added from Properties afterwards."
+              error={
+                touched && propertyMissingName ? "Every property needs a name." : undefined
+              }
+              addLabel="Add property"
+              onAdd={() => setProperties((list) => [...list, blankProperty()])}
+            >
+              {properties.map((p) => (
+                <DraftRow
+                  key={p.key}
+                  onRemove={() =>
+                    setProperties((list) => list.filter((x) => x.key !== p.key))
+                  }
+                  label="Remove property"
+                >
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      value={p.name}
+                      onChange={(e) => setProperty(p.key, { name: e.target.value })}
+                      placeholder="Property name *"
+                      aria-label="Property name"
+                    />
+                    <Input
+                      value={p.maharera}
+                      onChange={(e) => setProperty(p.key, { maharera: e.target.value })}
+                      placeholder="MahaRERA number"
+                      aria-label="MahaRERA number"
+                    />
+                    <Input
+                      value={p.address}
+                      onChange={(e) => setProperty(p.key, { address: e.target.value })}
+                      placeholder="Site address"
+                      aria-label="Site address"
+                    />
+                    <MultiSelect
+                      disabled={draftClientOptions.length === 0}
+                      options={draftClientOptions}
+                      value={p.clientKeys}
+                      onChange={(v) => setProperty(p.key, { clientKeys: v })}
+                      placeholder="Search contacts…"
+                      emptyLabel={
+                        draftClientOptions.length
+                          ? "No contacts linked"
+                          : "Add a client above to link one"
+                      }
+                    />
+                  </div>
+                </DraftRow>
+              ))}
+            </DraftSection>
+          </>
+        )}
       </div>
     </Modal>
+  );
+}
+
+function DraftSection({
+  title,
+  count,
+  hint,
+  error,
+  addLabel,
+  onAdd,
+  children,
+}: {
+  title: string;
+  count: number;
+  hint: string;
+  error?: string;
+  addLabel: string;
+  onAdd: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2 border-t border-line-soft pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-[11px] font-medium tracking-wide text-ink-muted uppercase">
+            {title}
+            {count ? ` (${count})` : ""}
+          </h3>
+          <p className="text-[11px] text-ink-faint">{hint}</p>
+        </div>
+        <Button size="sm" onClick={onAdd}>
+          <IconPlus size={14} /> {addLabel}
+        </Button>
+      </div>
+      {children}
+      {error ? <p className="text-[11px] text-st-rejected">{error}</p> : null}
+    </section>
+  );
+}
+
+function DraftRow({
+  label,
+  onRemove,
+  children,
+}: {
+  label: string;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-card border border-line-soft bg-surface-2 p-2.5">
+      <div className="min-w-0 flex-1">{children}</div>
+      <Button variant="ghost" aria-label={label} onClick={onRemove}>
+        <IconTrash size={14} />
+      </Button>
+    </div>
   );
 }
