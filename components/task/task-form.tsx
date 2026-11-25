@@ -1059,7 +1059,10 @@ export function TaskFormModal({
               on={dependsOn}
               onChange={(on) => {
                 setDependsOn(on);
-                if (on && !waitsOnIds.length) {
+                // With files to wait on, nothing is picked for them: a task slipped
+                // in here would hold the dates to its own and keep the task waiting
+                // after the file is in.
+                if (on && !waitsOnIds.length && !projectFiles.length) {
                   const before = defaultWaitsOn(groupId, candidates);
                   setWaitsOnIds(before ? [before.id] : []);
                 }
@@ -1087,42 +1090,63 @@ export function TaskFormModal({
 
         {dependent ? (
           <div className="grid gap-4 sm:grid-cols-3">
+            {projectFiles.length ? (
+              <Field
+                label="Files it waits on"
+                className="sm:col-span-2"
+                hint="Pick single files. It starts the day the last one picked is received."
+                error={touched ? errors.waitsOn : undefined}
+              >
+                <MultiSelect
+                  // Each file on its own; its group is only there to tell
+                  // same-named files apart.
+                  options={projectFiles.map((f) => ({
+                    value: FILES + f.id,
+                    label: f.name,
+                    hint: [
+                      db.fileGroups.find((g) => g.id === f.groupId)?.name,
+                      f.received && f.receivedOn
+                        ? `Received ${formatDate(f.receivedOn)}`
+                        : "Not received yet",
+                    ]
+                      .filter(Boolean)
+                      .join(" · "),
+                  }))}
+                  value={waitsOnIds.filter((id) => id.startsWith(FILES))}
+                  onChange={(files) =>
+                    setWaitsOnIds([...files, ...waitsOnIds.filter((id) => !id.startsWith(FILES))])
+                  }
+                  placeholder="Search this project's files…"
+                  emptyLabel="No files selected"
+                  maxVisibleChips={4}
+                />
+              </Field>
+            ) : null}
             <Field
-              label="Waits on"
-              required
-              className="sm:col-span-2"
+              label={projectFiles.length ? "Tasks it waits on" : "Waits on"}
+              required={!projectFiles.length}
+              className={cx("sm:col-span-2", projectFiles.length ? "sm:order-last" : "")}
               hint={
-                candidates.length || projectFiles.length
-                  ? undefined
-                  : "This project has no other tasks yet."
+                projectFiles.length
+                  ? "Optional. Leave empty to wait on the files alone."
+                  : candidates.length
+                    ? undefined
+                    : "This project has no other tasks yet."
               }
-              error={touched ? errors.waitsOn : undefined}
+              error={touched && !projectFiles.length ? errors.waitsOn : undefined}
             >
               {is3d ? (
                 <MultiSelect
-                  options={[
-                    // Each file on its own, named with its group: "Chirag / DXF".
-                    ...projectFiles.map((f) => ({
-                      value: FILES + f.id,
-                      label: `File: ${fileLabel(f, db.fileGroups)}`,
-                      hint:
-                        f.received && f.receivedOn
-                          ? `Received ${formatDate(f.receivedOn)}`
-                          : "Not received yet",
-                    })),
-                    ...candidates.map((t) => ({
-                      value: t.id,
-                      label: taskLabel(t),
-                      hint: waitsOnDetail(t),
-                    })),
-                  ]}
-                  value={waitsOnIds}
-                  onChange={setWaitsOnIds}
-                  placeholder={
-                    projectFiles.length
-                      ? "Search files and tasks in this project…"
-                      : "Search tasks in this project…"
+                  options={candidates.map((t) => ({
+                    value: t.id,
+                    label: taskLabel(t),
+                    hint: waitsOnDetail(t),
+                  }))}
+                  value={waitsOnIds.filter((id) => !id.startsWith(FILES))}
+                  onChange={(taskIds) =>
+                    setWaitsOnIds([...waitsOnIds.filter((id) => id.startsWith(FILES)), ...taskIds])
                   }
+                  placeholder="Search tasks in this project…"
                   emptyLabel="No tasks selected"
                   maxVisibleChips={4}
                 />
@@ -1171,7 +1195,7 @@ export function TaskFormModal({
                 <>
                   <span>
                     {startFrom
-                      ? `Starts once ${pendingSentence}. Until then these dates are projected.`
+                      ? `Starts the day ${pendingSentence}, and is due ${days} working day${days === 1 ? "" : "s"} later. Until then these dates are projected as if that were ${startFrom === todayISO() ? "today" : formatDate(startFrom)}.`
                       : !waitsOn.length
                         ? linksUnchanged
                           ? "Everything it waits on is in, so it keeps its dates."
