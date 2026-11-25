@@ -1,6 +1,8 @@
 "use client";
 
-import { Field } from "@/components/ui/primitives";
+import { useState } from "react";
+import { IconChevronDown, IconChevronRight } from "@/components/ui/icons";
+import { Field, cx } from "@/components/ui/primitives";
 import { RichText, RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import type { ThreeDNotes } from "@/lib/types";
 
@@ -30,6 +32,69 @@ export function ThreeDNotesFields({
         </Field>
       ))}
     </>
+  );
+}
+
+/**
+ * A group's or sub-group's description and its three notes, all four always
+ * named so it is plain what has not been written yet, folding to one line. Opens
+ * on whatever has something in it; closed when nothing does.
+ */
+export function ThreeDDetailsPanel({
+  description,
+  notes,
+  className,
+}: {
+  description: string;
+  notes: Partial<ThreeDNotes>;
+  className?: string;
+}) {
+  const fields = [
+    { key: "description", label: "Description", html: description },
+    ...NOTES.map((n) => ({ key: n.key, label: n.label, html: notes[n.key] ?? "" })),
+  ];
+  const filled = fields.filter((f) => !isRichTextEmpty(f.html));
+  const [open, setOpen] = useState(filled.length > 0);
+  return (
+    <div className={cx("rounded-md border border-line-soft bg-surface", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        {open ? (
+          <IconChevronDown size={13} className="shrink-0 text-ink-faint" />
+        ) : (
+          <IconChevronRight size={13} className="shrink-0 text-ink-faint" />
+        )}
+        <span className="text-[12px] font-medium text-ink">Details</span>
+        <span className="truncate text-[11px] text-ink-faint">
+          {filled.length ? filled.map((f) => f.label).join(" · ") : "Nothing added yet"}
+        </span>
+        <span className="ml-auto shrink-0 text-[11px] text-ink-faint">
+          {open ? "Collapse" : "Expand"}
+        </span>
+      </button>
+      {open ? (
+        <dl className="grid gap-x-5 gap-y-3 border-t border-line-soft px-3 py-3 sm:grid-cols-2 xl:grid-cols-4">
+          {fields.map((f) => (
+            <div key={f.key} className="min-w-0">
+              <dt className="text-[10px] font-medium tracking-wide text-ink-faint uppercase">
+                {f.label}
+              </dt>
+              <dd className="mt-0.5 break-words">
+                {isRichTextEmpty(f.html) ? (
+                  <span className="text-[12px] text-ink-faint">Not added</span>
+                ) : (
+                  <RichText html={f.html} />
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
   );
 }
 

@@ -243,10 +243,6 @@ export default function ProfilePage() {
                       onClick={() => router.push(`/projects/${p.id}`)}
                       className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-surface-2"
                     >
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-                        style={{ background: p.color }}
-                      />
                       <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
                         {p.name}
                       </span>

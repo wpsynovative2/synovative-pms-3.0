@@ -97,6 +97,12 @@ export const canCreateThreeDProjects = (u: User) =>
 export const canManageTaskGroups = (u: User, p: Project) =>
   !!p.is3d && (isGlobalManager(u) || p.leaderId === u.id || isThreeDTeamLeader(u));
 
+/**
+ * Start project (0015): the 3D Artists' Team Leader only, on a 3D project.
+ * Nobody else, global managers included. Mirrors can_start_project.
+ */
+export const canStartProject = (u: User, p: Project) => !!p.is3d && isThreeDTeamLeader(u);
+
 /* -------------------------------------------------------------- websites */
 
 /*

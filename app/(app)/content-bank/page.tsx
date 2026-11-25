@@ -109,8 +109,6 @@ interface PieceGroup {
   /** A muted line beside the title - the company, under a project. */
   subtitle?: string;
   href?: string;
-  /** A project's own colour; the other groupings show their icon instead. */
-  color?: string;
   icon?: React.ReactNode;
   entries: ContentEntry[];
 }
@@ -389,7 +387,7 @@ export default function ContentBankPage() {
               title: project.name,
               subtitle: project.clientName || undefined,
               href: `/projects/${project.id}`,
-              color: project.color,
+              icon: <IconFolder size={13} />,
             }
           : { id: NOT_SET, title: "Unknown project", icon: <IconFolder size={13} /> };
       }
@@ -654,14 +652,7 @@ export default function ContentBankPage() {
           {groups.map((g) => (
             <section key={g.id}>
               <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-line-soft pb-2">
-                {g.color ? (
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: g.color }}
-                  />
-                ) : (
-                  <span className="shrink-0 text-ink-muted">{g.icon}</span>
-                )}
+                <span className="shrink-0 text-ink-muted">{g.icon}</span>
                 {g.href ? (
                   <Link
                     href={g.href}

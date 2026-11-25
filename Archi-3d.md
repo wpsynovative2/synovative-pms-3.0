@@ -63,7 +63,7 @@ Skyline Towers — Walkthrough                         (project)
 | Level | What it is | Holds its own |
 | --- | --- | --- |
 | **Project** | An ordinary project, marked as 3D | Client chain, window, Leader, members, Drive folder |
-| **Group** (T1) | A named, numbered container of sub-groups | Name, number and the three notes. Progress and dates are worked out from every task in its sub-groups |
+| **Group** (T1) | A named, numbered container of sub-groups | Name, number, a description (rich text) and the three notes. Progress and dates are worked out from every task in its sub-groups |
 | **Sub-group** (T1.2) | A named, numbered container of tasks, numbered within its group | Title, description (rich text) and the three notes. Progress and dates are worked out from its tasks |
 | **Task** (T1.2.3) | An ordinary task, filed in a sub-group | Assignee, dates, timer, submissions, reviews, remarks |
 

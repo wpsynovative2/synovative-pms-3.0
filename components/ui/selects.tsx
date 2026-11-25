@@ -322,50 +322,6 @@ export function SearchSelect({
   );
 }
 
-/* ---------------------------------------------------------- ColorPicker */
-
-export function ColorPicker({
-  value,
-  onChange,
-  presets,
-}: {
-  value: string;
-  onChange: (hex: string) => void;
-  presets: string[];
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {presets.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          aria-label={`Colour ${c}`}
-          style={{ background: c }}
-          className={cx(
-            "h-7 w-7 rounded-lg transition-transform",
-            value.toLowerCase() === c.toLowerCase()
-              ? "ring-2 ring-ink ring-offset-2 ring-offset-surface"
-              : "hover:scale-110",
-          )}
-        />
-      ))}
-      <label className="ml-1 inline-flex items-center gap-2 rounded-[10px] border border-line bg-surface-2 px-2.5 py-1.5">
-        <span
-          className="h-4 w-4 rounded border border-line-soft"
-          style={{ background: value }}
-        />
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          spellCheck={false}
-          className="w-20 bg-transparent font-mono text-[12px] text-ink outline-none"
-        />
-      </label>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------ TagsInput */
 
 export function TagsInput({

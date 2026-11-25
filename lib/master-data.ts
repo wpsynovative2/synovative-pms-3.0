@@ -308,16 +308,10 @@ export const PROPERTY_MEDIA_FOLDERS = [
   "Drone Video",
 ] as const;
 
-/** Preset project colours for the colour picker (§7.1). */
-export const PROJECT_COLORS = [
-  "#5F3CA7",
-  "#7C55D6",
-  "#4B8FE6",
-  "#35B37E",
-  "#E0A325",
-  "#EC7C2A",
-  "#E04B4B",
-  "#D14FA0",
-  "#2AA9B5",
-  "#8B8299",
-];
+/**
+ * Projects and templates no longer carry a chosen colour - colour in the UI is
+ * kept for signals (overdue, status, priority). The `color` column is still
+ * NOT NULL in the database, so new rows are written with this value and
+ * existing rows keep theirs; nothing reads it for display.
+ */
+export const DEFAULT_PROJECT_COLOR = "#5F3CA7";

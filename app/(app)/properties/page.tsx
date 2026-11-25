@@ -659,10 +659,6 @@ function PropertyProjectsLog({ propertyId }: { propertyId: string }) {
                     ) : (
                       <IconChevronRight size={14} className="shrink-0 text-ink-faint" />
                     )}
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ background: p.color }}
-                    />
                     <span className="truncate text-[13px] font-medium text-ink">{p.name}</span>
                   </button>
                   <span

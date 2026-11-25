@@ -54,6 +54,7 @@ import type {
   User,
   Vendor,
 } from "@/lib/types";
+import { isTaskDependent } from "@/lib/types";
 import { groupCodes, taskCodeIn } from "@/lib/task-groups";
 
 /**
@@ -325,6 +326,8 @@ async function loadProjects(sb: SupabaseClient): Promise<Partial<Database>> {
       driveFolderId: str(r.drive_folder_id),
       driveCsfFolderId: str(r.drive_csf_folder_id),
       driveTeam3dFolderId: str(r.drive_team3d_folder_id),
+      startedOn: r.started_on ? dateOnly(r.started_on) : null,
+      startedBy: nullable(r.started_by),
       companyId: nullable(r.company_id),
       clientId: nullable(r.client_id),
       clientIds: Array.isArray(r.client_ids)
@@ -524,6 +527,7 @@ function buildTasks(
       contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
       contentPlacements: (r.content_placements as Task["contentPlacements"] | null) ?? [],
       dependsOnTaskIds: links.get(id) ?? [],
+      waitsOnProjectStart: r.waits_on_project_start === true,
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
       shortId: nullable(r.short_id),
@@ -1439,6 +1443,7 @@ export function taskRow(
     | "contentTypes"
     | "contentPlacements"
     | "dependsOnTaskIds"
+    | "waitsOnProjectStart"
     | "groupId"
     | "shortId"
     | "frames"
@@ -1491,7 +1496,11 @@ export function taskRow(
     client_supe_notes: t.clientSupeNotes ?? "",
     lead_note: t.leadNote ?? "",
     general_notes: t.generalNotes ?? "",
-    duration_days: t.dependsOnTaskIds?.length ? (t.durationDays ?? 0) : null,
+    // On the row itself, unlike the links: the database projects its dates on
+    // insert (0015). Named only when set, so a database behind the code still
+    // takes every other task.
+    ...(t.waitsOnProjectStart ? { waits_on_project_start: true } : {}),
+    duration_days: isTaskDependent(t) ? (t.durationDays ?? 0) : null,
     assignee_id: t.assigneeId,
     status: t.status,
     priority: t.priority,
@@ -1563,6 +1572,7 @@ export const TASK_COLUMNS: Record<string, string> = {
   leadNote: "lead_note",
   generalNotes: "general_notes",
   durationDays: "duration_days",
+  waitsOnProjectStart: "waits_on_project_start",
   companyId: "company_id",
   propertyId: "property_id",
   clientIds: "client_ids",

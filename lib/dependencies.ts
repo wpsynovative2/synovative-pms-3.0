@@ -1,6 +1,6 @@
 import { addDays, snapToWorkingDay, todayISO } from "./calendar";
 import { comparePlaces, groupPlaces } from "./task-groups";
-import type { CalendarConfig, Task, TaskGroup } from "./types";
+import type { CalendarConfig, Project, Task, TaskGroup } from "./types";
 
 /**
  * Task dependencies and step-by-step projects (0014). A dependent task starts
@@ -31,39 +31,57 @@ export function projectedAfter(dueDate: string, durationDays: number, calendar: 
 }
 
 /**
+ * Where a project that has not started counts as starting, for the tasks that
+ * wait on it (0015): its start date, or today once that has passed. Null once
+ * it has started, when it holds nothing up.
+ */
+export function projectStartFrom(project: Pick<Project, "startDate" | "startedOn">) {
+  if (project.startedOn) return null;
+  const today = todayISO();
+  return project.startDate > today ? project.startDate : today;
+}
+
+/**
  * A dependent task's dates when it is linked to `waitedOn` now: projected from
- * the latest due date among those still open (0021), from today once all of them
- * are approved.
+ * the latest due date among those still open (0021) and, if it waits on its
+ * project starting, the date `projectStartFrom` gives (0015); from today once
+ * nothing is open.
  */
 export function dependentDates(
   waitedOn: Pick<Task, "status" | "dueDate">[],
   durationDays: number,
   calendar: CalendarConfig,
+  startFrom: string | null = null,
 ) {
-  const open = waitedOn.filter((t) => t.status !== "Approved");
-  const from = open.length
-    ? open.reduce((latest, t) => (t.dueDate > latest ? t.dueDate : latest), open[0].dueDate)
-    : todayISO();
+  const dates = [
+    ...waitedOn.filter((t) => t.status !== "Approved").map((t) => t.dueDate),
+    ...(startFrom ? [startFrom] : []),
+  ];
+  const from = dates.length ? dates.reduce((a, b) => (b > a ? b : a)) : todayISO();
   return projectedAfter(from, durationDays, calendar);
 }
 
 /**
- * Fills in `waitingOnTaskIds` from the statuses on screen, so an approval made
- * here lifts the lock at once rather than after the refetch. A task waited on
- * that this user cannot see counts as not waiting; the database still refuses
- * a timer or submission on it.
+ * Fills in `waitingOnTaskIds` and `waitingOnProjectStart` from what is on
+ * screen, so an approval or a project start made here lifts the lock at once
+ * rather than after the refetch. A task waited on that this user cannot see
+ * counts as not waiting; the database still refuses a timer or submission on it.
  */
-export function markWaiting(tasks: Task[]): Task[] {
+export function markWaiting(tasks: Task[], projects: Pick<Project, "id" | "startedOn">[]): Task[] {
   const status = new Map(tasks.map((t) => [t.id, t.status]));
+  const notStarted = new Set(projects.filter((p) => !p.startedOn).map((p) => p.id));
   return tasks.map((t) => {
     const waiting = (t.dependsOnTaskIds ?? []).filter((id) => {
       const s = status.get(id);
       return s && s !== "Approved";
     });
+    const onStart = !!t.waitsOnProjectStart && !!t.projectId && notStarted.has(t.projectId);
     const had = t.waitingOnTaskIds ?? [];
-    return waiting.length === had.length && waiting.every((id, i) => id === had[i])
+    return waiting.length === had.length &&
+      waiting.every((id, i) => id === had[i]) &&
+      onStart === !!t.waitingOnProjectStart
       ? t
-      : { ...t, waitingOnTaskIds: waiting };
+      : { ...t, waitingOnTaskIds: waiting, waitingOnProjectStart: onStart };
   });
 }
 

@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/primitives";
 import { RecurrencePicker } from "@/components/ui/recurrence-picker";
 import { RichTextEditor } from "@/components/ui/rich-text";
-import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
+import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import {
   addDays,
   addWorkingDays,
@@ -42,8 +42,8 @@ import {
 import { projectedAfter } from "@/lib/dependencies";
 import {
   CONTENT_WRITER_DEPARTMENT,
+  DEFAULT_PROJECT_COLOR,
   PRIORITIES,
-  PROJECT_COLORS,
   PROJECT_STATUSES,
   SMM_SERVICE,
   WORKDAY_HOURS,
@@ -267,7 +267,6 @@ const LEGACY_CLIENT = "__typed__";
 
 interface FormState {
   name: string;
-  color: string;
   clientName: string;
   services: string[];
   startDate: string;
@@ -347,7 +346,6 @@ export function ProjectFormModal({
 
   const [form, setForm] = useState<FormState>({
     name: project?.name ?? (copyOf ? `${copyOf.name} (copy)` : ""),
-    color: source?.color ?? PROJECT_COLORS[0],
     clientName: source?.clientName ?? "",
     services: source?.services ?? [],
     startDate: project?.startDate ?? (copyOf ? copyStart : defaultStart),
@@ -553,7 +551,6 @@ export function ProjectFormModal({
     const deadline = addWorkingDays(form.startDate, t.durationDays, db.calendar);
     setForm((f) => ({
       ...f,
-      color: t.color,
       services: t.services,
       priority: t.priority,
       description: t.description,
@@ -754,7 +751,8 @@ export function ProjectFormModal({
 
     const payload = {
       name: form.name.trim(),
-      color: form.color,
+      // Colour is no longer chosen; an existing project keeps what it had.
+      color: source?.color ?? DEFAULT_PROJECT_COLOR,
       clientName: form.clientName.trim(),
       services: form.services,
       startDate: form.startDate,
@@ -926,14 +924,6 @@ export function ProjectFormModal({
             </Field>
           ) : null}
         </div>
-
-        <Field label="Project colour" required>
-          <ColorPicker
-            value={form.color}
-            onChange={(v) => set("color", v)}
-            presets={PROJECT_COLORS}
-          />
-        </Field>
 
         <Field
           label="Requirements / Services"

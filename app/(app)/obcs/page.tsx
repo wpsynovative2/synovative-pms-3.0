@@ -44,15 +44,15 @@ import {
   Textarea,
   cx,
 } from "@/components/ui/primitives";
-import { ColorPicker, MultiSelect, SearchSelect } from "@/components/ui/selects";
+import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { addDays, addWorkingDays, formatDate, todayISO } from "@/lib/calendar";
 import {
   CONTENT_WRITER_DEPARTMENT,
+  DEFAULT_PROJECT_COLOR,
   OBC_STATUS_LABEL,
   OBC_STATUS_STYLE,
   PRIORITIES,
-  PROJECT_COLORS,
   THREE_D_CATEGORIES,
   THREE_D_DEPARTMENT,
   THREE_D_SERVICE,
@@ -669,10 +669,6 @@ function ObcDrawer({ obc, onClose }: { obc: Obc; onClose: () => void }) {
                         href={`/projects/${p.id}`}
                         className="flex items-center gap-2 rounded-lg border border-line-soft bg-surface-2 px-3 py-2 text-[12px] hover:border-brand-bright/40"
                       >
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: p.color }}
-                        />
                         <span className="min-w-0 flex-1 truncate text-ink">{p.name}</span>
                         <span className="shrink-0 text-ink-faint">{p.status}</span>
                       </Link>
@@ -821,7 +817,6 @@ function ConvertModal({
   const [name, setName] = useState(
     picked.length === 1 ? `${base} — ${picked[0].service}` : base,
   );
-  const [color, setColor] = useState(PROJECT_COLORS[0]);
   const [startDate, setStartDate] = useState(todayISO());
   const [deadline, setDeadline] = useState(addDays(todayISO(), 30));
   const [priority, setPriority] = useState<Priority>("Medium");
@@ -1007,7 +1002,7 @@ function ConvertModal({
       obc.id,
       {
         name: name.trim(),
-        color,
+        color: DEFAULT_PROJECT_COLOR,
         clientName: client?.fullName ?? company?.name ?? "",
         services,
         startDate,
@@ -1099,18 +1094,13 @@ function ConvertModal({
           />
 
           <div className={cx("flex-col gap-4", tab === "project" ? "flex" : "hidden")}>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Project name"
-              required
-              error={touched && !name.trim() ? "Required." : undefined}
-            >
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label="Colour">
-              <ColorPicker value={color} onChange={setColor} presets={PROJECT_COLORS} />
-            </Field>
-          </div>
+          <Field
+            label="Project name"
+            required
+            error={touched && !name.trim() ? "Required." : undefined}
+          >
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Start date" required>

@@ -27,6 +27,7 @@ import {
   chainTail,
   dependencyCandidates,
   dependentDates,
+  projectStartFrom,
   workingDaysOn,
 } from "@/lib/dependencies";
 import {
@@ -58,8 +59,12 @@ import {
   type TaskTemplate,
   type ThreeDCategory,
   type ThreeDSoftware,
+  isTaskDependent,
   taskLabel,
 } from "@/lib/types";
+
+/** Stands for the project's start among the tasks a 3D task waits on (0015). */
+const PROJECT_START = "project-start";
 
 interface FormState {
   title: string;
@@ -188,11 +193,13 @@ export function TaskFormModal({
   // the last created, or in a 3D project the one before it in number order.
   const sbsTail =
     !source && project?.stepByStep ? defaultWaitsOn(groupId, projectTasks) : undefined;
-  const [dependsOn, setDependsOn] = useState(
-    source ? !!source.dependsOnTaskIds?.length : !!sbsTail,
-  );
+  const [dependsOn, setDependsOn] = useState(source ? isTaskDependent(source) : !!sbsTail);
   const [waitsOnIds, setWaitsOnIds] = useState<string[]>(
-    source?.dependsOnTaskIds ?? (sbsTail ? [sbsTail.id] : []),
+    source
+      ? [...(source.waitsOnProjectStart ? [PROJECT_START] : []), ...(source.dependsOnTaskIds ?? [])]
+      : sbsTail
+        ? [sbsTail.id]
+        : [],
   );
   const [durationDays, setDurationDays] = useState(String(source?.durationDays ?? 1));
 
@@ -423,15 +430,25 @@ export function TaskFormModal({
       .join(" · ");
   };
   const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
+  /*
+   * A 3D task can also wait on the project being started (0015), offered until it
+   * has started. A task already waiting on it keeps the choice, so editing it
+   * later does not drop it unseen.
+   */
+  const offerProjectStart =
+    is3d && !!project && (!project.startedOn || !!task?.waitsOnProjectStart);
+  const startWait = dependent && offerProjectStart && waitsOnIds.includes(PROJECT_START);
+  const startFrom = startWait && project ? projectStartFrom(project) : null;
   const days = Number(durationDays);
   const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
   const linksUnchanged =
     !!task &&
+    startWait === !!task.waitsOnProjectStart &&
     waitsOn.length === (task.dependsOnTaskIds?.length ?? 0) &&
     waitsOn.every((t) => task.dependsOnTaskIds?.includes(t.id));
-  const allApproved = waitsOn.every((t) => t.status === "Approved");
+  const allApproved = waitsOn.every((t) => t.status === "Approved") && !startFrom;
   const planned =
-    waitsOn.length && daysValid
+    (waitsOn.length || startWait) && daysValid
       ? task && linksUnchanged && allApproved
         ? // Already under way: a new length moves the due date, never the start.
           {
@@ -441,7 +458,7 @@ export function TaskFormModal({
                 ? task.dueDate
                 : workingDaysOn(task.startDate, days, calendar),
           }
-        : dependentDates(waitsOn, days, calendar)
+        : dependentDates(waitsOn, days, calendar, startFrom)
       : null;
   const plannedPastDeadline = !!planned && !!project && planned.dueDate > project.deadline;
 
@@ -486,7 +503,12 @@ export function TaskFormModal({
         (form.dueDate < form.startDate
           ? "The due date must be on or after the start date."
           : undefined)),
-    waitsOn: dependent && !waitsOn.length ? "Pick the task this one waits on." : undefined,
+    waitsOn:
+      dependent && !waitsOn.length && !startWait
+        ? offerProjectStart
+          ? "Pick the project start or a task this one waits on."
+          : "Pick the task this one waits on."
+        : undefined,
     durationDays:
       dependent && !daysValid ? "Enter the working days it takes — 0 or more." : undefined,
     repeat: mayRepeat
@@ -559,6 +581,8 @@ export function TaskFormModal({
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
       contentPlacements: isContent ? piecePlacements(pieces, contentPlacements) : [],
       dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
+      // Named only when it is or was set, so a database without 0015 still takes the rest.
+      ...(startWait || task?.waitsOnProjectStart ? { waitsOnProjectStart: startWait } : {}),
       durationDays: dependent ? days : null,
       // Content tasks stay outside the groups, and so does anything not in 3D, and
       // a cam, which is in a short instead.
@@ -1011,11 +1035,18 @@ export function TaskFormModal({
               onChange={(on) => {
                 setDependsOn(on);
                 if (on && !waitsOnIds.length) {
+                  // The task before it, or for the first one the project start.
                   const before = defaultWaitsOn(groupId, candidates);
-                  setWaitsOnIds(before ? [before.id] : []);
+                  setWaitsOnIds(
+                    before ? [before.id] : offerProjectStart ? [PROJECT_START] : [],
+                  );
                 }
               }}
-              label="Waits on another task"
+              label={
+                offerProjectStart
+                  ? "Waits on the project start or another task"
+                  : "Waits on another task"
+              }
               className="self-start"
             />
             <p className="text-[11px] text-ink-faint">
@@ -1024,7 +1055,9 @@ export function TaskFormModal({
                   ? "Step-by-step project: a new task waits on the one before it by default."
                   : "Step-by-step project: a new task waits on the last one by default."
                 : is3d
-                  ? "Starts the day the last task it waits on is approved, and runs for the days you give it."
+                  ? offerProjectStart
+                    ? "Starts once the project is started and the tasks it waits on are approved, and runs for the days you give it."
+                    : "Starts the day the last task it waits on is approved, and runs for the days you give it."
                   : "Starts the day the task it waits on is approved, and runs for the days you give it."}
             </p>
           </div>
@@ -1036,16 +1069,33 @@ export function TaskFormModal({
               label="Waits on"
               required
               className="sm:col-span-2"
-              hint={candidates.length ? undefined : "This project has no other tasks yet."}
+              hint={
+                candidates.length || offerProjectStart
+                  ? undefined
+                  : "This project has no other tasks yet."
+              }
               error={touched ? errors.waitsOn : undefined}
             >
               {is3d ? (
                 <MultiSelect
-                  options={candidates.map((t) => ({
-                    value: t.id,
-                    label: taskLabel(t),
-                    hint: waitsOnDetail(t),
-                  }))}
+                  options={[
+                    ...(offerProjectStart && project
+                      ? [
+                          {
+                            value: PROJECT_START,
+                            label: "Project start",
+                            hint: project.startedOn
+                              ? `Started ${formatDate(project.startedOn)}`
+                              : "When someone presses Start project",
+                          },
+                        ]
+                      : []),
+                    ...candidates.map((t) => ({
+                      value: t.id,
+                      label: taskLabel(t),
+                      hint: waitsOnDetail(t),
+                    })),
+                  ]}
                   value={waitsOnIds}
                   onChange={setWaitsOnIds}
                   placeholder="Search tasks in this project…"
@@ -1093,10 +1143,16 @@ export function TaskFormModal({
                   : "border-line bg-surface-2 text-ink-faint",
               )}
             >
-              {waitsOn.length && planned ? (
+              {(waitsOn.length || startWait) && planned ? (
                 <>
                   <span>
-                    {allApproved
+                    {startFrom
+                      ? waitsOn.length
+                        ? "Starts once the project is started and the last of these is approved. Until then these dates are projected."
+                        : "Starts the day someone presses Start project. Until then these dates are projected from the project's start date."
+                      : startWait && !waitsOn.length
+                        ? "The project has already started, so this keeps its dates."
+                        : allApproved
                       ? waitsOn.length === 1
                         ? `“${taskLabel(waitsOn[0])}” is already approved, so this starts straight away.`
                         : "Those tasks are already approved, so this starts straight away."
@@ -1114,7 +1170,11 @@ export function TaskFormModal({
                   ) : null}
                 </>
               ) : (
-                <span>Pick the task it waits on and how many days it takes to see its dates.</span>
+                <span>
+                  {offerProjectStart
+                    ? "Pick the project start or a task it waits on, and how many days it takes, to see its dates."
+                    : "Pick the task it waits on and how many days it takes to see its dates."}
+                </span>
               )}
             </div>
           ) : (

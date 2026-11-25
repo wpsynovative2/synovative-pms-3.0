@@ -1,8 +1,8 @@
 "use client";
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
-import { todayISO } from "./calendar";
-import { markWaiting } from "./dependencies";
+import { snapToWorkingDay, todayISO } from "./calendar";
+import { markWaiting, workingDaysOn } from "./dependencies";
 import { splitBlueprints } from "./recurrence";
 import { groupCodes, taskCodeIn } from "./task-groups";
 import {
@@ -788,6 +788,8 @@ interface StoreValue {
   updateTask: (id: string, patch: Partial<Task>) => void;
   /** Hand a task to someone, or take it off them (0016). */
   assignTask: (taskId: string, assigneeId: string | null) => void;
+  /** Start project (0015): releases the tasks waiting on it. One-way. */
+  startProject: (projectId: string) => void;
   deleteTask: (id: string) => void;
   addRemark: (taskId: string, text: string) => void;
 
@@ -1378,6 +1380,47 @@ const actions = {
           ],
         })),
       (c) => run(c.rpc("assign_task", { p_task_id: taskId, p_assignee: assigneeId })),
+    );
+  },
+
+  /**
+   * Start project (0015), through start_project(): the project is Active from
+   * today's working day, and each task waiting on it and on nothing still open
+   * starts that day. The database moves the chain behind them, so the screen
+   * shows the first step here and the refetch brings the rest.
+   */
+  startProject(projectId: string) {
+    const project = state.db.projects.find((p) => p.id === projectId);
+    if (!project || project.startedOn) return;
+    const calendar = state.db.calendar;
+    const day = snapToWorkingDay(todayISO(), calendar);
+    const status = new Map(state.db.tasks.map((t) => [t.id, t.status]));
+    void commit(
+      ["projects", "tasks"],
+      (db) => ({
+        ...db,
+        projects: db.projects.map((p) =>
+          p.id === projectId
+            ? {
+                ...p,
+                startedOn: day,
+                startedBy: me(),
+                status: p.status === "Planning" || p.status === "On Hold" ? "Active" : p.status,
+              }
+            : p,
+        ),
+        tasks: db.tasks.map((t) =>
+          t.projectId === projectId &&
+          t.waitsOnProjectStart &&
+          !(t.dependsOnTaskIds ?? []).some((id) => {
+            const s = status.get(id);
+            return s && s !== "Approved";
+          })
+            ? { ...t, startDate: day, dueDate: workingDaysOn(day, t.durationDays ?? 0, calendar) }
+            : t,
+        ),
+      }),
+      (c) => run(c.rpc("start_project", { p_project_id: projectId })),
     );
   },
 
@@ -3610,7 +3653,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { db, blueprints } = useMemo(() => {
     // Which tasks are still waiting is worked out here too, from the statuses
     // on screen, so every page reads it off the task (0014).
-    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks));
+    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.projects));
     const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
     return {
       db: {

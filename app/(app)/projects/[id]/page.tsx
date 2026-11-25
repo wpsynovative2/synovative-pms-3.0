@@ -40,6 +40,7 @@ import {
   IconEdit,
   IconInvoice,
   IconPlus,
+  IconProjects,
   IconTasks,
   IconTrash,
   IconUsers,
@@ -305,10 +306,9 @@ export default function ProjectDetailPage({ params }: PageProps<"/projects/[id]"
       {/* Header (§7.2) */}
       <Card className="p-5">
         <div className="flex flex-wrap items-start gap-4">
-          <span
-            className="h-12 w-12 shrink-0 rounded-xl"
-            style={{ background: project.color }}
-          />
+          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand/15 text-brand-ink">
+            <IconProjects size={22} />
+          </span>
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold tracking-tight text-ink">
               {project.name}

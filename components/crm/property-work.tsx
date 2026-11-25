@@ -33,7 +33,6 @@ type WorkRow = {
   kind: "project" | "task";
   href: string;
   title: string;
-  dot?: string;
   dates: string;
   badge: React.ReactNode;
   invoices: Invoice[];
@@ -143,7 +142,6 @@ function PropertyWorkList({
         kind: "project" as const,
         href: `/projects/${p.id}`,
         title: p.name,
-        dot: p.color,
         dates: `${formatShortDate(p.startDate)} → ${formatShortDate(p.deadline)}`,
         badge: <Badge className={PROJECT_STATUS_STYLE[p.status]}>{p.status}</Badge>,
         invoices: invoicesFor((l) => l.projectId === p.id),
@@ -385,7 +383,6 @@ function WorkItem({
         title={row.title}
         className="mt-1 flex items-center gap-1.5 font-medium text-ink hover:text-brand-bright"
       >
-        {row.dot ? <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: row.dot }} /> : null}
         <span className="truncate">{row.title}</span>
       </Link>
       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-faint">

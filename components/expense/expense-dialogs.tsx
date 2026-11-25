@@ -126,10 +126,6 @@ export function ExpenseFormModal({
         {project ? (
           <Field label="Project">
             <div className="flex h-9.5 items-center gap-2 rounded-[10px] border border-line bg-surface-3 px-3 text-[13px] text-ink">
-              <span
-                className="h-2.5 w-2.5 rounded-[3px]"
-                style={{ background: project.color }}
-              />
               {project.name}
             </div>
           </Field>

@@ -23,12 +23,12 @@ import {
   StatTile,
   Tabs,
 } from "@/components/ui/primitives";
-import { RichTextEditor } from "@/components/ui/rich-text";
-import { ColorPicker, MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
+import { RichText, RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
+import { MultiSelect, SearchSelect, TagsInput } from "@/components/ui/selects";
 import {
   CONTENT_WRITER_DEPARTMENT,
+  DEFAULT_PROJECT_COLOR,
   PRIORITIES,
-  PROJECT_COLORS,
 } from "@/lib/master-data";
 import { canManageTemplates } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
@@ -145,15 +145,12 @@ export default function TemplatesPage() {
             {db.projectTemplates.map((t) => (
               <Card key={t.id} className="p-4">
                 <div className="flex items-start gap-2.5">
-                  <span
-                    className="mt-1 h-3 w-3 shrink-0 rounded-[4px]"
-                    style={{ background: t.color }}
-                  />
                   <div className="min-w-0 flex-1">
                     <h3 className="text-[14px] font-semibold text-ink">{t.name}</h3>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-ink-faint">
-                      {t.description}
-                    </p>
+                    <RichText
+                      html={t.description}
+                      className="mt-0.5 text-[11px] text-ink-faint"
+                    />
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <Button
@@ -306,9 +303,7 @@ export default function TemplatesPage() {
                 </div>
               </div>
 
-              <p className="mt-2.5 text-[11px] leading-relaxed text-ink-muted">
-                {t.description}
-              </p>
+              <RichText html={t.description} className="mt-2.5 text-[11px]" />
 
               <div className="mt-3 flex flex-wrap gap-1.5">
                 <Badge>{t.priority}</Badge>
@@ -396,7 +391,6 @@ function ProjectTemplateModal({
   const { db } = useStore();
   const [name, setName] = useState(template?.name ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
-  const [color, setColor] = useState(template?.color ?? PROJECT_COLORS[0]);
   const [services, setServices] = useState<string[]>(template?.services ?? []);
   const [priority, setPriority] = useState<Priority>(template?.priority ?? "Medium");
   const [durationDays, setDurationDays] = useState(
@@ -491,8 +485,9 @@ function ProjectTemplateModal({
               onSave({
                 id: template?.id ?? crypto.randomUUID(),
                 name: name.trim(),
-                description: description.trim(),
-                color,
+                description: isRichTextEmpty(description) ? "" : description,
+                // Colour is no longer chosen; the column keeps whatever it had.
+                color: template?.color ?? DEFAULT_PROJECT_COLOR,
                 services,
                 priority,
                 durationDays: Number(durationDays),
@@ -529,15 +524,12 @@ function ProjectTemplateModal({
         </Field>
 
         <Field label="Description">
-          <Input
+          <RichTextEditor
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            onChange={setDescription}
             placeholder="What this template is for"
+            minHeight={72}
           />
-        </Field>
-
-        <Field label="Default colour">
-          <ColorPicker value={color} onChange={setColor} presets={PROJECT_COLORS} />
         </Field>
 
         <Field
@@ -834,7 +826,7 @@ function TaskTemplateModal({
               onSave({
                 id: template?.id ?? crypto.randomUUID(),
                 title: title.trim(),
-                description: description.trim(),
+                description: isRichTextEmpty(description) ? "" : description,
                 department,
                 priority,
                 estimatedHours: Number(estimatedHours),

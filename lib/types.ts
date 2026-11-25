@@ -150,6 +150,12 @@ export interface Project {
   driveCsfFolderId?: string;
   driveTeam3dFolderId?: string;
   /**
+   * The working day Start project was pressed (0015). Null until then; tasks
+   * marked `waitsOnProjectStart` wait for it. Set only by start_project().
+   */
+  startedOn?: string | null;
+  startedBy?: string | null;
+  /**
    * The CRM chain this project came from. All null for work raised by hand;
    * filled in when a New OBC is converted (§CRM).
    */
@@ -298,13 +304,20 @@ export interface Task {
    * started.
    */
   dependsOnTaskIds?: string[];
-  /** Working days from start to due; set whenever `dependsOnTaskIds` has any. */
+  /**
+   * Waits on its project being started (0015), as it would on a task: starts the
+   * day Start project is pressed and is due `durationDays` working days later.
+   */
+  waitsOnProjectStart?: boolean;
+  /** Working days from start to due; set whenever the task waits on anything. */
   durationDays?: number | null;
   /**
    * Those of `dependsOnTaskIds` not yet approved. Derived by the store from what
    * is on screen, never stored (see markWaiting).
    */
   waitingOnTaskIds?: string[];
+  /** Waits on its project, and the project has not started. Derived, as above. */
+  waitingOnProjectStart?: boolean;
   /** The sub-group this task is filed in, in a 3D project (0022, 0033). */
   groupId?: string | null;
   /** Its number within the sub-group: the 3 of T1.2.3. Set by the database. */
@@ -350,9 +363,13 @@ export interface Task {
   series?: SeriesLink | null;
 }
 
-/** Still waiting on another task's approval (0014, 0021). */
-export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds">) =>
-  (t.waitingOnTaskIds?.length ?? 0) > 0;
+/** Still waiting on another task's approval (0014, 0021) or its project's start (0015). */
+export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds" | "waitingOnProjectStart">) =>
+  (t.waitingOnTaskIds?.length ?? 0) > 0 || !!t.waitingOnProjectStart;
+
+/** It waits on anything at all, so its dates are worked out rather than picked. */
+export const isTaskDependent = (t: Pick<Task, "dependsOnTaskIds" | "waitsOnProjectStart">) =>
+  (t.dependsOnTaskIds?.length ?? 0) > 0 || !!t.waitsOnProjectStart;
 
 /** "T1.2.3 Sample flat interior" for a task filed in a group; the title otherwise. */
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>

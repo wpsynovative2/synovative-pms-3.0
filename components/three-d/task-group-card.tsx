@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { DueDate, OverdueBadge, StatusBadge } from "@/components/task/task-bits";
-import { ThreeDNotesView } from "@/components/three-d/notes";
+import { ThreeDDetailsPanel } from "@/components/three-d/notes";
 import { ThreeDThumbnailHover } from "@/components/three-d/thumbnail";
 import {
   IconChevronDown,
@@ -12,7 +12,6 @@ import {
   IconTrash,
 } from "@/components/ui/icons";
 import { Avatar, Badge, Button, Card, IconButton, ProgressBar, cx } from "@/components/ui/primitives";
-import { RichText } from "@/components/ui/rich-text";
 import { groupProgress, type GroupState } from "@/lib/analytics";
 import { formatShortDate } from "@/lib/calendar";
 import { threeDSummary } from "@/lib/master-data";
@@ -166,9 +165,7 @@ export function TaskGroupCard({
         <div className="flex flex-col gap-2.5 border-t border-line-soft px-3 py-3">
           {group ? (
             <>
-              <div className="px-2 pb-1 empty:hidden">
-                <ThreeDNotesView notes={group} />
-              </div>
+              <ThreeDDetailsPanel description={group.description} notes={group} />
               {shownSubGroups.map((s) => (
                 <SubGroupSection
                   key={s.id}
@@ -279,12 +276,11 @@ function SubGroupSection({
 
       {open ? (
         <div className="flex flex-col gap-1 border-t border-tint-blue/20 px-2 py-2">
-          {subGroup.description ? (
-            <RichText html={subGroup.description} className="px-2" />
-          ) : null}
-          <div className="px-2 pb-1 empty:hidden">
-            <ThreeDNotesView notes={subGroup} />
-          </div>
+          <ThreeDDetailsPanel
+            description={subGroup.description}
+            notes={subGroup}
+            className="mb-1"
+          />
           {rows.length ? (
             // Tasks sit on plain surface, so they stand out from the sky behind.
             <div className="flex flex-col rounded-md border border-line-soft bg-surface">
@@ -358,13 +354,15 @@ function TaskRows({
 }) {
   const { userById } = useStore();
 
-  /** "T1.1.3, T2.1.2", or the titles of anything without a number. */
+  /** "T1.1.3, T2.1.2", or the titles of anything without a number, and the project start. */
   const waitingOn = (t: Task) =>
-    (t.waitingOnTaskIds ?? [])
-      .map((id) => allTasks.find((x) => x.id === id))
-      .filter((x) => !!x)
-      .map((x) => x.code ?? x.title)
-      .join(", ");
+    [
+      ...(t.waitingOnProjectStart ? ["project start"] : []),
+      ...(t.waitingOnTaskIds ?? [])
+        .map((id) => allTasks.find((x) => x.id === id))
+        .filter((x) => !!x)
+        .map((x) => x.code ?? x.title),
+    ].join(", ");
 
   return (
     <>

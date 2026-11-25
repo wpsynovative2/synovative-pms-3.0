@@ -322,10 +322,6 @@ export default function ExpensesPage() {
                           href={`/projects/${project.id}`}
                           className="inline-flex items-center gap-1.5 text-ink-muted hover:text-ink"
                         >
-                          <span
-                            className="h-2 w-2 rounded-[3px]"
-                            style={{ background: project.color }}
-                          />
                           <span className="max-w-40 truncate">{project.name}</span>
                         </Link>
                       ) : (

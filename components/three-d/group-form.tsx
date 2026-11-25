@@ -9,9 +9,9 @@ import { useStore } from "@/lib/store";
 import type { TaskGroup, ThreeDNotes } from "@/lib/types";
 
 /**
- * Adds a group or a sub-group to a 3D project, or edits one (0022, 0033). A group
- * asks for its name and notes; a sub-group, which holds the tasks, also asks for a
- * description. Numbers are the database's.
+ * Adds a group or a sub-group to a 3D project, or edits one (0022, 0033). Both ask
+ * for a title, a description and the three notes, shown in the Details panel on
+ * the project page. Numbers are the database's.
  */
 export function GroupFormModal({
   projectId,
@@ -55,7 +55,7 @@ export function GroupFormModal({
     if (error) return;
     const input = {
       name: name.trim(),
-      description: isSub ? description : (group?.description ?? ""),
+      description,
       ...notes,
     };
     if (group) updateTaskGroup(group.id, input);
@@ -97,16 +97,14 @@ export function GroupFormModal({
             placeholder={isSub ? "e.g. Tower exterior" : "e.g. Environment"}
           />
         </Field>
-        {isSub ? (
-          <Field label="Description">
-            <RichTextEditor
-              value={description}
-              onChange={setDescription}
-              placeholder="What this sub-group covers…"
-              minHeight={96}
-            />
-          </Field>
-        ) : null}
+        <Field label="Description">
+          <RichTextEditor
+            value={description}
+            onChange={setDescription}
+            placeholder={`What this ${noun} covers…`}
+            minHeight={96}
+          />
+        </Field>
         <ThreeDNotesFields
           value={notes}
           onChange={(patch) => setNotes((n) => ({ ...n, ...patch }))}

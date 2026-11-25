@@ -45,7 +45,6 @@ export function ProjectCard({
     <Link href={`/projects/${p.id}`}>
       <Card className="group h-full p-4 transition-colors hover:border-brand-bright/40">
         <div className="flex items-start gap-2.5">
-          <span className="mt-1 h-3 w-3 shrink-0 rounded-[4px]" style={{ background: p.color }} />
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-[14px] font-semibold text-ink group-hover:text-ink-strong">
               {p.name}

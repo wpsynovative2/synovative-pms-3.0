@@ -285,10 +285,6 @@ export default function DashboardPage() {
                         className="block px-4 py-3.5 transition-colors hover:bg-surface-2"
                       >
                         <div className="flex items-center gap-2.5">
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-[4px]"
-                            style={{ background: p.color }}
-                          />
                           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
                             {p.name}
                           </span>

@@ -133,17 +133,12 @@ export function ProjectChip({
   if (!project) {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-faint">
-        <span className="h-2 w-2 rounded-[3px] bg-ink-faint/60" />
         Individual task
       </span>
     );
   }
   const inner = (
     <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-muted">
-      <span
-        className="h-2 w-2 shrink-0 rounded-[3px]"
-        style={{ background: project.color }}
-      />
       <span className="max-w-48 truncate">{project.name}</span>
     </span>
   );
