@@ -352,12 +352,18 @@ function TaskRows({
   allTasks: Task[];
   onOpenTask: (id: string) => void;
 }) {
-  const { userById } = useStore();
+  const { db, userById } = useStore();
 
-  /** "T1.1.3, T2.1.2", or the titles of anything without a number, and the project start. */
+  /**
+   * "T1.1.3, T2.1.2", or the titles of anything without a number, and the
+   * files still to come.
+   */
   const waitingOn = (t: Task) =>
     [
-      ...(t.waitingOnProjectStart ? ["project start"] : []),
+      ...(t.waitingOnFileGroupIds ?? [])
+        .map((id) => db.fileGroups.find((g) => g.id === id)?.name)
+        .filter((x) => !!x)
+        .map((name) => `files: ${name}`),
       ...(t.waitingOnTaskIds ?? [])
         .map((id) => allTasks.find((x) => x.id === id))
         .filter((x) => !!x)

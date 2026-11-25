@@ -146,9 +146,11 @@ export function TaskDetailDrawer({
   // project's deadline - flagged, never squeezed (0014, 0021).
   const waitsOn = (task.dependsOnTaskIds ?? []).map((x) => taskById(x)).filter((t) => !!t);
   const waiting = isTaskWaiting(task);
-  // The tense of the line about tasks follows the tasks alone; the project
-  // start has its own line (0015).
+  // The tense of the line about tasks follows the tasks alone; files have their
+  // own line (0016).
   const tasksWaiting = (task.waitingOnTaskIds?.length ?? 0) > 0;
+  // Files it waits on (0016), received or not.
+  const filesWaitedOn = db.fileGroups.filter((g) => task.fileGroupIds?.includes(g.id));
   const pastDeadline = !!project && task.dueDate > project.deadline;
   // A Team Leader may hand any task of the project on, without editing it (0016).
   const mayAssign = canAssignTask(currentUser, task, project ?? null);
@@ -333,15 +335,21 @@ export function TaskDetailDrawer({
             </Section>
           ) : null}
 
-          {waitsOn.length || task.waitsOnProjectStart || pastDeadline ? (
+          {waitsOn.length || filesWaitedOn.length || pastDeadline ? (
             <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
-              {task.waitsOnProjectStart ? (
+              {filesWaitedOn.length ? (
                 <p>
-                  {task.waitingOnProjectStart
-                    ? waitsOn.length
-                      ? "Also waits on the project being started."
-                      : `Starts the day the project is started, and is due ${task.durationDays ?? 0} working day${task.durationDays === 1 ? "" : "s"} after that. Dates are projected until someone presses Start project.`
-                    : `Waited on the project starting${project?.startedOn ? `, on ${formatDate(project.startedOn)}` : ""}.`}
+                  {filesWaitedOn.map((g, i) => (
+                    <span key={g.id}>
+                      {i ? ", " : ""}
+                      <span className="font-medium text-ink-muted">“{g.name}”</span>{" "}
+                      {g.receivedOn ? `received ${formatDate(g.receivedOn)}` : "not received yet"}
+                    </span>
+                  ))}
+                  .{" "}
+                  {task.waitingOnFileGroupIds?.length
+                    ? "Starts the day the last of these files comes in; until then its dates are projected."
+                    : ""}
                 </p>
               ) : null}
               {waitsOn.length ? (

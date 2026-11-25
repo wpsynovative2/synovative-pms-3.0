@@ -1,8 +1,9 @@
 "use client";
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
-import { snapToWorkingDay, todayISO } from "./calendar";
-import { markWaiting, workingDaysOn } from "./dependencies";
+import { todayISO } from "./calendar";
+import { markWaiting } from "./dependencies";
+import { restampGroups } from "./files";
 import { splitBlueprints } from "./recurrence";
 import { groupCodes, taskCodeIn } from "./task-groups";
 import {
@@ -90,6 +91,8 @@ import type {
   ReviewSource,
   Role,
   Short,
+  FileGroup,
+  FileItem,
   ShortFields,
   ShortsPlan,
   Task,
@@ -788,8 +791,6 @@ interface StoreValue {
   updateTask: (id: string, patch: Partial<Task>) => void;
   /** Hand a task to someone, or take it off them (0016). */
   assignTask: (taskId: string, assigneeId: string | null) => void;
-  /** Start project (0015): releases the tasks waiting on it. One-way. */
-  startProject: (projectId: string) => void;
   deleteTask: (id: string) => void;
   addRemark: (taskId: string, text: string) => void;
 
@@ -801,6 +802,14 @@ interface StoreValue {
   createShort: (projectId: string, input: ShortInput) => Short;
   updateShort: (id: string, input: ShortInput) => void;
   deleteShort: (id: string) => void;
+
+  /** Files to receive (0016). */
+  createFileGroup: (projectId: string, name: string) => FileGroup;
+  renameFileGroup: (id: string, name: string) => void;
+  deleteFileGroup: (id: string) => void;
+  addFileItem: (groupId: string, name: string) => void;
+  updateFileItem: (id: string, patch: { name?: string; received?: boolean }) => void;
+  deleteFileItem: (id: string) => void;
 
   startTimer: (taskId: string) => void;
   pauseTimer: (taskId: string, note?: string) => void;
@@ -1383,47 +1392,6 @@ const actions = {
     );
   },
 
-  /**
-   * Start project (0015), through start_project(): the project is Active from
-   * today's working day, and each task waiting on it and on nothing still open
-   * starts that day. The database moves the chain behind them, so the screen
-   * shows the first step here and the refetch brings the rest.
-   */
-  startProject(projectId: string) {
-    const project = state.db.projects.find((p) => p.id === projectId);
-    if (!project || project.startedOn) return;
-    const calendar = state.db.calendar;
-    const day = snapToWorkingDay(todayISO(), calendar);
-    const status = new Map(state.db.tasks.map((t) => [t.id, t.status]));
-    void commit(
-      ["projects", "tasks"],
-      (db) => ({
-        ...db,
-        projects: db.projects.map((p) =>
-          p.id === projectId
-            ? {
-                ...p,
-                startedOn: day,
-                startedBy: me(),
-                status: p.status === "Planning" || p.status === "On Hold" ? "Active" : p.status,
-              }
-            : p,
-        ),
-        tasks: db.tasks.map((t) =>
-          t.projectId === projectId &&
-          t.waitsOnProjectStart &&
-          !(t.dependsOnTaskIds ?? []).some((id) => {
-            const s = status.get(id);
-            return s && s !== "Approved";
-          })
-            ? { ...t, startDate: day, dueDate: workingDaysOn(day, t.durationDays ?? 0, calendar) }
-            : t,
-        ),
-      }),
-      (c) => run(c.rpc("start_project", { p_project_id: projectId })),
-    );
-  },
-
   /* ----------------------------------------------------- 3D task groups */
 
   /** A group, or with `parentId` a sub-group of that group (0033). */
@@ -1572,6 +1540,147 @@ const actions = {
         tasks: db.tasks.filter((t) => t.shortId !== id),
       }),
       (c) => run(c.from("shorts").delete().eq("id", id)),
+    );
+  },
+
+  /* --------------------------------------------------- files to receive */
+
+  /*
+   * Files to receive (0016). Each write reloads the tasks scope, which holds the
+   * files and the tasks waiting on them: the database releases those tasks when
+   * the last file of a group comes in, and the refetch brings their new dates.
+   * Here the group's state is worked out at once, so the Waiting marks lift.
+   */
+  createFileGroup(projectId: string, name: string): FileGroup {
+    const group: FileGroup = {
+      id: newId(),
+      projectId,
+      name,
+      receivedOn: null,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["tasks"],
+      (db) => ({ ...db, fileGroups: [...db.fileGroups, group] }),
+      (c) =>
+        run(
+          c.from("file_groups").insert({
+            id: group.id,
+            project_id: projectId,
+            name,
+            created_by: group.createdBy,
+          }),
+        ),
+    );
+    return group;
+  },
+
+  renameFileGroup(id: string, name: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        fileGroups: db.fileGroups.map((g) => (g.id === id ? { ...g, name } : g)),
+      }),
+      (c) => run(c.from("file_groups").update({ name }).eq("id", id)),
+    );
+  },
+
+  /** Takes its files with it; tasks that waited on it stop waiting (0016). */
+  deleteFileGroup(id: string) {
+    void commit(
+      ["tasks"],
+      (db) => ({
+        ...db,
+        fileGroups: db.fileGroups.filter((g) => g.id !== id),
+        fileItems: db.fileItems.filter((f) => f.groupId !== id),
+        tasks: db.tasks.map((t) =>
+          t.fileGroupIds?.includes(id)
+            ? { ...t, fileGroupIds: t.fileGroupIds.filter((x) => x !== id) }
+            : t,
+        ),
+      }),
+      (c) => run(c.from("file_groups").delete().eq("id", id)),
+    );
+  },
+
+  addFileItem(groupId: string, name: string) {
+    const group = state.db.fileGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const item: FileItem = {
+      id: newId(),
+      groupId,
+      projectId: group.projectId,
+      name,
+      received: false,
+      receivedOn: null,
+      receivedBy: null,
+      createdBy: me(),
+      createdAt: now(),
+    };
+    void commit(
+      ["tasks"],
+      (db) => {
+        const fileItems = [...db.fileItems, item];
+        return { ...db, fileItems, fileGroups: restampGroups(db.fileGroups, fileItems) };
+      },
+      (c) =>
+        run(
+          c.from("file_items").insert({
+            id: item.id,
+            group_id: groupId,
+            project_id: group.projectId,
+            name,
+            created_by: item.createdBy,
+          }),
+        ),
+    );
+  },
+
+  updateFileItem(id: string, patch: { name?: string; received?: boolean }) {
+    const before = state.db.fileItems.find((f) => f.id === id);
+    if (!before) return;
+    const ticked = patch.received !== undefined && patch.received !== before.received;
+    void commit(
+      ["tasks"],
+      (db) => {
+        const fileItems = db.fileItems.map((f) =>
+          f.id === id
+            ? {
+                ...f,
+                ...(patch.name !== undefined ? { name: patch.name } : {}),
+                ...(ticked
+                  ? patch.received
+                    ? { received: true, receivedOn: todayISO(), receivedBy: me() }
+                    : { received: false, receivedOn: null, receivedBy: null }
+                  : {}),
+              }
+            : f,
+        );
+        return { ...db, fileItems, fileGroups: restampGroups(db.fileGroups, fileItems) };
+      },
+      (c) =>
+        run(
+          c
+            .from("file_items")
+            .update({
+              ...(patch.name !== undefined ? { name: patch.name } : {}),
+              ...(ticked ? { received: patch.received } : {}),
+            })
+            .eq("id", id),
+        ),
+    );
+  },
+
+  deleteFileItem(id: string) {
+    void commit(
+      ["tasks"],
+      (db) => {
+        const fileItems = db.fileItems.filter((f) => f.id !== id);
+        return { ...db, fileItems, fileGroups: restampGroups(db.fileGroups, fileItems) };
+      },
+      (c) => run(c.from("file_items").delete().eq("id", id)),
     );
   },
 
@@ -3653,7 +3762,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { db, blueprints } = useMemo(() => {
     // Which tasks are still waiting is worked out here too, from the statuses
     // on screen, so every page reads it off the task (0014).
-    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.projects));
+    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.fileGroups));
     const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
     return {
       db: {

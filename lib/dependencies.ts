@@ -1,6 +1,6 @@
 import { addDays, snapToWorkingDay, todayISO } from "./calendar";
 import { comparePlaces, groupPlaces } from "./task-groups";
-import type { CalendarConfig, Project, Task, TaskGroup } from "./types";
+import type { CalendarConfig, FileGroup, Project, Task, TaskGroup } from "./types";
 
 /**
  * Task dependencies and step-by-step projects (0014). A dependent task starts
@@ -31,21 +31,19 @@ export function projectedAfter(dueDate: string, durationDays: number, calendar: 
 }
 
 /**
- * Where a project that has not started counts as starting, for the tasks that
- * wait on it (0015): its start date, or today once that has passed. Null once
- * it has started, when it holds nothing up.
+ * Where files still to come in (0016) count as settled: the project's start date, or today once that
+ * has passed. Mirrors greatest(start_date, ist_today()) in schedule_dependent_task.
  */
-export function projectStartFrom(project: Pick<Project, "startDate" | "startedOn">) {
-  if (project.startedOn) return null;
+export function pendingFrom(project: Pick<Project, "startDate">) {
   const today = todayISO();
   return project.startDate > today ? project.startDate : today;
 }
 
 /**
  * A dependent task's dates when it is linked to `waitedOn` now: projected from
- * the latest due date among those still open (0021) and, if it waits on its
- * project starting, the date `projectStartFrom` gives (0015); from today once
- * nothing is open.
+ * the latest due date among those still open (0021) and, if it waits on files
+ * not yet in, the date `pendingFrom` gives (0016); from today once nothing is
+ * open.
  */
 export function dependentDates(
   waitedOn: Pick<Task, "status" | "dueDate">[],
@@ -62,26 +60,33 @@ export function dependentDates(
 }
 
 /**
- * Fills in `waitingOnTaskIds` and `waitingOnProjectStart` from what is on
- * screen, so an approval or a project start made here lifts the lock at once
- * rather than after the refetch. A task waited on that this user cannot see
+ * Fills in `waitingOnTaskIds` and `waitingOnFileGroupIds` from what is on
+ * screen, so an approval or a file ticked here lifts the lock at once rather
+ * than after the refetch. A task waited on that this user cannot see
  * counts as not waiting; the database still refuses a timer or submission on it.
  */
-export function markWaiting(tasks: Task[], projects: Pick<Project, "id" | "startedOn">[]): Task[] {
+export function markWaiting(
+  tasks: Task[],
+  fileGroups: Pick<FileGroup, "id" | "receivedOn">[],
+): Task[] {
   const status = new Map(tasks.map((t) => [t.id, t.status]));
-  const notStarted = new Set(projects.filter((p) => !p.startedOn).map((p) => p.id));
+  const notReceived = new Set(fileGroups.filter((g) => !g.receivedOn).map((g) => g.id));
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
   return tasks.map((t) => {
     const waiting = (t.dependsOnTaskIds ?? []).filter((id) => {
       const s = status.get(id);
       return s && s !== "Approved";
     });
-    const onStart = !!t.waitsOnProjectStart && !!t.projectId && notStarted.has(t.projectId);
-    const had = t.waitingOnTaskIds ?? [];
-    return waiting.length === had.length &&
-      waiting.every((id, i) => id === had[i]) &&
-      onStart === !!t.waitingOnProjectStart
+    // A group this user cannot see counts as received, as with tasks above.
+    const onFiles = (t.fileGroupIds ?? []).filter((id) => notReceived.has(id));
+    return same(waiting, t.waitingOnTaskIds ?? []) &&
+      same(onFiles, t.waitingOnFileGroupIds ?? [])
       ? t
-      : { ...t, waitingOnTaskIds: waiting, waitingOnProjectStart: onStart };
+      : {
+          ...t,
+          waitingOnTaskIds: waiting,
+          waitingOnFileGroupIds: onFiles,
+        };
   });
 }
 

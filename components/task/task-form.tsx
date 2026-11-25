@@ -27,7 +27,7 @@ import {
   chainTail,
   dependencyCandidates,
   dependentDates,
-  projectStartFrom,
+  pendingFrom,
   workingDaysOn,
 } from "@/lib/dependencies";
 import {
@@ -63,8 +63,8 @@ import {
   taskLabel,
 } from "@/lib/types";
 
-/** Stands for the project's start among the tasks a 3D task waits on (0015). */
-const PROJECT_START = "project-start";
+/** Prefixes a file group's id among the tasks a 3D task waits on (0016). */
+const FILES = "files:";
 
 interface FormState {
   title: string;
@@ -196,7 +196,10 @@ export function TaskFormModal({
   const [dependsOn, setDependsOn] = useState(source ? isTaskDependent(source) : !!sbsTail);
   const [waitsOnIds, setWaitsOnIds] = useState<string[]>(
     source
-      ? [...(source.waitsOnProjectStart ? [PROJECT_START] : []), ...(source.dependsOnTaskIds ?? [])]
+      ? [
+          ...(source.fileGroupIds ?? []).map((id) => FILES + id),
+          ...(source.dependsOnTaskIds ?? []),
+        ]
       : sbsTail
         ? [sbsTail.id]
         : [],
@@ -430,25 +433,37 @@ export function TaskFormModal({
       .join(" · ");
   };
   const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
-  /*
-   * A 3D task can also wait on the project being started (0015), offered until it
-   * has started. A task already waiting on it keeps the choice, so editing it
-   * later does not drop it unseen.
-   */
-  const offerProjectStart =
-    is3d && !!project && (!project.startedOn || !!task?.waitsOnProjectStart);
-  const startWait = dependent && offerProjectStart && waitsOnIds.includes(PROJECT_START);
-  const startFrom = startWait && project ? projectStartFrom(project) : null;
+  // A 3D task can also wait on the project's files to receive (0016), group by group.
+  const fileGroups = is3d && project ? db.fileGroups.filter((g) => g.projectId === project.id) : [];
+  const pickedFiles = dependent
+    ? fileGroups.filter((g) => waitsOnIds.includes(FILES + g.id))
+    : [];
+  const pendingFiles = pickedFiles.filter((g) => !g.receivedOn);
+  // Anything not yet dated counts from the project's start date, or today.
+  const startFrom = project && pendingFiles.length ? pendingFrom(project) : null;
   const days = Number(durationDays);
   const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
   const linksUnchanged =
     !!task &&
-    startWait === !!task.waitsOnProjectStart &&
+    pickedFiles.length === (task.fileGroupIds?.length ?? 0) &&
+    pickedFiles.every((g) => task.fileGroupIds?.includes(g.id)) &&
     waitsOn.length === (task.dependsOnTaskIds?.length ?? 0) &&
     waitsOn.every((t) => task.dependsOnTaskIds?.includes(t.id));
   const allApproved = waitsOn.every((t) => t.status === "Approved") && !startFrom;
+  /** "the files in “CAD” are received and “T1.1.1” is approved", for the dates box. */
+  const pendingWords = [
+    ...pendingFiles.map((g) => `the files in “${g.name}” are received`),
+    ...(waitsOn.some((t) => t.status !== "Approved")
+      ? [waitsOn.length === 1 ? `“${taskLabel(waitsOn[0])}” is approved` : "the last task picked is approved"]
+      : []),
+  ];
+  const pendingSentence =
+    pendingWords.length > 1
+      ? `${pendingWords.slice(0, -1).join(", ")} and ${pendingWords[pendingWords.length - 1]}`
+      : (pendingWords[0] ?? "");
+  const waitsOnAnything = waitsOn.length > 0 || pickedFiles.length > 0;
   const planned =
-    (waitsOn.length || startWait) && daysValid
+    waitsOnAnything && daysValid
       ? task && linksUnchanged && allApproved
         ? // Already under way: a new length moves the due date, never the start.
           {
@@ -504,9 +519,9 @@ export function TaskFormModal({
           ? "The due date must be on or after the start date."
           : undefined)),
     waitsOn:
-      dependent && !waitsOn.length && !startWait
-        ? offerProjectStart
-          ? "Pick the project start or a task this one waits on."
+      dependent && !waitsOnAnything
+        ? fileGroups.length
+          ? "Pick what this one waits on: files or a task."
           : "Pick the task this one waits on."
         : undefined,
     durationDays:
@@ -582,7 +597,10 @@ export function TaskFormModal({
       contentPlacements: isContent ? piecePlacements(pieces, contentPlacements) : [],
       dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
       // Named only when it is or was set, so a database without 0015 still takes the rest.
-      ...(startWait || task?.waitsOnProjectStart ? { waitsOnProjectStart: startWait } : {}),
+      // Named only when it is or was set, so a database without 0016 still takes the rest.
+      ...(pickedFiles.length || task?.fileGroupIds?.length
+        ? { fileGroupIds: pickedFiles.map((g) => g.id) }
+        : {}),
       durationDays: dependent ? days : null,
       // Content tasks stay outside the groups, and so does anything not in 3D, and
       // a cam, which is in a short instead.
@@ -1035,16 +1053,13 @@ export function TaskFormModal({
               onChange={(on) => {
                 setDependsOn(on);
                 if (on && !waitsOnIds.length) {
-                  // The task before it, or for the first one the project start.
                   const before = defaultWaitsOn(groupId, candidates);
-                  setWaitsOnIds(
-                    before ? [before.id] : offerProjectStart ? [PROJECT_START] : [],
-                  );
+                  setWaitsOnIds(before ? [before.id] : []);
                 }
               }}
               label={
-                offerProjectStart
-                  ? "Waits on the project start or another task"
+                fileGroups.length
+                  ? "Waits on files or another task"
                   : "Waits on another task"
               }
               className="self-start"
@@ -1055,8 +1070,8 @@ export function TaskFormModal({
                   ? "Step-by-step project: a new task waits on the one before it by default."
                   : "Step-by-step project: a new task waits on the last one by default."
                 : is3d
-                  ? offerProjectStart
-                    ? "Starts once the project is started and the tasks it waits on are approved, and runs for the days you give it."
+                  ? fileGroups.length
+                    ? "Starts once everything it waits on is in - files received, tasks approved - and runs for the days you give it."
                     : "Starts the day the last task it waits on is approved, and runs for the days you give it."
                   : "Starts the day the task it waits on is approved, and runs for the days you give it."}
             </p>
@@ -1070,7 +1085,7 @@ export function TaskFormModal({
               required
               className="sm:col-span-2"
               hint={
-                candidates.length || offerProjectStart
+                candidates.length || fileGroups.length
                   ? undefined
                   : "This project has no other tasks yet."
               }
@@ -1079,17 +1094,16 @@ export function TaskFormModal({
               {is3d ? (
                 <MultiSelect
                   options={[
-                    ...(offerProjectStart && project
-                      ? [
-                          {
-                            value: PROJECT_START,
-                            label: "Project start",
-                            hint: project.startedOn
-                              ? `Started ${formatDate(project.startedOn)}`
-                              : "When someone presses Start project",
-                          },
-                        ]
-                      : []),
+                    ...fileGroups.map((g) => {
+                      const files = db.fileItems.filter((f) => f.groupId === g.id);
+                      return {
+                        value: FILES + g.id,
+                        label: `Files: ${g.name}`,
+                        hint: g.receivedOn
+                          ? `Received ${formatDate(g.receivedOn)}`
+                          : `${files.filter((f) => f.received).length}/${files.length} received`,
+                      };
+                    }),
                     ...candidates.map((t) => ({
                       value: t.id,
                       label: taskLabel(t),
@@ -1143,15 +1157,15 @@ export function TaskFormModal({
                   : "border-line bg-surface-2 text-ink-faint",
               )}
             >
-              {(waitsOn.length || startWait) && planned ? (
+              {waitsOnAnything && planned ? (
                 <>
                   <span>
                     {startFrom
-                      ? waitsOn.length
-                        ? "Starts once the project is started and the last of these is approved. Until then these dates are projected."
-                        : "Starts the day someone presses Start project. Until then these dates are projected from the project's start date."
-                      : startWait && !waitsOn.length
-                        ? "The project has already started, so this keeps its dates."
+                      ? `Starts once ${pendingSentence}. Until then these dates are projected.`
+                      : !waitsOn.length
+                        ? linksUnchanged
+                          ? "Everything it waits on is in, so it keeps its dates."
+                          : "Everything it waits on is already in, so this starts straight away."
                         : allApproved
                       ? waitsOn.length === 1
                         ? `“${taskLabel(waitsOn[0])}” is already approved, so this starts straight away.`
@@ -1171,8 +1185,8 @@ export function TaskFormModal({
                 </>
               ) : (
                 <span>
-                  {offerProjectStart
-                    ? "Pick the project start or a task it waits on, and how many days it takes, to see its dates."
+                  {fileGroups.length
+                    ? "Pick what it waits on - files or a task - and how many days it takes, to see its dates."
                     : "Pick the task it waits on and how many days it takes to see its dates."}
                 </span>
               )}

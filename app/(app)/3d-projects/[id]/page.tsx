@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { ProjectDriveControls } from "@/components/project/project-drive";
+import { FilesDrawer } from "@/components/three-d/files-drawer";
 import { GroupFormModal } from "@/components/three-d/group-form";
 import { ShortsTab } from "@/components/three-d/shorts-tab";
 import { TaskGroupCard } from "@/components/three-d/task-group-card";
@@ -16,10 +17,10 @@ import { TaskDetailDrawer } from "@/components/task/task-detail";
 import { TaskFormModal } from "@/components/task/task-form";
 import {
   IconArrowLeft,
-  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconCube,
+  IconInbox,
   IconPlay,
   IconPlus,
   IconTasks,
@@ -27,11 +28,11 @@ import {
 import { ConfirmDialog } from "@/components/ui/modal";
 import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "@/components/ui/primitives";
 import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
-import { formatDate, snapToWorkingDay, todayISO } from "@/lib/calendar";
+import { formatDate } from "@/lib/calendar";
 import {
   canCreateTaskInProject,
+  canManageProjectFiles,
   canManageTaskGroups,
-  canStartProject,
   canViewProject,
   canViewThreeD,
 } from "@/lib/permissions";
@@ -50,7 +51,7 @@ type Tab = "tasks" | "shorts";
  */
 export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[id]">) {
   const { id } = use(params);
-  const { db, currentUser, projectById, deleteTaskGroup, startProject } = useStore();
+  const { db, currentUser, projectById, deleteTaskGroup } = useStore();
   const project = projectById(id);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -63,8 +64,8 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   const [addingTaskTo, setAddingTaskTo] = useState<string | null | undefined>(undefined);
   const [filters, setFilters] = useState(emptyThreeDFilters);
   const [tab, setTab] = useState<Tab>("tasks");
-  const [confirmingStart, setConfirmingStart] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   const tree = useMemo(() => groupTree(db.taskGroups, id), [db.taskGroups, id]);
   const projectGroups = useMemo(
@@ -112,14 +113,10 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   }
 
   const mayManage = canManageTaskGroups(user, project);
-  /*
-   * Start project (0015): tasks can wait on it as they wait on another task.
-   * Pressing it makes the project Active and starts each of them today, or the
-   * next working day; the tasks behind them follow down the chain.
-   */
-  const mayStart = canStartProject(user, project);
-  const waitingOnStart = projectTasks.filter((t) => t.waitsOnProjectStart).length;
-  const startDay = snapToWorkingDay(todayISO(), db.calendar);
+  // Files to receive (0016): what the client still has to send.
+  const mayManageFiles = canManageProjectFiles(user, project);
+  const fileGroups = db.fileGroups.filter((g) => g.projectId === project.id);
+  const filesIn = fileGroups.filter((g) => g.receivedOn).length;
   const mayAddTask = canCreateTaskInProject(user, project);
   // While filtering, a group with nothing left to show gets out of the way.
   const filtering = isFilteringThreeD(filters);
@@ -170,6 +167,25 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
             <Link href={`/projects/${project.id}`}>
               <Button>Project page</Button>
             </Link>
+            {fileGroups.length || mayManageFiles ? (
+              <Button
+                onClick={() => setFilesOpen(true)}
+                title="Files to receive from the client"
+              >
+                <IconInbox size={15} /> Files
+                {fileGroups.length ? (
+                  <span
+                    className={
+                      filesIn === fileGroups.length
+                        ? "rounded-full bg-st-approved/15 px-1.5 text-[11px] text-st-approved"
+                        : "rounded-full bg-surface-3 px-1.5 text-[11px] text-ink-muted"
+                    }
+                  >
+                    {filesIn}/{fileGroups.length}
+                  </span>
+                ) : null}
+              </Button>
+            ) : null}
             {mayManage && tab === "tasks" ? (
               <Button variant="primary" onClick={() => setAddingGroup(true)}>
                 <IconPlus size={15} /> Add group
@@ -208,41 +224,15 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
         </Card>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Tabs<Tab>
-          tabs={[
-            { id: "tasks", label: "Tasks", icon: <IconTasks size={14} />, count: groupTasks.length },
-            { id: "shorts", label: "Shorts", icon: <IconPlay size={14} />, count: camCount },
-          ]}
-          active={tab}
-          onChange={setTab}
-        />
-        {project.startedOn ? (
-          <span className="inline-flex h-9.5 items-center gap-1.5 rounded-[10px] border border-st-approved/30 bg-st-approved/10 px-4 text-[13px] font-medium text-st-approved">
-            <IconCheck size={14} /> Project started · {formatDate(project.startedOn)}
-          </span>
-        ) : mayStart ? (
-          <Button
-            onClick={() => setConfirmingStart(true)}
-            title={
-              waitingOnStart
-                ? `${waitingOnStart} task${waitingOnStart === 1 ? " waits" : "s wait"} on it`
-                : "No task waits on it yet"
-            }
-          >
-            <IconPlay size={14} /> Start project
-            {waitingOnStart ? (
-              <span className="rounded-full bg-surface-3 px-1.5 text-[11px] text-ink-muted">
-                {waitingOnStart}
-              </span>
-            ) : null}
-          </Button>
-        ) : waitingOnStart ? (
-          <span className="text-[12px] text-ink-faint">
-            Not started yet · {waitingOnStart} task{waitingOnStart === 1 ? " waits" : "s wait"} on it
-          </span>
-        ) : null}
-      </div>
+      <Tabs<Tab>
+        className="self-start"
+        tabs={[
+          { id: "tasks", label: "Tasks", icon: <IconTasks size={14} />, count: groupTasks.length },
+          { id: "shorts", label: "Shorts", icon: <IconPlay size={14} />, count: camCount },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
       {tab === "shorts" ? (
         <ShortsTab
@@ -358,27 +348,18 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
         />
       ) : null}
 
+      {filesOpen ? (
+        <FilesDrawer
+          project={project}
+          tasks={projectTasks}
+          mayManage={mayManageFiles}
+          onClose={() => setFilesOpen(false)}
+        />
+      ) : null}
+
       {openTaskId ? (
         <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} />
       ) : null}
-
-      <ConfirmDialog
-        open={confirmingStart}
-        onClose={() => setConfirmingStart(false)}
-        onConfirm={() => startProject(project.id)}
-        title={`Start ${project.name}?`}
-        body={`${
-          waitingOnStart
-            ? `${waitingOnStart} task${waitingOnStart === 1 ? " waits" : "s wait"} on the project start. Each one still waiting on nothing else starts ${formatDate(startDay)} and is due its days to complete after that; the tasks behind them move with them, and their assignees are told. `
-            : "No task waits on the project start yet, so no dates move. "
-        }${
-          project.status === "Planning" || project.status === "On Hold"
-            ? `The project moves from ${project.status} to Active. `
-            : ""
-        }This cannot be undone.`}
-        confirmLabel="Start project"
-        danger={false}
-      />
 
       <ConfirmDialog
         open={!!deleting}

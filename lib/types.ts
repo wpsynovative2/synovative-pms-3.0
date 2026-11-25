@@ -150,12 +150,6 @@ export interface Project {
   driveCsfFolderId?: string;
   driveTeam3dFolderId?: string;
   /**
-   * The working day Start project was pressed (0015). Null until then; tasks
-   * marked `waitsOnProjectStart` wait for it. Set only by start_project().
-   */
-  startedOn?: string | null;
-  startedBy?: string | null;
-  /**
    * The CRM chain this project came from. All null for work raised by hand;
    * filled in when a New OBC is converted (§CRM).
    */
@@ -304,11 +298,6 @@ export interface Task {
    * started.
    */
   dependsOnTaskIds?: string[];
-  /**
-   * Waits on its project being started (0015), as it would on a task: starts the
-   * day Start project is pressed and is due `durationDays` working days later.
-   */
-  waitsOnProjectStart?: boolean;
   /** Working days from start to due; set whenever the task waits on anything. */
   durationDays?: number | null;
   /**
@@ -316,8 +305,13 @@ export interface Task {
    * is on screen, never stored (see markWaiting).
    */
   waitingOnTaskIds?: string[];
-  /** Waits on its project, and the project has not started. Derived, as above. */
-  waitingOnProjectStart?: boolean;
+  /**
+   * File groups it waits on (0016): it starts the day the last of them is
+   * received, as it would on a task.
+   */
+  fileGroupIds?: string[];
+  /** Those of `fileGroupIds` not yet received. Derived, as above. */
+  waitingOnFileGroupIds?: string[];
   /** The sub-group this task is filed in, in a 3D project (0022, 0033). */
   groupId?: string | null;
   /** Its number within the sub-group: the 3 of T1.2.3. Set by the database. */
@@ -363,13 +357,13 @@ export interface Task {
   series?: SeriesLink | null;
 }
 
-/** Still waiting on another task's approval (0014, 0021) or its project's start (0015). */
-export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds" | "waitingOnProjectStart">) =>
-  (t.waitingOnTaskIds?.length ?? 0) > 0 || !!t.waitingOnProjectStart;
+/** Still waiting on another task's approval (0014, 0021) or on files (0016). */
+export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds" | "waitingOnFileGroupIds">) =>
+  (t.waitingOnTaskIds?.length ?? 0) > 0 || (t.waitingOnFileGroupIds?.length ?? 0) > 0;
 
 /** It waits on anything at all, so its dates are worked out rather than picked. */
-export const isTaskDependent = (t: Pick<Task, "dependsOnTaskIds" | "waitsOnProjectStart">) =>
-  (t.dependsOnTaskIds?.length ?? 0) > 0 || !!t.waitsOnProjectStart;
+export const isTaskDependent = (t: Pick<Task, "dependsOnTaskIds" | "fileGroupIds">) =>
+  (t.dependsOnTaskIds?.length ?? 0) > 0 || (t.fileGroupIds?.length ?? 0) > 0;
 
 /** "T1.2.3 Sample flat interior" for a task filed in a group; the title otherwise. */
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>
@@ -428,6 +422,37 @@ export interface Short extends ShortFields {
   projectId: string;
   /** The 1 of SH1 and of Cam1.2. Set by the database, and never reused. */
   number: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+/* ---------------------------------------------------- Files to receive */
+
+/**
+ * A named set of files a project needs from the client before work can begin
+ * (0016): "Architectural drawings". Received once it has files and all are in;
+ * `receivedOn` is then the day the last came in, set by the database. Tasks can
+ * wait on it (`Task.fileGroupIds`).
+ */
+export interface FileGroup {
+  id: string;
+  projectId: string;
+  name: string;
+  receivedOn: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+/** One file in a FileGroup, ticked Received or not (0016). */
+export interface FileItem {
+  id: string;
+  groupId: string;
+  projectId: string;
+  name: string;
+  received: boolean;
+  /** The day and person who ticked it. Set by the database. */
+  receivedOn: string | null;
+  receivedBy: string | null;
   createdBy: string;
   createdAt: string;
 }
@@ -1573,6 +1598,9 @@ export interface Database {
   taskGroups: TaskGroup[];
   shortsPlans: ShortsPlan[];
   shorts: Short[];
+  /** Files to receive (0016), loaded with the tasks that wait on them. */
+  fileGroups: FileGroup[];
+  fileItems: FileItem[];
   expenses: Expense[];
   vendors: Vendor[];
   projectTemplates: ProjectTemplate[];

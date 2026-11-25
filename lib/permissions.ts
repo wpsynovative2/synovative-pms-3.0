@@ -98,10 +98,10 @@ export const canManageTaskGroups = (u: User, p: Project) =>
   !!p.is3d && (isGlobalManager(u) || p.leaderId === u.id || isThreeDTeamLeader(u));
 
 /**
- * Start project (0015): the 3D Artists' Team Leader only, on a 3D project.
- * Nobody else, global managers included. Mirrors can_start_project.
+ * Files to receive (0016): add, rename, tick and delete them. The people who lay
+ * out a 3D project's groups. Mirrors the file_groups / file_items policies.
  */
-export const canStartProject = (u: User, p: Project) => !!p.is3d && isThreeDTeamLeader(u);
+export const canManageProjectFiles = canManageTaskGroups;
 
 /* -------------------------------------------------------------- websites */
 

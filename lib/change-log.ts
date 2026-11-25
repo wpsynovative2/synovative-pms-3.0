@@ -73,8 +73,6 @@ const FIELDS: Record<ChangeEntityType, FieldMap> = {
     title_month: ["Repeats named for", "text"],
     step_by_step: ["Step by step", "bool"],
     is_3d: ["3D project", "bool"],
-    started_on: ["Project started", "date"],
-    started_by: ["Started by", "user"],
   },
   task: {
     ...SHARED,
@@ -88,7 +86,7 @@ const FIELDS: Record<ChangeEntityType, FieldMap> = {
     content_types: ["CB types", "list"],
     content_placements: ["Placements", "list"],
     duration_days: ["Days to complete", "days"],
-    waits_on_project_start: ["Waits on project start", "bool"],
+    file_group_ids: ["Waits on files", "list"],
     group_id: ["Sub-group", "group"],
     short_id: ["Short", "short"],
     frames: ["Frames", "text"],

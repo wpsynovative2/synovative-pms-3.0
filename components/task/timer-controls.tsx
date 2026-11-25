@@ -53,7 +53,7 @@ export function TimerControls({
     task.status === "Approved" ||
     task.status === "Submitted" ||
     task.status === "Waiting for Client Response";
-  // Nor before the task it waits on is approved (0014), or its project started (0015).
+  // Nor before the task it waits on is approved (0014), or its files are in (0016).
   const waitingOn = (task.waitingOnTaskIds ?? [])
     .map((id) => db.tasks.find((t) => t.id === id))
     .filter((t) => !!t);
@@ -96,15 +96,15 @@ export function TimerControls({
 
       {!mine ? (
         <span className="text-[11px] text-ink-faint">Assignee only</span>
-      ) : task.waitingOnProjectStart && !waitingOn.length && !running ? (
+      ) : task.waitingOnFileGroupIds?.length && !waitingOn.length && !running ? (
         <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
-          Starts once the project is started
+          Starts once the files are received
         </span>
       ) : waitingOn.length && !running ? (
         <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
           Starts once {waitingOn.map((t) => `“${taskLabel(t)}”`).join(", ")}{" "}
           {waitingOn.length === 1 ? "is" : "are"} approved
-          {task.waitingOnProjectStart ? " and the project is started" : ""}
+          {task.waitingOnFileGroupIds?.length ? " and the files are received" : ""}
         </span>
       ) : finished ? (
         <span className="text-[11px] text-ink-faint">
