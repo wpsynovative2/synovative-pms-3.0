@@ -96,7 +96,7 @@ export function TimerControls({
 
       {!mine ? (
         <span className="text-[11px] text-ink-faint">Assignee only</span>
-      ) : task.waitingOnFileGroupIds?.length && !waitingOn.length && !running ? (
+      ) : task.waitingOnFileItemIds?.length && !waitingOn.length && !running ? (
         <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
           Starts once the files are received
         </span>
@@ -104,7 +104,7 @@ export function TimerControls({
         <span className="max-w-56 truncate text-right text-[11px] text-ink-faint">
           Starts once {waitingOn.map((t) => `“${taskLabel(t)}”`).join(", ")}{" "}
           {waitingOn.length === 1 ? "is" : "are"} approved
-          {task.waitingOnFileGroupIds?.length ? " and the files are received" : ""}
+          {task.waitingOnFileItemIds?.length ? " and the files are received" : ""}
         </span>
       ) : finished ? (
         <span className="text-[11px] text-ink-faint">

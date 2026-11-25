@@ -38,6 +38,8 @@ type Kind =
   | "obc"
   | "group"
   | "short"
+  | "files"
+  | "fileGroups"
   | "list"
   | "bool"
   | "hours"
@@ -86,7 +88,9 @@ const FIELDS: Record<ChangeEntityType, FieldMap> = {
     content_types: ["CB types", "list"],
     content_placements: ["Placements", "list"],
     duration_days: ["Days to complete", "days"],
-    file_group_ids: ["Waits on files", "list"],
+    file_item_ids: ["Waits on files", "files"],
+    // Before 0018 a task waited on whole groups; older entries still say so.
+    file_group_ids: ["Waits on files", "fileGroups"],
     group_id: ["Sub-group", "group"],
     short_id: ["Short", "short"],
     frames: ["Frames", "text"],
@@ -178,6 +182,18 @@ export function changeValue(
       return db.taskGroups.find((g) => g.id === id)?.name ?? "A sub-group";
     case "short":
       return db.shorts.find((s) => s.id === id)?.title ?? "A short";
+    case "files":
+    case "fileGroups": {
+      const ids = Array.isArray(value) ? value : [value];
+      if (ids.length === 0) return NONE;
+      return ids
+        .map((x) =>
+          kind === "files"
+            ? (db.fileItems.find((f) => f.id === x)?.name ?? "A file")
+            : (db.fileGroups.find((g) => g.id === x)?.name ?? "A file group"),
+        )
+        .join(", ");
+    }
     case "clients":
     case "list": {
       const items = Array.isArray(value) ? value : [value];

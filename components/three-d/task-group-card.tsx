@@ -360,10 +360,10 @@ function TaskRows({
    */
   const waitingOn = (t: Task) =>
     [
-      ...(t.waitingOnFileGroupIds ?? [])
-        .map((id) => db.fileGroups.find((g) => g.id === id)?.name)
+      ...(t.waitingOnFileItemIds ?? [])
+        .map((id) => db.fileItems.find((f) => f.id === id)?.name)
         .filter((x) => !!x)
-        .map((name) => `files: ${name}`),
+        .map((name) => `file: ${name}`),
       ...(t.waitingOnTaskIds ?? [])
         .map((id) => allTasks.find((x) => x.id === id))
         .filter((x) => !!x)

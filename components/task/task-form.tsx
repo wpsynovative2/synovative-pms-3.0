@@ -30,6 +30,7 @@ import {
   pendingFrom,
   workingDaysOn,
 } from "@/lib/dependencies";
+import { fileLabel } from "@/lib/files";
 import {
   CAM_SHOTS_CATEGORY,
   CONTENT_WRITER_DEPARTMENT,
@@ -63,7 +64,7 @@ import {
   taskLabel,
 } from "@/lib/types";
 
-/** Prefixes a file group's id among the tasks a 3D task waits on (0016). */
+/** Prefixes a file's id among the tasks a 3D task waits on (0016, 0018). */
 const FILES = "files:";
 
 interface FormState {
@@ -197,7 +198,7 @@ export function TaskFormModal({
   const [waitsOnIds, setWaitsOnIds] = useState<string[]>(
     source
       ? [
-          ...(source.fileGroupIds ?? []).map((id) => FILES + id),
+          ...(source.fileItemIds ?? []).map((id) => FILES + id),
           ...(source.dependsOnTaskIds ?? []),
         ]
       : sbsTail
@@ -433,26 +434,33 @@ export function TaskFormModal({
       .join(" · ");
   };
   const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
-  // A 3D task can also wait on the project's files to receive (0016), group by group.
-  const fileGroups = is3d && project ? db.fileGroups.filter((g) => g.projectId === project.id) : [];
+  // A 3D task can also wait on the project's files to receive, one by one (0016, 0018).
+  const projectFiles =
+    is3d && project ? db.fileItems.filter((f) => f.projectId === project.id) : [];
   const pickedFiles = dependent
-    ? fileGroups.filter((g) => waitsOnIds.includes(FILES + g.id))
+    ? projectFiles.filter((f) => waitsOnIds.includes(FILES + f.id))
     : [];
-  const pendingFiles = pickedFiles.filter((g) => !g.receivedOn);
+  const pendingFiles = pickedFiles.filter((f) => !f.received);
   // Anything not yet dated counts from the project's start date, or today.
   const startFrom = project && pendingFiles.length ? pendingFrom(project) : null;
   const days = Number(durationDays);
   const daysValid = durationDays.trim() !== "" && Number.isInteger(days) && days >= 0;
   const linksUnchanged =
     !!task &&
-    pickedFiles.length === (task.fileGroupIds?.length ?? 0) &&
-    pickedFiles.every((g) => task.fileGroupIds?.includes(g.id)) &&
+    pickedFiles.length === (task.fileItemIds?.length ?? 0) &&
+    pickedFiles.every((f) => task.fileItemIds?.includes(f.id)) &&
     waitsOn.length === (task.dependsOnTaskIds?.length ?? 0) &&
     waitsOn.every((t) => task.dependsOnTaskIds?.includes(t.id));
   const allApproved = waitsOn.every((t) => t.status === "Approved") && !startFrom;
   /** "the files in “CAD” are received and “T1.1.1” is approved", for the dates box. */
   const pendingWords = [
-    ...pendingFiles.map((g) => `the files in “${g.name}” are received`),
+    ...(pendingFiles.length
+      ? [
+          pendingFiles.length === 1
+            ? `“${fileLabel(pendingFiles[0], db.fileGroups)}” is received`
+            : `${pendingFiles.length} files are received`,
+        ]
+      : []),
     ...(waitsOn.some((t) => t.status !== "Approved")
       ? [waitsOn.length === 1 ? `“${taskLabel(waitsOn[0])}” is approved` : "the last task picked is approved"]
       : []),
@@ -520,7 +528,7 @@ export function TaskFormModal({
           : undefined)),
     waitsOn:
       dependent && !waitsOnAnything
-        ? fileGroups.length
+        ? projectFiles.length
           ? "Pick what this one waits on: files or a task."
           : "Pick the task this one waits on."
         : undefined,
@@ -596,10 +604,9 @@ export function TaskFormModal({
       contentTypes: isContent ? pieceTypes(pieces, contentTypes) : [],
       contentPlacements: isContent ? piecePlacements(pieces, contentPlacements) : [],
       dependsOnTaskIds: dependent ? waitsOn.map((t) => t.id) : [],
-      // Named only when it is or was set, so a database without 0015 still takes the rest.
-      // Named only when it is or was set, so a database without 0016 still takes the rest.
-      ...(pickedFiles.length || task?.fileGroupIds?.length
-        ? { fileGroupIds: pickedFiles.map((g) => g.id) }
+      // Named only when it is or was set, so a database without 0018 still takes the rest.
+      ...(pickedFiles.length || task?.fileItemIds?.length
+        ? { fileItemIds: pickedFiles.map((f) => f.id) }
         : {}),
       durationDays: dependent ? days : null,
       // Content tasks stay outside the groups, and so does anything not in 3D, and
@@ -1058,7 +1065,7 @@ export function TaskFormModal({
                 }
               }}
               label={
-                fileGroups.length
+                projectFiles.length
                   ? "Waits on files or another task"
                   : "Waits on another task"
               }
@@ -1070,7 +1077,7 @@ export function TaskFormModal({
                   ? "Step-by-step project: a new task waits on the one before it by default."
                   : "Step-by-step project: a new task waits on the last one by default."
                 : is3d
-                  ? fileGroups.length
+                  ? projectFiles.length
                     ? "Starts once everything it waits on is in - files received, tasks approved - and runs for the days you give it."
                     : "Starts the day the last task it waits on is approved, and runs for the days you give it."
                   : "Starts the day the task it waits on is approved, and runs for the days you give it."}
@@ -1085,7 +1092,7 @@ export function TaskFormModal({
               required
               className="sm:col-span-2"
               hint={
-                candidates.length || fileGroups.length
+                candidates.length || projectFiles.length
                   ? undefined
                   : "This project has no other tasks yet."
               }
@@ -1094,16 +1101,15 @@ export function TaskFormModal({
               {is3d ? (
                 <MultiSelect
                   options={[
-                    ...fileGroups.map((g) => {
-                      const files = db.fileItems.filter((f) => f.groupId === g.id);
-                      return {
-                        value: FILES + g.id,
-                        label: `Files: ${g.name}`,
-                        hint: g.receivedOn
-                          ? `Received ${formatDate(g.receivedOn)}`
-                          : `${files.filter((f) => f.received).length}/${files.length} received`,
-                      };
-                    }),
+                    // Each file on its own, named with its group: "Chirag / DXF".
+                    ...projectFiles.map((f) => ({
+                      value: FILES + f.id,
+                      label: `File: ${fileLabel(f, db.fileGroups)}`,
+                      hint:
+                        f.received && f.receivedOn
+                          ? `Received ${formatDate(f.receivedOn)}`
+                          : "Not received yet",
+                    })),
                     ...candidates.map((t) => ({
                       value: t.id,
                       label: taskLabel(t),
@@ -1112,7 +1118,11 @@ export function TaskFormModal({
                   ]}
                   value={waitsOnIds}
                   onChange={setWaitsOnIds}
-                  placeholder="Search tasks in this project…"
+                  placeholder={
+                    projectFiles.length
+                      ? "Search files and tasks in this project…"
+                      : "Search tasks in this project…"
+                  }
                   emptyLabel="No tasks selected"
                   maxVisibleChips={4}
                 />
@@ -1185,7 +1195,7 @@ export function TaskFormModal({
                 </>
               ) : (
                 <span>
-                  {fileGroups.length
+                  {projectFiles.length
                     ? "Pick what it waits on - files or a task - and how many days it takes, to see its dates."
                     : "Pick the task it waits on and how many days it takes to see its dates."}
                 </span>

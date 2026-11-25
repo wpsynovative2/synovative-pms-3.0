@@ -27,6 +27,7 @@ import {
 import { RichText, RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { SearchSelect } from "@/components/ui/selects";
 import { formatDate, formatDateTime, relativeTime } from "@/lib/calendar";
+import { fileLabel } from "@/lib/files";
 import {
   canAddRemark,
   canAssignTask,
@@ -149,8 +150,8 @@ export function TaskDetailDrawer({
   // The tense of the line about tasks follows the tasks alone; files have their
   // own line (0016).
   const tasksWaiting = (task.waitingOnTaskIds?.length ?? 0) > 0;
-  // Files it waits on (0016), received or not.
-  const filesWaitedOn = db.fileGroups.filter((g) => task.fileGroupIds?.includes(g.id));
+  // Files it waits on (0016, 0018), received or not.
+  const filesWaitedOn = db.fileItems.filter((f) => task.fileItemIds?.includes(f.id));
   const pastDeadline = !!project && task.dueDate > project.deadline;
   // A Team Leader may hand any task of the project on, without editing it (0016).
   const mayAssign = canAssignTask(currentUser, task, project ?? null);
@@ -339,15 +340,19 @@ export function TaskDetailDrawer({
             <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-ink-faint">
               {filesWaitedOn.length ? (
                 <p>
-                  {filesWaitedOn.map((g, i) => (
-                    <span key={g.id}>
+                  {filesWaitedOn.map((f, i) => (
+                    <span key={f.id}>
                       {i ? ", " : ""}
-                      <span className="font-medium text-ink-muted">“{g.name}”</span>{" "}
-                      {g.receivedOn ? `received ${formatDate(g.receivedOn)}` : "not received yet"}
+                      <span className="font-medium text-ink-muted">
+                        “{fileLabel(f, db.fileGroups)}”
+                      </span>{" "}
+                      {f.received && f.receivedOn
+                        ? `received ${formatDate(f.receivedOn)}`
+                        : "not received yet"}
                     </span>
                   ))}
                   .{" "}
-                  {task.waitingOnFileGroupIds?.length
+                  {task.waitingOnFileItemIds?.length
                     ? "Starts the day the last of these files comes in; until then its dates are projected."
                     : ""}
                 </p>

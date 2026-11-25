@@ -306,12 +306,12 @@ export interface Task {
    */
   waitingOnTaskIds?: string[];
   /**
-   * File groups it waits on (0016): it starts the day the last of them is
-   * received, as it would on a task.
+   * Files to receive it waits on (0016, 0018): it starts the day the last of
+   * them is received, as it would on a task.
    */
-  fileGroupIds?: string[];
-  /** Those of `fileGroupIds` not yet received. Derived, as above. */
-  waitingOnFileGroupIds?: string[];
+  fileItemIds?: string[];
+  /** Those of `fileItemIds` not yet received. Derived, as above. */
+  waitingOnFileItemIds?: string[];
   /** The sub-group this task is filed in, in a 3D project (0022, 0033). */
   groupId?: string | null;
   /** Its number within the sub-group: the 3 of T1.2.3. Set by the database. */
@@ -358,12 +358,12 @@ export interface Task {
 }
 
 /** Still waiting on another task's approval (0014, 0021) or on files (0016). */
-export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds" | "waitingOnFileGroupIds">) =>
-  (t.waitingOnTaskIds?.length ?? 0) > 0 || (t.waitingOnFileGroupIds?.length ?? 0) > 0;
+export const isTaskWaiting = (t: Pick<Task, "waitingOnTaskIds" | "waitingOnFileItemIds">) =>
+  (t.waitingOnTaskIds?.length ?? 0) > 0 || (t.waitingOnFileItemIds?.length ?? 0) > 0;
 
 /** It waits on anything at all, so its dates are worked out rather than picked. */
-export const isTaskDependent = (t: Pick<Task, "dependsOnTaskIds" | "fileGroupIds">) =>
-  (t.dependsOnTaskIds?.length ?? 0) > 0 || (t.fileGroupIds?.length ?? 0) > 0;
+export const isTaskDependent = (t: Pick<Task, "dependsOnTaskIds" | "fileItemIds">) =>
+  (t.dependsOnTaskIds?.length ?? 0) > 0 || (t.fileItemIds?.length ?? 0) > 0;
 
 /** "T1.2.3 Sample flat interior" for a task filed in a group; the title otherwise. */
 export const taskLabel = (t: Pick<Task, "code" | "title">) =>
@@ -431,8 +431,8 @@ export interface Short extends ShortFields {
 /**
  * A named set of files a project needs from the client before work can begin
  * (0016): "Architectural drawings". Received once it has files and all are in;
- * `receivedOn` is then the day the last came in, set by the database. Tasks can
- * wait on it (`Task.fileGroupIds`).
+ * `receivedOn` is then the day the last came in, set by the database. Tasks
+ * wait on its files, one by one (`Task.fileItemIds`, 0018).
  */
 export interface FileGroup {
   id: string;
@@ -443,7 +443,7 @@ export interface FileGroup {
   createdAt: string;
 }
 
-/** One file in a FileGroup, ticked Received or not (0016). */
+/** One file in a FileGroup, ticked Received or not (0016). Tasks can wait on it. */
 export interface FileItem {
   id: string;
   groupId: string;

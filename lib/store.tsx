@@ -3,7 +3,7 @@
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { todayISO } from "./calendar";
 import { markWaiting } from "./dependencies";
-import { restampGroups } from "./files";
+import { datesParam, restampGroups, type FreedTaskDates } from "./files";
 import { splitBlueprints } from "./recurrence";
 import { groupCodes, taskCodeIn } from "./task-groups";
 import {
@@ -331,6 +331,19 @@ function commit(
 }
 
 /* ---------------------------------------------------- optimistic helpers */
+
+/** Files deleted: out of every task waiting on them, with any dates picked (0018). */
+function dropFileLinks(tasks: Task[], itemIds: string[], dates: FreedTaskDates): Task[] {
+  return tasks.map((t) =>
+    t.fileItemIds?.some((x) => itemIds.includes(x))
+      ? {
+          ...t,
+          fileItemIds: t.fileItemIds.filter((x) => !itemIds.includes(x)),
+          ...(dates[t.id] ?? {}),
+        }
+      : t,
+  );
+}
 
 const mapTask = (db: Database, id: string, fn: (t: Task) => Task): Database => ({
   ...db,
@@ -806,10 +819,10 @@ interface StoreValue {
   /** Files to receive (0016). */
   createFileGroup: (projectId: string, name: string) => FileGroup;
   renameFileGroup: (id: string, name: string) => void;
-  deleteFileGroup: (id: string) => void;
+  deleteFileGroup: (id: string, dates?: FreedTaskDates) => void;
   addFileItem: (groupId: string, name: string) => void;
   updateFileItem: (id: string, patch: { name?: string; received?: boolean }) => void;
-  deleteFileItem: (id: string) => void;
+  deleteFileItem: (id: string, dates?: FreedTaskDates) => void;
 
   startTimer: (taskId: string) => void;
   pauseTimer: (taskId: string, note?: string) => void;
@@ -932,6 +945,7 @@ interface StoreValue {
   /** Records the folder tree the Drive route just created. */
   saveDriveFolders: (propertyId: string, result: DriveResult) => void;
   saveProjectDrive: (projectId: string, folders: ProjectDriveFolders) => void;
+  setProjectDescription: (projectId: string, description: string) => void;
 
   createObc: (input: ObcInput) => Obc;
   updateObc: (id: string, patch: Partial<ObcInput>) => void;
@@ -1587,21 +1601,21 @@ const actions = {
     );
   },
 
-  /** Takes its files with it; tasks that waited on it stop waiting (0016). */
-  deleteFileGroup(id: string) {
+  /**
+   * Takes its files with it (0016). Tasks that waited on them stop waiting; any
+   * left waiting on nothing take the dates in `dates` (delete_file_group, 0018).
+   */
+  deleteFileGroup(id: string, dates: FreedTaskDates = {}) {
+    const itemIds = state.db.fileItems.filter((f) => f.groupId === id).map((f) => f.id);
     void commit(
       ["tasks"],
       (db) => ({
         ...db,
         fileGroups: db.fileGroups.filter((g) => g.id !== id),
         fileItems: db.fileItems.filter((f) => f.groupId !== id),
-        tasks: db.tasks.map((t) =>
-          t.fileGroupIds?.includes(id)
-            ? { ...t, fileGroupIds: t.fileGroupIds.filter((x) => x !== id) }
-            : t,
-        ),
+        tasks: dropFileLinks(db.tasks, itemIds, dates),
       }),
-      (c) => run(c.from("file_groups").delete().eq("id", id)),
+      (c) => run(c.rpc("delete_file_group", { p_group_id: id, p_dates: datesParam(dates) })),
     );
   },
 
@@ -1673,14 +1687,20 @@ const actions = {
     );
   },
 
-  deleteFileItem(id: string) {
+  /** As deleteFileGroup, for one file (delete_file_item, 0018). */
+  deleteFileItem(id: string, dates: FreedTaskDates = {}) {
     void commit(
       ["tasks"],
       (db) => {
         const fileItems = db.fileItems.filter((f) => f.id !== id);
-        return { ...db, fileItems, fileGroups: restampGroups(db.fileGroups, fileItems) };
+        return {
+          ...db,
+          fileItems,
+          fileGroups: restampGroups(db.fileGroups, fileItems),
+          tasks: dropFileLinks(db.tasks, [id], dates),
+        };
       },
-      (c) => run(c.from("file_items").delete().eq("id", id)),
+      (c) => run(c.rpc("delete_file_item", { p_item_id: id, p_dates: datesParam(dates) })),
     );
   },
 
@@ -3155,6 +3175,28 @@ const crmActions = {
     );
   },
 
+  /**
+   * A project's description alone (0018). Through a function, because the 3D
+   * Artists' Team Leader may edit a 3D project's but cannot update projects
+   * directly.
+   */
+  setProjectDescription(projectId: string, description: string) {
+    void commit(
+      ["projects"],
+      (db) => ({
+        ...db,
+        projects: db.projects.map((p) => (p.id === projectId ? { ...p, description } : p)),
+      }),
+      (c) =>
+        run(
+          c.rpc("set_project_description", {
+            p_project_id: projectId,
+            p_description: description,
+          }),
+        ),
+    );
+  },
+
   /* ------------------------------------------------------------ OBCs */
 
   createObc(input: ObcInput): Obc {
@@ -3762,7 +3804,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { db, blueprints } = useMemo(() => {
     // Which tasks are still waiting is worked out here too, from the statuses
     // on screen, so every page reads it off the task (0014).
-    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.fileGroups));
+    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.fileItems));
     const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
     return {
       db: {

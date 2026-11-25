@@ -560,7 +560,7 @@ function buildTasks(
       contentTypes: (r.content_types as Task["contentTypes"] | null) ?? [],
       contentPlacements: (r.content_placements as Task["contentPlacements"] | null) ?? [],
       dependsOnTaskIds: links.get(id) ?? [],
-      fileGroupIds: (r.file_group_ids as string[] | null) ?? [],
+      fileItemIds: (r.file_item_ids as string[] | null) ?? [],
       groupId: nullable(r.group_id),
       groupNumber: r.group_number === null || r.group_number === undefined ? null : num(r.group_number),
       shortId: nullable(r.short_id),
@@ -1476,7 +1476,7 @@ export function taskRow(
     | "contentTypes"
     | "contentPlacements"
     | "dependsOnTaskIds"
-    | "fileGroupIds"
+    | "fileItemIds"
     | "groupId"
     | "shortId"
     | "frames"
@@ -1530,9 +1530,9 @@ export function taskRow(
     lead_note: t.leadNote ?? "",
     general_notes: t.generalNotes ?? "",
     // On the row itself, unlike the links: the database projects its dates on
-    // insert (0016). Named only when set, so a database behind the code still
-    // takes every other task.
-    ...(t.fileGroupIds?.length ? { file_group_ids: t.fileGroupIds } : {}),
+    // insert (0016, 0018). Named only when set, so a database behind the code
+    // still takes every other task.
+    ...(t.fileItemIds?.length ? { file_item_ids: t.fileItemIds } : {}),
     duration_days: isTaskDependent(t) ? (t.durationDays ?? 0) : null,
     assignee_id: t.assigneeId,
     status: t.status,
@@ -1605,7 +1605,7 @@ export const TASK_COLUMNS: Record<string, string> = {
   leadNote: "lead_note",
   generalNotes: "general_notes",
   durationDays: "duration_days",
-  fileGroupIds: "file_group_ids",
+  fileItemIds: "file_item_ids",
   companyId: "company_id",
   propertyId: "property_id",
   clientIds: "client_ids",

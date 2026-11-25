@@ -20,17 +20,27 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCube,
+  IconEdit,
   IconInbox,
   IconPlay,
   IconPlus,
   IconTasks,
 } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { Badge, Button, Card, EmptyState, PageHeader, Tabs } from "@/components/ui/primitives";
-import { RichText, isRichTextEmpty } from "@/components/ui/rich-text";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  IconButton,
+  PageHeader,
+  Tabs,
+} from "@/components/ui/primitives";
+import { RichText, RichTextEditor, isRichTextEmpty } from "@/components/ui/rich-text";
 import { formatDate } from "@/lib/calendar";
 import {
   canCreateTaskInProject,
+  canEditProjectDescription,
   canManageProjectFiles,
   canManageTaskGroups,
   canViewProject,
@@ -51,7 +61,7 @@ type Tab = "tasks" | "shorts";
  */
 export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[id]">) {
   const { id } = use(params);
-  const { db, currentUser, projectById, deleteTaskGroup } = useStore();
+  const { db, currentUser, projectById, deleteTaskGroup, setProjectDescription } = useStore();
   const project = projectById(id);
 
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -65,6 +75,8 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   const [filters, setFilters] = useState(emptyThreeDFilters);
   const [tab, setTab] = useState<Tab>("tasks");
   const [descriptionOpen, setDescriptionOpen] = useState(true);
+  /** The description being written, while editing it. */
+  const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
   const [filesOpen, setFilesOpen] = useState(false);
 
   const tree = useMemo(() => groupTree(db.taskGroups, id), [db.taskGroups, id]);
@@ -113,6 +125,16 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
   }
 
   const mayManage = canManageTaskGroups(user, project);
+  // Its leader, the global managers and the 3D Artists' Team Leader (0018).
+  const mayEditDescription = canEditProjectDescription(user, project);
+  const hasDescription = !isRichTextEmpty(project.description);
+  const saveDescription = () => {
+    if (descriptionDraft === null) return;
+    const html = isRichTextEmpty(descriptionDraft) ? "" : descriptionDraft;
+    if (html !== project.description) setProjectDescription(project.id, html);
+    setDescriptionDraft(null);
+    setDescriptionOpen(true);
+  };
   // Files to receive (0016): what the client still has to send.
   const mayManageFiles = canManageProjectFiles(user, project);
   const fileGroups = db.fileGroups.filter((g) => g.projectId === project.id);
@@ -197,31 +219,67 @@ export default function ThreeDProjectPage({ params }: PageProps<"/3d-projects/[i
 
       {/*
         The brief, from the project form, so the artists read it where they work.
-        Folds to one line once read.
+        Folds to one line once read. Whoever may edit it can do so here.
       */}
-      {!isRichTextEmpty(project.description) ? (
+      {descriptionDraft !== null ? (
+        <Card className="flex flex-col gap-3 px-4 py-3">
+          <span className="text-[13px] font-semibold text-ink">Description</span>
+          <RichTextEditor
+            value={descriptionDraft}
+            onChange={setDescriptionDraft}
+            placeholder="The brief for the artists…"
+            minHeight={120}
+          />
+          <div className="flex justify-end gap-2">
+            <Button size="sm" onClick={() => setDescriptionDraft(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" onClick={saveDescription}>
+              Save
+            </Button>
+          </div>
+        </Card>
+      ) : hasDescription ? (
         <Card className="px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setDescriptionOpen((o) => !o)}
-            aria-expanded={descriptionOpen}
-            className="flex w-full items-center gap-2 text-left"
-          >
-            {descriptionOpen ? (
-              <IconChevronDown size={15} className="shrink-0 text-ink-faint" />
-            ) : (
-              <IconChevronRight size={15} className="shrink-0 text-ink-faint" />
-            )}
-            <span className="text-[13px] font-semibold text-ink">Description</span>
-            <span className="ml-auto text-[11px] text-ink-faint">
-              {descriptionOpen ? "Collapse" : "Expand"}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDescriptionOpen((o) => !o)}
+              aria-expanded={descriptionOpen}
+              className="flex flex-1 items-center gap-2 text-left"
+            >
+              {descriptionOpen ? (
+                <IconChevronDown size={15} className="shrink-0 text-ink-faint" />
+              ) : (
+                <IconChevronRight size={15} className="shrink-0 text-ink-faint" />
+              )}
+              <span className="text-[13px] font-semibold text-ink">Description</span>
+              <span className="ml-auto text-[11px] text-ink-faint">
+                {descriptionOpen ? "Collapse" : "Expand"}
+              </span>
+            </button>
+            {mayEditDescription ? (
+              <IconButton
+                label="Edit description"
+                onClick={() => setDescriptionDraft(project.description)}
+              >
+                <IconEdit size={14} />
+              </IconButton>
+            ) : null}
+          </div>
           <RichText
             html={project.description}
             className={descriptionOpen ? "mt-2 pl-6" : "mt-1 line-clamp-1 pl-6"}
           />
         </Card>
+      ) : mayEditDescription ? (
+        <button
+          type="button"
+          onClick={() => setDescriptionDraft("")}
+          className="inline-flex items-center gap-1.5 self-start text-[13px] text-ink-muted hover:text-ink"
+        >
+          <IconPlus size={14} /> Add a description
+        </button>
       ) : null}
 
       <Tabs<Tab>

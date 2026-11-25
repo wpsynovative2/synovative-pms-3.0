@@ -182,6 +182,13 @@ export const isTeamLeaderMember = (u: User, p: Project) =>
 export const canEditProject = (u: User, p: Project) =>
   isGlobalManager(u) || isProjectLeader(u, p);
 
+/**
+ * A project's description: whoever may edit the project, and for a 3D project
+ * the 3D Artists' Team Leader too (0018). Mirrors can_edit_project_description.
+ */
+export const canEditProjectDescription = (u: User, p: Project) =>
+  canEditProject(u, p) || (!!p.is3d && isThreeDTeamLeader(u));
+
 /* ------------------------------------------------------- project Drive */
 
 /**

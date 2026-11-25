@@ -1,6 +1,6 @@
 import { addDays, snapToWorkingDay, todayISO } from "./calendar";
 import { comparePlaces, groupPlaces } from "./task-groups";
-import type { CalendarConfig, FileGroup, Project, Task, TaskGroup } from "./types";
+import type { CalendarConfig, FileItem, Project, Task, TaskGroup } from "./types";
 
 /**
  * Task dependencies and step-by-step projects (0014). A dependent task starts
@@ -60,32 +60,32 @@ export function dependentDates(
 }
 
 /**
- * Fills in `waitingOnTaskIds` and `waitingOnFileGroupIds` from what is on
+ * Fills in `waitingOnTaskIds` and `waitingOnFileItemIds` from what is on
  * screen, so an approval or a file ticked here lifts the lock at once rather
  * than after the refetch. A task waited on that this user cannot see
  * counts as not waiting; the database still refuses a timer or submission on it.
  */
 export function markWaiting(
   tasks: Task[],
-  fileGroups: Pick<FileGroup, "id" | "receivedOn">[],
+  fileItems: Pick<FileItem, "id" | "received">[],
 ): Task[] {
   const status = new Map(tasks.map((t) => [t.id, t.status]));
-  const notReceived = new Set(fileGroups.filter((g) => !g.receivedOn).map((g) => g.id));
+  const notReceived = new Set(fileItems.filter((f) => !f.received).map((f) => f.id));
   const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
   return tasks.map((t) => {
     const waiting = (t.dependsOnTaskIds ?? []).filter((id) => {
       const s = status.get(id);
       return s && s !== "Approved";
     });
-    // A group this user cannot see counts as received, as with tasks above.
-    const onFiles = (t.fileGroupIds ?? []).filter((id) => notReceived.has(id));
+    // A file this user cannot see counts as received, as with tasks above.
+    const onFiles = (t.fileItemIds ?? []).filter((id) => notReceived.has(id));
     return same(waiting, t.waitingOnTaskIds ?? []) &&
-      same(onFiles, t.waitingOnFileGroupIds ?? [])
+      same(onFiles, t.waitingOnFileItemIds ?? [])
       ? t
       : {
           ...t,
           waitingOnTaskIds: waiting,
-          waitingOnFileGroupIds: onFiles,
+          waitingOnFileItemIds: onFiles,
         };
   });
 }
