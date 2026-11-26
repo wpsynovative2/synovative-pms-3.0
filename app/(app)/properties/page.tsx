@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CollabPanel } from "@/components/collab/collab-panel";
-import { PropertyWorkToggle, propertyWork } from "@/components/crm/property-work";
+import {
+  PropertyWorkToggle,
+  propertyWork,
+  type ProjectFilter,
+} from "@/components/crm/property-work";
 import {
   QuickCompanyFields,
   blankQuickCompany,
@@ -20,6 +24,7 @@ import {
   IconContact,
   IconEdit,
   IconExternal,
+  IconFilter,
   IconFolder,
   IconMinutes,
   IconPlus,
@@ -47,6 +52,7 @@ import { MultiSelect, SearchSelect } from "@/components/ui/selects";
 import { formatINR } from "@/lib/analytics";
 import {
   CONFIG_STATUS_STYLE,
+  PROJECT_STATUSES,
   PROPERTY_MEDIA_FOLDERS,
 } from "@/lib/master-data";
 import {
@@ -55,14 +61,26 @@ import {
   canSeeClients,
   canSeeNotInvoicedProperties,
 } from "@/lib/permissions";
-import { formatDate } from "@/lib/calendar";
+import { addMonths, formatDate, formatMonth, monthOf, todayISO } from "@/lib/calendar";
 import { useStore, type DriveResult, type PropertyInput } from "@/lib/store";
 import {
   CONFIG_STATUSES,
   type ConfigStatus,
+  type ProjectStatus,
   type Property,
   type PropertyConfig,
 } from "@/lib/types";
+
+/** "Has an Active project" is the one most asked for, so it leads. */
+const STATUS_CHOICES: ProjectStatus[] = [
+  "Active",
+  ...PROJECT_STATUSES.filter((s) => s !== "Active"),
+];
+
+/** "an Active", "a Planning". */
+const withArticle = (word: string) => `${/^[aeiou]/i.test(word) ? "an" : "a"} ${word}`;
+
+type DriveFilter = "" | "made" | "missing";
 
 /**
  * Module 3 — a real-estate property, its unit mix, and the Google Drive
@@ -76,6 +94,10 @@ export default function PropertiesPage() {
 
   const [query, setQuery] = useState("");
   const [companyId, setCompanyId] = useState(params.get("company") ?? "");
+  const [clientId, setClientId] = useState("");
+  const [startMonth, setStartMonth] = useState("");
+  const [projectStatus, setProjectStatus] = useState<ProjectStatus | "">("");
+  const [drive, setDrive] = useState<DriveFilter>("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Property | null>(null);
   const [deleting, setDeleting] = useState<Property | null>(null);
@@ -97,21 +119,98 @@ export default function PropertiesPage() {
   }, [db]);
   const notInvoicedView = mayTrackBilling && view === "uninvoiced";
 
+  // Month and status test the same project: Active + December 2026 is an
+  // active project that starts in December, not one of each.
+  const projectFilter = useMemo<ProjectFilter | undefined>(
+    () => (startMonth || projectStatus ? { startMonth, status: projectStatus } : undefined),
+    [startMonth, projectStatus],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return db.properties.filter(
-      (p) =>
-        (!notInvoicedView || uninvoiced.has(p.id)) &&
-        (!companyId || p.companyId === companyId) &&
-        (!q ||
-          p.name.toLowerCase().includes(q) ||
-          p.address.toLowerCase().includes(q) ||
-          p.maharera.toLowerCase().includes(q)),
+    return db.properties.filter((p) => {
+      if (companyId && p.companyId !== companyId) return false;
+      if (clientId && !p.clientIds.includes(clientId)) return false;
+      if (drive === "made" && !p.driveFolderId) return false;
+      if (drive === "missing" && p.driveFolderId) return false;
+      if (
+        q &&
+        !p.name.toLowerCase().includes(q) &&
+        !p.address.toLowerCase().includes(q) &&
+        !p.maharera.toLowerCase().includes(q)
+      )
+        return false;
+      if (projectFilter) {
+        const w = propertyWork(db, p.id, notInvoicedView, projectFilter);
+        return w.projects.length > 0;
+      }
+      return !notInvoicedView || uninvoiced.has(p.id);
+    });
+  }, [db, query, companyId, clientId, drive, projectFilter, notInvoicedView, uninvoiced]);
+
+  // The months some property's project starts in, plus this month and next so
+  // the near term is always offered, newest first. Each carries how many
+  // properties have a project starting then.
+  const monthOptions = useMemo(() => {
+    const byMonth = new Map<string, Set<string>>();
+    for (const p of db.projects) {
+      if (!p.propertyId || !p.startDate) continue;
+      const m = monthOf(p.startDate);
+      const set = byMonth.get(m) ?? new Set<string>();
+      set.add(p.propertyId);
+      byMonth.set(m, set);
+    }
+    const thisMonth = monthOf(todayISO());
+    const months = new Set([thisMonth, addMonths(thisMonth, 1), ...byMonth.keys()]);
+    return [...months]
+      .sort()
+      .reverse()
+      .map((m) => ({ value: m, count: byMonth.get(m)?.size ?? 0 }));
+  }, [db.projects]);
+
+  // Only contacts linked to some property, narrowed to the company if one is picked.
+  const clientOptions = useMemo(() => {
+    const linked = new Set(
+      db.properties
+        .filter((p) => !companyId || p.companyId === companyId)
+        .flatMap((p) => p.clientIds),
     );
-  }, [db.properties, query, companyId, notInvoicedView, uninvoiced]);
+    const companyName = new Map(db.companies.map((c) => [c.id, c.name]));
+    return db.clients
+      .filter((c) => linked.has(c.id))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+      .map((c) => ({ value: c.id, label: c.fullName, hint: companyName.get(c.companyId) }));
+  }, [db.properties, db.clients, db.companies, companyId]);
+
+  /** A client belongs to one company, so changing it drops a mismatch. */
+  const pickCompany = (id: string) => {
+    setCompanyId(id);
+    const client = db.clients.find((c) => c.id === clientId);
+    if (id && client && client.companyId !== id) setClientId("");
+  };
+
+  const filtering =
+    !!query.trim() || !!companyId || !!clientId || !!startMonth || !!projectStatus || !!drive;
+
+  const clearFilters = () => {
+    setQuery("");
+    setCompanyId("");
+    setClientId("");
+    setStartMonth("");
+    setProjectStatus("");
+    setDrive("");
+  };
+
+  // "an Active project starting in December 2026", for the line under the filters.
+  const projectPhrase = projectFilter
+    ? `${withArticle(projectStatus ? `${projectStatus} project` : "project")}${
+        startMonth ? ` starting in ${formatMonth(startMonth)}` : ""
+      }`
+    : "";
 
   const open = openId ? db.properties.find((p) => p.id === openId) : undefined;
   const withDrive = db.properties.filter((p) => p.driveFolderId).length;
+  const tabTotal = notInvoicedView ? uninvoiced.size : db.properties.length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -206,11 +305,83 @@ export default function PropertiesPage() {
             options={db.companies.map((c) => ({ value: c.id, label: c.name }))}
             value={companyId}
             active={!!companyId}
-            onChange={setCompanyId}
+            onChange={pickCompany}
             placeholder="Any company"
           />
         </div>
+        <Select
+          className="w-auto min-w-52"
+          value={startMonth}
+          active={!!startMonth}
+          onChange={(e) => setStartMonth(e.target.value)}
+          aria-label="Project start month"
+        >
+          <option value="">Any project start month</option>
+          {monthOptions.map((m) => (
+            <option key={m.value} value={m.value}>
+              Starts {formatMonth(m.value)} ({m.count})
+            </option>
+          ))}
+        </Select>
+        <Select
+          className="w-auto min-w-52"
+          value={projectStatus}
+          active={!!projectStatus}
+          onChange={(e) => setProjectStatus(e.target.value as ProjectStatus | "")}
+          aria-label="Project status"
+        >
+          <option value="">Any project status</option>
+          {STATUS_CHOICES.map((s) => (
+            <option key={s} value={s}>
+              Has {withArticle(s)} project
+            </option>
+          ))}
+        </Select>
+        {canSeeClients(user) ? (
+          <div className="w-56">
+            <SearchSelect
+              allowClear
+              options={clientOptions}
+              value={clientId}
+              active={!!clientId}
+              onChange={setClientId}
+              placeholder="Any client"
+            />
+          </div>
+        ) : null}
+        <Select
+          className="w-auto min-w-44"
+          value={drive}
+          active={!!drive}
+          onChange={(e) => setDrive(e.target.value as DriveFilter)}
+          aria-label="Drive folder"
+        >
+          <option value="">Any Drive folder</option>
+          <option value="made">Drive folder made</option>
+          <option value="missing">No Drive folder yet</option>
+        </Select>
+        {filtering ? (
+          <>
+            <button
+              onClick={clearFilters}
+              className="inline-flex h-9.5 items-center gap-1.5 rounded-[10px] border border-line bg-surface-2 px-3 text-[12px] text-ink-muted hover:text-ink"
+            >
+              <IconFilter size={13} /> Clear
+            </button>
+            <span className="text-[12px] text-ink-faint">
+              {filtered.length} of {tabTotal}
+            </span>
+          </>
+        ) : null}
       </div>
+
+      {projectFilter ? (
+        <p className="-mt-2 text-[12px] text-ink-faint">
+          Properties with {projectPhrase}
+          {notInvoicedView ? " that no invoice is linked to yet" : ""}. Each card lists only
+          those projects.
+        </p>
+      ) : null}
 
       {noCompanies ? (
         <Card>
@@ -227,15 +398,24 @@ export default function PropertiesPage() {
         </Card>
       ) : filtered.length === 0 ? (
         <Card>
-          <EmptyState
-            icon={<IconProperty size={30} />}
-            title={notInvoicedView ? "Everything is invoiced" : "No properties match"}
-            body={
-              notInvoicedView
-                ? "Every project and individual task on these properties has an invoice linked."
-                : "Add the towers, plots and townships you are marketing."
-            }
-          />
+          {filtering ? (
+            <EmptyState
+              icon={<IconProperty size={30} />}
+              title="No properties match"
+              body="Nothing fits these filters. Try another month or status, or clear them."
+              action={<Button onClick={clearFilters}>Clear filters</Button>}
+            />
+          ) : (
+            <EmptyState
+              icon={<IconProperty size={30} />}
+              title={notInvoicedView ? "Everything is invoiced" : "No properties match"}
+              body={
+                notInvoicedView
+                  ? "Every project and individual task on these properties has an invoice linked."
+                  : "Add the towers, plots and townships you are marketing."
+              }
+            />
+          )}
         </Card>
       ) : (
         <div className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -302,7 +482,11 @@ export default function PropertiesPage() {
 
                 {/* Opening it grows this card only: the grid aligns cards to the top. */}
                 <div className="mt-3 border-t border-line-soft pt-3">
-                  <PropertyWorkToggle propertyId={p.id} onlyUninvoiced={notInvoicedView} />
+                  <PropertyWorkToggle
+                    propertyId={p.id}
+                    onlyUninvoiced={notInvoicedView}
+                    projectFilter={projectFilter}
+                  />
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">

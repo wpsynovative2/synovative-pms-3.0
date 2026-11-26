@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/icons";
 import { Modal } from "@/components/ui/modal";
 import { Badge, Button, SearchInput, cx } from "@/components/ui/primitives";
-import { formatShortDate } from "@/lib/calendar";
+import { formatShortDate, monthOf } from "@/lib/calendar";
 import { customerSearchText, customerSubline, formatMoney } from "@/lib/invoices";
 import { PROJECT_STATUS_STYLE } from "@/lib/master-data";
 import { canManageInvoices, canViewInvoices } from "@/lib/permissions";
 import { useStore } from "@/lib/store";
-import type { Database, Invoice } from "@/lib/types";
+import type { Database, Invoice, Project, ProjectStatus } from "@/lib/types";
 
 /*
  * The work raised for a property, opened from its card: its projects
@@ -39,22 +39,52 @@ type WorkRow = {
 };
 
 /**
+ * The Properties page's project filters. Both apply to the same project, so
+ * "Active" with "2026-12-01" means an active project starting in December 2026.
+ */
+export interface ProjectFilter {
+  /** First of the month the project starts in, e.g. "2026-12-01"; "" for any. */
+  startMonth: string;
+  /** "" for any. */
+  status: ProjectStatus | "";
+}
+
+function matchesProjectFilter(p: Project, f: ProjectFilter) {
+  return (
+    (!f.startMonth || (!!p.startDate && monthOf(p.startDate) === f.startMonth)) &&
+    (!f.status || p.status === f.status)
+  );
+}
+
+/**
  * A property's projects and individual tasks, optionally only those no invoice
  * bills yet. A cancelled project is never waiting on an invoice, so it is left
- * out of that view.
+ * out of that view. With `projectFilter`, only the projects that pass it are
+ * kept and individual tasks are dropped: the filter asked about projects.
  */
-export function propertyWork(db: Database, propertyId: string, onlyUninvoiced = false) {
+export function propertyWork(
+  db: Database,
+  propertyId: string,
+  onlyUninvoiced = false,
+  projectFilter?: ProjectFilter,
+) {
   const linkedProjects = new Set(db.invoiceLinks.map((l) => l.projectId).filter(Boolean));
   const linkedTasks = new Set(db.invoiceLinks.map((l) => l.taskId).filter(Boolean));
   return {
     projects: db.projects.filter(
       (p) =>
         p.propertyId === propertyId &&
-        (!onlyUninvoiced || (p.status !== "Cancelled" && !linkedProjects.has(p.id))),
+        (!onlyUninvoiced || (p.status !== "Cancelled" && !linkedProjects.has(p.id))) &&
+        (!projectFilter || matchesProjectFilter(p, projectFilter)),
     ),
-    tasks: db.tasks.filter(
-      (t) => !t.projectId && t.propertyId === propertyId && (!onlyUninvoiced || !linkedTasks.has(t.id)),
-    ),
+    tasks: projectFilter
+      ? []
+      : db.tasks.filter(
+          (t) =>
+            !t.projectId &&
+            t.propertyId === propertyId &&
+            (!onlyUninvoiced || !linkedTasks.has(t.id)),
+        ),
   };
 }
 
@@ -62,25 +92,40 @@ export function propertyWork(db: Database, propertyId: string, onlyUninvoiced = 
 export function PropertyWorkToggle({
   propertyId,
   onlyUninvoiced = false,
+  projectFilter,
 }: {
   propertyId: string;
   /** The Not invoiced tab: only work no invoice bills yet. */
   onlyUninvoiced?: boolean;
+  /** The page's project filters: only the projects that pass, and no tasks. */
+  projectFilter?: ProjectFilter;
 }) {
   const { db, currentUser } = useStore();
   const [open, setOpen] = useState(false);
   const showInvoices = canViewInvoices(currentUser!);
 
-  const { projects, tasks } = propertyWork(db, propertyId, onlyUninvoiced);
+  const { projects, tasks } = propertyWork(db, propertyId, onlyUninvoiced, projectFilter);
   const total = projects.length + tasks.length;
 
   if (total === 0) {
     return (
       <p className="text-[11px] text-ink-faint">
-        {onlyUninvoiced ? "Every project and task here has an invoice." : "No projects or individual tasks yet."}
+        {projectFilter
+          ? "No project here matches the filters."
+          : onlyUninvoiced
+            ? "Every project and task here has an invoice."
+            : "No projects or individual tasks yet."}
       </p>
     );
   }
+
+  const what = projectFilter
+    ? onlyUninvoiced
+      ? "matching projects with no invoice"
+      : "matching projects"
+    : onlyUninvoiced
+      ? "work with no invoice"
+      : "projects & individual tasks";
 
   return (
     <div>
@@ -97,7 +142,7 @@ export function PropertyWorkToggle({
       >
         {open ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
         <span className="font-medium">
-          {open ? "Hide" : "Show"} {onlyUninvoiced ? "work with no invoice" : "projects & individual tasks"}
+          {open ? "Hide" : "Show"} {what}
         </span>
         <span className="ml-auto flex gap-1">
           {projects.length ? <KindChip kind="project" count={projects.length} /> : null}
@@ -105,7 +150,12 @@ export function PropertyWorkToggle({
         </span>
       </button>
       {open ? (
-        <PropertyWorkList propertyId={propertyId} showInvoices={showInvoices} onlyUninvoiced={onlyUninvoiced} />
+        <PropertyWorkList
+          propertyId={propertyId}
+          showInvoices={showInvoices}
+          onlyUninvoiced={onlyUninvoiced}
+          projectFilter={projectFilter}
+        />
       ) : null}
     </div>
   );
@@ -115,13 +165,15 @@ function PropertyWorkList({
   propertyId,
   showInvoices,
   onlyUninvoiced,
+  projectFilter,
 }: {
   propertyId: string;
   showInvoices: boolean;
   onlyUninvoiced: boolean;
+  projectFilter?: ProjectFilter;
 }) {
   const { db, propertyById, companyById } = useStore();
-  const work = propertyWork(db, propertyId, onlyUninvoiced);
+  const work = propertyWork(db, propertyId, onlyUninvoiced, projectFilter);
   const companyName = companyById(propertyById(propertyId)?.companyId)?.name ?? "";
   const invoicesById = new Map(db.invoices.map((i) => [i.id, i]));
   const invoicesFor = (match: (l: { projectId: string | null; taskId: string | null }) => boolean) =>
