@@ -435,10 +435,17 @@ export function TaskFormModal({
   };
   const waitsOn = dependent ? candidates.filter((t) => waitsOnIds.includes(t.id)) : [];
   // A 3D task can also wait on the project's files to receive, one by one (0016, 0018).
-  const projectFiles =
-    is3d && project ? db.fileItems.filter((f) => f.projectId === project.id) : [];
+  // Only a file not yet received can be waited on (0020). One this task already
+  // waits on stays listed after it comes in, so it can still be taken off.
+  const fileChoices =
+    is3d && project
+      ? db.fileItems.filter(
+          (f) =>
+            f.projectId === project.id && (!f.received || !!task?.fileItemIds?.includes(f.id)),
+        )
+      : [];
   const pickedFiles = dependent
-    ? projectFiles.filter((f) => waitsOnIds.includes(FILES + f.id))
+    ? fileChoices.filter((f) => waitsOnIds.includes(FILES + f.id))
     : [];
   const pendingFiles = pickedFiles.filter((f) => !f.received);
   // Anything not yet dated counts from the project's start date, or today.
@@ -528,7 +535,7 @@ export function TaskFormModal({
           : undefined)),
     waitsOn:
       dependent && !waitsOnAnything
-        ? projectFiles.length
+        ? fileChoices.length
           ? "Pick what this one waits on: files or a task."
           : "Pick the task this one waits on."
         : undefined,
@@ -1062,13 +1069,13 @@ export function TaskFormModal({
                 // With files to wait on, nothing is picked for them: a task slipped
                 // in here would hold the dates to its own and keep the task waiting
                 // after the file is in.
-                if (on && !waitsOnIds.length && !projectFiles.length) {
+                if (on && !waitsOnIds.length && !fileChoices.length) {
                   const before = defaultWaitsOn(groupId, candidates);
                   setWaitsOnIds(before ? [before.id] : []);
                 }
               }}
               label={
-                projectFiles.length
+                fileChoices.length
                   ? "Waits on files or another task"
                   : "Waits on another task"
               }
@@ -1080,7 +1087,7 @@ export function TaskFormModal({
                   ? "Step-by-step project: a new task waits on the one before it by default."
                   : "Step-by-step project: a new task waits on the last one by default."
                 : is3d
-                  ? projectFiles.length
+                  ? fileChoices.length
                     ? "Starts once everything it waits on is in - files received, tasks approved - and runs for the days you give it."
                     : "Starts the day the last task it waits on is approved, and runs for the days you give it."
                   : "Starts the day the task it waits on is approved, and runs for the days you give it."}
@@ -1090,17 +1097,17 @@ export function TaskFormModal({
 
         {dependent ? (
           <div className="grid gap-4 sm:grid-cols-3">
-            {projectFiles.length ? (
+            {fileChoices.length ? (
               <Field
                 label="Files it waits on"
                 className="sm:col-span-2"
-                hint="Pick single files. It starts the day the last one picked is received."
+                hint="Pick single files not yet received. It starts the day the last one picked comes in."
                 error={touched ? errors.waitsOn : undefined}
               >
                 <MultiSelect
                   // Each file on its own; its group is only there to tell
                   // same-named files apart.
-                  options={projectFiles.map((f) => ({
+                  options={fileChoices.map((f) => ({
                     value: FILES + f.id,
                     label: f.name,
                     hint: [
@@ -1112,7 +1119,8 @@ export function TaskFormModal({
                       .filter(Boolean)
                       .join(" · "),
                   }))}
-                  value={waitsOnIds.filter((id) => id.startsWith(FILES))}
+                  // Not waitsOnIds: a copy may carry a file since received.
+                  value={pickedFiles.map((f) => FILES + f.id)}
                   onChange={(files) =>
                     setWaitsOnIds([...files, ...waitsOnIds.filter((id) => !id.startsWith(FILES))])
                   }
@@ -1123,17 +1131,17 @@ export function TaskFormModal({
               </Field>
             ) : null}
             <Field
-              label={projectFiles.length ? "Tasks it waits on" : "Waits on"}
-              required={!projectFiles.length}
-              className={cx("sm:col-span-2", projectFiles.length ? "sm:order-last" : "")}
+              label={fileChoices.length ? "Tasks it waits on" : "Waits on"}
+              required={!fileChoices.length}
+              className={cx("sm:col-span-2", fileChoices.length ? "sm:order-last" : "")}
               hint={
-                projectFiles.length
+                fileChoices.length
                   ? "Optional. Leave empty to wait on the files alone."
                   : candidates.length
                     ? undefined
                     : "This project has no other tasks yet."
               }
-              error={touched && !projectFiles.length ? errors.waitsOn : undefined}
+              error={touched && !fileChoices.length ? errors.waitsOn : undefined}
             >
               {is3d ? (
                 <MultiSelect
@@ -1195,7 +1203,7 @@ export function TaskFormModal({
                 <>
                   <span>
                     {startFrom
-                      ? `Starts the day ${pendingSentence}, and is due ${days} working day${days === 1 ? "" : "s"} later. Until then these dates are projected as if that were ${startFrom === todayISO() ? "today" : formatDate(startFrom)}.`
+                      ? `Starts the day ${pendingSentence}, and is due ${days} working day${days === 1 ? "" : "s"} later. Until then these dates are projected as if that were ${startFrom === todayISO() ? "today, and move forward each night" : formatDate(startFrom)}.`
                       : !waitsOn.length
                         ? linksUnchanged
                           ? "Everything it waits on is in, so it keeps its dates."
@@ -1219,7 +1227,7 @@ export function TaskFormModal({
                 </>
               ) : (
                 <span>
-                  {projectFiles.length
+                  {fileChoices.length
                     ? "Pick what it waits on - files or a task - and how many days it takes, to see its dates."
                     : "Pick the task it waits on and how many days it takes to see its dates."}
                 </span>

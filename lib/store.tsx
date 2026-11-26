@@ -821,7 +821,8 @@ interface StoreValue {
   renameFileGroup: (id: string, name: string) => void;
   deleteFileGroup: (id: string, dates?: FreedTaskDates) => void;
   addFileItem: (groupId: string, name: string) => void;
-  updateFileItem: (id: string, patch: { name?: string; received?: boolean }) => void;
+  /** `received: true` ticks a file in for good: there is no taking it back (0020). */
+  updateFileItem: (id: string, patch: { name?: string; received?: true }) => void;
   deleteFileItem: (id: string, dates?: FreedTaskDates) => void;
 
   startTimer: (taskId: string) => void;
@@ -1653,10 +1654,12 @@ const actions = {
     );
   },
 
-  updateFileItem(id: string, patch: { name?: string; received?: boolean }) {
+  updateFileItem(id: string, patch: { name?: string; received?: true }) {
     const before = state.db.fileItems.find((f) => f.id === id);
     if (!before) return;
-    const ticked = patch.received !== undefined && patch.received !== before.received;
+    // Ticked in only: a file received stays received (0020).
+    const ticked = patch.received === true && !before.received;
+    if (patch.name === undefined && !ticked) return;
     void commit(
       ["tasks"],
       (db) => {
@@ -1665,11 +1668,7 @@ const actions = {
             ? {
                 ...f,
                 ...(patch.name !== undefined ? { name: patch.name } : {}),
-                ...(ticked
-                  ? patch.received
-                    ? { received: true, receivedOn: todayISO(), receivedBy: me() }
-                    : { received: false, receivedOn: null, receivedBy: null }
-                  : {}),
+                ...(ticked ? { received: true, receivedOn: todayISO(), receivedBy: me() } : {}),
               }
             : f,
         );
@@ -1681,7 +1680,7 @@ const actions = {
             .from("file_items")
             .update({
               ...(patch.name !== undefined ? { name: patch.name } : {}),
-              ...(ticked ? { received: patch.received } : {}),
+              ...(ticked ? { received: true } : {}),
             })
             .eq("id", id),
         ),
@@ -3814,10 +3813,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { db: everything, auth, userId, toasts } = snapshot;
 
   // Blueprints are taken out once here, so no page has to remember to.
-  const { db, blueprints } = useMemo(() => {
+  const { db, blueprints, allTasks } = useMemo(() => {
     // Which tasks are still waiting is worked out here too, from the statuses
     // on screen, so every page reads it off the task (0014).
-    const split = splitBlueprints(everything.projects, markWaiting(everything.tasks, everything.fileItems));
+    const marked = markWaiting(everything.tasks, everything.fileItems);
+    const split = splitBlueprints(everything.projects, marked);
     const hiddenTasks = new Set(split.blueprintTasks.map((t) => t.id));
     return {
       db: {
@@ -3829,6 +3829,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ),
       },
       blueprints: { projects: split.blueprintProjects, tasks: split.blueprintTasks },
+      // Blueprints included, for the lookups by id below.
+      allTasks: marked,
     };
   }, [everything]);
 
@@ -3847,9 +3849,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (id: string) => everything.projects.find((p) => p.id === id),
     [everything.projects],
   );
+  // Marked, so a task opened by id still knows what it waits on.
   const taskById = useCallback(
-    (id: string) => everything.tasks.find((t) => t.id === id),
-    [everything.tasks],
+    (id: string) => allTasks.find((t) => t.id === id),
+    [allTasks],
   );
   const vendorById = useCallback((id: string) => db.vendors.find((v) => v.id === id), [db.vendors]);
   const companyById = useCallback(

@@ -339,8 +339,10 @@ the timer, the Waiting badge and `isOverdue` read. An SBS project is the same
 mechanism laid out by the project form: its standard tasks wait on each other
 in the order listed (content tasks stay outside), and a new task added later
 defaults to waiting on the last one. Dependent dates may run past the project
-deadline; that is flagged, not clamped. A task can also wait on files to receive from the client (`0016`): it
-starts the day the last file of each group it waits on is ticked Received.
+deadline; that is flagged, not clamped. A task can also wait on files to receive from the client (`0016`, `0018`): it
+starts the day the last file it waits on is ticked Received. Until then its dates are projected as if
+the files came in today, and a nightly job moves them forward while they are still missing. Only a
+file not yet received can be picked, and a file ticked Received stays received (`0020`).
 
 **3D projects ([Archi-3d.md](Archi-3d.md)).** A project marked `is3d` files its
 tasks in numbered groups and sub-groups: T1, then sub-groups T1.1, T1.2, then tasks
@@ -460,6 +462,7 @@ Since the current baseline:
 | `0017_drop_project_start.sql` | Removes Start project (`0015`): its columns, `start_project()`, `can_start_project()` and their triggers. `task_is_waiting`, `task_waiting_now`, `schedule_dependent_task` and `guard_waiting_task` are `0016` without the project start. Tasks that waited on it keep their projected dates |
 | `0018_file_item_dependencies.sql` | A task waits on single files, not whole groups: `tasks.file_item_ids` replaces `tasks.file_group_ids` (each task's groups carried over as all their files, triggers off, so nothing moves). `guard_task_file_items` (own project, each once); `follow_file_item` releases a task waiting on that file and nothing else the working day the file is ticked in, tells the assignee, and re-projects on untick; `drop_file_item_links` on a file's delete. A group's `received_on` is now only for show. Deleting goes through `delete_file_item` / `delete_file_group` (`can_manage_task_groups`): every non-approved task left waiting on nothing must be given a start and due date (`p_dates`, keyed by task id), set before the delete in the same transaction; `release_file_dependants` does that and is not callable directly. Also `set_project_description` / `can_edit_project_description`: the 3D Artists' Team Leader may edit a 3D project's description. Mirrors `lib/files.ts`, `markWaiting`, `canEditProjectDescription`, `FilesDrawer` (Received and delete dialogs) |
 | `0019_invoice_cheque_ready.sql` | Payment follow-ups: the outcome "Cheque ready" (`invoice_calls_outcome_check` re-made with it) and `invoice_calls.cheque_collect_on`, the day the cheque is to be collected — required for that outcome (`invoice_calls_cheque_collect_check`). The browser names the column only when it is set, so other outcomes still save on a database that has not run this yet. Mirrors `INVOICE_CALL_OUTCOMES` / `CHEQUE_READY` / `InvoiceCall.chequeCollectOn` and the Log a call form |
+| `0020_file_waits.sql` | Waiting on files, three rules. (1) A projection keeps up: `reproject_file_waits()` re-projects every open task still waiting on a file not yet in whose start has gone by, from today, at 00:01 IST and once on running; the chain follows as usual. It raises the transaction-local `pms.quiet_change_log` flag, which `tasks_log_change` (re-made with a `when`) skips, so no change log entry is written. (2) `guard_task_file_items`: a task may keep a file that came in while it waited, but may not newly name a received one. (3) `file_items_guard_received`: a file ticked Received cannot be ticked back out, except by a session with no user (the SQL editor), as `0041`. Mirrors `updateFileItem`, `fileChoices` in `TaskFormModal` and the Received button and dialog in `FilesDrawer` |
 | `0010_invoice_follow_up_notification.sql` | `notification_type` gains `invoice_follow_up` (own file: run before 0011) |
 | `0011_invoice_follow_ups.sql` | Payment follow-ups: `invoice_calls` (each call: date, who picked up, outcome from a fixed list, notes, any promised date and amount) and `invoices.next_call_on` / `_note` / `_by`, at most one next call per invoice. Logging a call sets or clears the next one in the same commit (`logInvoiceCalls`, which logs one call on each of several invoices of a company at once); the Zoho upsert never names these columns, so a refetch keeps them. Written by `can_manage_invoices()`; a call is deleted by whoever logged it or a Super Admin. `notify_invoice_follow_ups()` at 09:30 IST sends each caller one notification of their calls due and missed, leaving out settled invoices (no balance, paid, void). Mirrors `canLogInvoiceCalls` / `canDeleteInvoiceCall` and `isSettled` in components/invoice/follow-ups.tsx |
 
@@ -551,6 +554,7 @@ same new files as a fresh one.
 | --- | --- | --- |
 | `auto-stop-timers-2359-ist` | 23:59 | `29 18 * * *` |
 | `due-and-overdue-0900-ist` | 09:00 | `30 3 * * *` |
+| `reproject-file-waits-0001-ist` | 00:01 | `31 18 * * *` |
 | `generate-recurring-occurrences-0005-ist` | 00:05 | `35 18 * * *` |
 | `prune-old-notifications` | weekly | `0 20 * * 0` |
 | `prune-old-task-opens` | weekly | `10 20 * * 0` |

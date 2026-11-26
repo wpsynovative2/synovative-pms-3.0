@@ -353,7 +353,7 @@ export function TaskDetailDrawer({
                   ))}
                   .{" "}
                   {task.waitingOnFileItemIds?.length
-                    ? "Starts the day the last of these files comes in; until then its dates are projected."
+                    ? "Starts the day the last of these files comes in; until then its dates are projected, and move forward each night one is still missing."
                     : ""}
                 </p>
               ) : null}

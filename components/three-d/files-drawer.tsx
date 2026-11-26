@@ -244,10 +244,9 @@ function FileRow({ item, tasks, mayManage }: { item: FileItem; tasks: Task[]; ma
     if (name && name !== item.name) updateFileItem(item.id, { name });
     setRenaming(null);
   };
-  const toggle = () => {
-    // Ticking it in always asks; unticking only when tasks go back to waiting.
-    if (!item.received || open.length) setConfirmTick(true);
-    else updateFileItem(item.id, { received: false });
+  // Ticking it in always asks, since it cannot be taken back (0020).
+  const tick = () => {
+    if (!item.received) setConfirmTick(true);
   };
   const remove = () => {
     if (open.length) setConfirmDelete(true);
@@ -261,9 +260,15 @@ function FileRow({ item, tasks, mayManage }: { item: FileItem; tasks: Task[]; ma
           type="button"
           role="switch"
           aria-checked={item.received}
-          disabled={!mayManage}
-          onClick={toggle}
-          title={mayManage ? (item.received ? "Mark not received" : "Mark received") : undefined}
+          disabled={!mayManage || item.received}
+          onClick={tick}
+          title={
+            item.received
+              ? "Received files stay received"
+              : mayManage
+                ? "Mark received"
+                : undefined
+          }
           className={cx(
             "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-colors",
             "disabled:cursor-default",
@@ -358,8 +363,9 @@ function useWaitingWords() {
 }
 
 /**
- * Before a file is ticked in, or back out: which tasks start because of it, and
- * when, and which still wait on something else (follow_file_item, 0018).
+ * Before a file is ticked in: which tasks start because of it, and when, and
+ * which still wait on something else (follow_file_item, 0018). There is no
+ * ticking it back out (0020).
  */
 function ReceiveDialog({
   item,
@@ -373,41 +379,36 @@ function ReceiveDialog({
 }) {
   const { db, userById, updateFileItem } = useStore();
   const waitingWords = useWaitingWords();
-  const receiving = !item.received;
-  const starting = receiving ? tasks.filter((t) => waitsOnNothingElse(t, [item.id])) : [];
-  const stillWaiting = receiving ? tasks.filter((t) => !waitsOnNothingElse(t, [item.id])) : [];
+  const starting = tasks.filter((t) => waitsOnNothingElse(t, [item.id]));
+  const stillWaiting = tasks.filter((t) => !waitsOnNothingElse(t, [item.id]));
 
   return (
     <Modal
       open
       onClose={onClose}
       size="md"
-      title={receiving ? `Mark ${item.name} as received?` : `Mark ${item.name} as not received?`}
+      title={`Mark ${item.name} as received?`}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button
-            variant={receiving ? "success" : "primary"}
+            variant="success"
             onClick={() => {
-              updateFileItem(item.id, { received: receiving });
+              updateFileItem(item.id, { received: true });
               onClose();
             }}
           >
-            {receiving ? <IconCheck size={14} /> : null}
-            {receiving ? "Confirm, received" : "Confirm"}
+            <IconCheck size={14} />
+            Confirm, received
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3 text-[13px] leading-relaxed text-ink-muted">
-        {!receiving ? (
-          <p>
-            {tasks.length === 1 ? "This task goes" : `These ${tasks.length} tasks go`} back to
-            waiting until it comes in again. Their dates become projected, and nobody can start
-            the timer on them meanwhile:{" "}
-            <span className="text-ink">{tasks.map((t) => taskLabel(t)).join(", ")}</span>.
-          </p>
-        ) : tasks.length === 0 ? (
+        <p>
+          This can&apos;t be undone: once marked received, the file stays received.
+        </p>
+        {tasks.length === 0 ? (
           <p>No task waits on this file, so nothing else changes.</p>
         ) : null}
 

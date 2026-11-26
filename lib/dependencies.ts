@@ -32,7 +32,8 @@ export function projectedAfter(dueDate: string, durationDays: number, calendar: 
 
 /**
  * Where files still to come in (0016) count as settled: the project's start date, or today once that
- * has passed. Mirrors greatest(start_date, ist_today()) in schedule_dependent_task.
+ * has passed. Mirrors greatest(start_date, ist_today()) in schedule_dependent_task, which
+ * reproject_file_waits re-applies each night while a file is still missing (0020).
  */
 export function pendingFrom(project: Pick<Project, "startDate">) {
   const today = todayISO();
