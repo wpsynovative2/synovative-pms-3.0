@@ -145,6 +145,18 @@ export function customerSubline(i: { customerName: string; customerCompany: stri
   return [i.customerCompany, i.contactPerson].filter((x) => x && !same(x)).join(" · ");
 }
 
+/**
+ * The company an invoice bills: Books' Company Name, or the Display Name when
+ * the customer has none. Follow-ups filter and bulk-select by it, so one call
+ * to a developer can be logged against all their unpaid invoices at once.
+ */
+export const invoiceCompany = (i: { customerName: string; customerCompany: string }) =>
+  i.customerCompany.trim() || i.customerName.trim();
+
+/** invoiceCompany as a key: the same company however Books capitalised it. */
+export const invoiceCompanyKey = (i: { customerName: string; customerCompany: string }) =>
+  invoiceCompany(i).toLowerCase();
+
 /** Everything a customer search should match. */
 export const customerSearchText = (i: { customerName: string; customerCompany: string; contactPerson: string }) =>
   [i.customerName, i.customerCompany, i.contactPerson];

@@ -13,7 +13,7 @@ import {
   type SyncReport,
 } from "@/lib/invoices";
 import { useStore } from "@/lib/store";
-import { importInvoices } from "./invoice-parts";
+import { importInvoices } from "./refetch";
 
 /* ------------------------------------------------------------------ sync */
 

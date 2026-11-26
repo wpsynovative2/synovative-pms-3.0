@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ButtonLoader } from "@/components/ui/loader";
 import { LEVEL_STYLE } from "@/components/three-d/task-group-card";
 import {
   IconCheck,
@@ -10,7 +9,6 @@ import {
   IconChevronRight,
   IconExternal,
   IconInvoice,
-  IconRepeat,
   IconTrash,
 } from "@/components/ui/icons";
 import { ConfirmDialog, Drawer } from "@/components/ui/modal";
@@ -28,6 +26,7 @@ import {
 } from "@/components/ui/primitives";
 import { MultiSelect } from "@/components/ui/selects";
 import { FollowUpPanel } from "./follow-ups";
+import { RefetchButton } from "./refetch";
 import { formatDate, formatDateTime } from "@/lib/calendar";
 import {
   customerSubline,
@@ -39,7 +38,6 @@ import {
   invoiceStatusLabel,
   invoiceStatusTone,
   readInvoice,
-  type ImportResult,
   type InvoiceAddress,
   type InvoiceDetails,
 } from "@/lib/invoices";
@@ -53,22 +51,6 @@ import type { Invoice, InvoiceProjectOption, InvoiceTaskOption } from "@/lib/typ
  * invoice bills for — any projects and individual tasks (0012) — and its
  * payment follow-ups. Books stays the system of record.
  */
-
-/* --------------------------------------------------------- server calls */
-
-/** Fetch these invoices from Books into the PMS (new ones added, known ones rewritten). */
-export async function importInvoices(refs: string[]): Promise<ImportResult[]> {
-  const res = await fetch("/api/zoho/invoices", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ refs }),
-  });
-  const body = (await res.json().catch(() => null)) as
-    | { results?: ImportResult[]; error?: string }
-    | null;
-  if (!res.ok || !body?.results) throw new Error(body?.error ?? "Couldn't reach Zoho Books.");
-  return body.results;
-}
 
 /* ------------------------------------- what an invoice can be linked to */
 
@@ -139,41 +121,6 @@ export type InvoiceLinkOptions = ReturnType<typeof useInvoiceLinkOptions>;
 
 export function InvoiceStatusBadge({ status }: { status: string }) {
   return <Badge className={invoiceStatusTone(status)}>{invoiceStatusLabel(status)}</Badge>;
-}
-
-/* ------------------------------------------------------------ refetch */
-
-/** Re-read one invoice from Books, keeping the project it is tied to. */
-export function RefetchButton({ invoice, label = false }: { invoice: Invoice; label?: boolean }) {
-  const { showToast, refreshInvoices } = useStore();
-  const [busy, setBusy] = useState(false);
-
-  const refetch = async () => {
-    setBusy(true);
-    try {
-      const [result] = await importInvoices([invoice.zohoInvoiceId]);
-      if (result?.ok) showToast(`${result.number} refetched from Zoho Books.`, "success");
-      else showToast(result?.error ?? "Couldn't refetch the invoice.");
-      refreshInvoices();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Couldn't reach Zoho Books.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Button
-      size="sm"
-      onClick={refetch}
-      disabled={busy}
-      aria-label={`Refetch ${invoice.invoiceNumber} from Zoho Books`}
-      title="Refetch from Zoho Books"
-    >
-      {busy ? <ButtonLoader /> : <IconRepeat size={13} />}
-      {label ? (busy ? "Refetching…" : "Refetch") : null}
-    </Button>
-  );
 }
 
 /* -------------------------------------------------------------- table */

@@ -865,13 +865,14 @@ interface StoreValue {
   invoiceProjects: () => Promise<InvoiceProjectOption[]>;
   invoiceTasks: () => Promise<InvoiceTaskOption[]>;
   /**
-   * Payment follow-ups (0011). Logging a call also sets the invoice's next
-   * call to `next`, or clears it when `next` is null — the call just made
-   * settles whatever was scheduled.
+   * Payment follow-ups (0011). Logs one call per input — one phone call can
+   * cover several of a company's invoices — in a single write, and sets each
+   * of those invoices' next call to `next`, or clears it when `next` is null:
+   * the call just made settles whatever was scheduled.
    */
-  logInvoiceCall: (input: InvoiceCallInput, next: InvoiceNextCall | null) => void;
-  /** Set, move or (null) clear an invoice's next call without logging one. */
-  scheduleInvoiceCall: (invoiceId: string, next: InvoiceNextCall | null) => void;
+  logInvoiceCalls: (inputs: InvoiceCallInput[], next: InvoiceNextCall | null) => void;
+  /** Set, move or (null) clear these invoices' next call without logging one. */
+  scheduleInvoiceCalls: (invoiceIds: string[], next: InvoiceNextCall | null) => void;
   deleteInvoiceCall: (id: string) => void;
   /**
    * A customer's contact person added (or edited) here (0014). Books' own
@@ -2641,14 +2642,17 @@ const nextCallColumns = (next: InvoiceNextCall | null) => ({
   next_call_by: next ? next.by : null,
 });
 
-const withNextCall = (db: Database, invoiceId: string, next: InvoiceNextCall | null): Database => ({
-  ...db,
-  invoices: db.invoices.map((i) =>
-    i.id === invoiceId
-      ? { ...i, nextCallOn: next?.on ?? null, nextCallNote: next?.note.trim() ?? "", nextCallBy: next ? next.by : null }
-      : i,
-  ),
-});
+const withNextCall = (db: Database, invoiceIds: string[], next: InvoiceNextCall | null): Database => {
+  const ids = new Set(invoiceIds);
+  return {
+    ...db,
+    invoices: db.invoices.map((i) =>
+      ids.has(i.id)
+        ? { ...i, nextCallOn: next?.on ?? null, nextCallNote: next?.note.trim() ?? "", nextCallBy: next ? next.by : null }
+        : i,
+    ),
+  };
+};
 
 const invoiceActions = {
   setInvoiceLinks(invoiceId: string, projectIds: string[], taskIds: string[]) {
@@ -2723,43 +2727,52 @@ const invoiceActions = {
     return loadInvoiceTasks(sb());
   },
 
-  logInvoiceCall(input: InvoiceCallInput, next: InvoiceNextCall | null) {
-    const call: InvoiceCall = {
+  logInvoiceCalls(inputs: InvoiceCallInput[], next: InvoiceNextCall | null) {
+    if (!inputs.length) return;
+    const createdAt = now();
+    const calls: InvoiceCall[] = inputs.map((input) => ({
       ...input,
       contact: input.contact.trim(),
       notes: input.notes.trim(),
       id: newId(),
       createdBy: me(),
-      createdAt: now(),
-    };
+      createdAt,
+    }));
+    const invoiceIds = [...new Set(calls.map((c) => c.invoiceId))];
     void commit(
       ["invoices"],
-      (db) => withNextCall({ ...db, invoiceCalls: [call, ...db.invoiceCalls] }, input.invoiceId, next),
+      (db) => withNextCall({ ...db, invoiceCalls: [...calls, ...db.invoiceCalls] }, invoiceIds, next),
       async (c) => {
         await run(
-          c.from("invoice_calls").insert({
-            id: call.id,
-            invoice_id: call.invoiceId,
-            called_on: call.calledOn,
-            contact: call.contact,
-            contact_id: call.contactId,
-            phone: call.phone.trim(),
-            outcome: call.outcome,
-            notes: call.notes,
-            promised_on: call.promisedOn,
-            promised_amount: call.promisedAmount,
-          }),
+          c.from("invoice_calls").insert(
+            calls.map((call) => ({
+              id: call.id,
+              invoice_id: call.invoiceId,
+              called_on: call.calledOn,
+              contact: call.contact,
+              contact_id: call.contactId,
+              phone: call.phone.trim(),
+              outcome: call.outcome,
+              notes: call.notes,
+              promised_on: call.promisedOn,
+              promised_amount: call.promisedAmount,
+              // Named only when set, so other outcomes still save on a
+              // database that has not run 0019 yet.
+              ...(call.chequeCollectOn ? { cheque_collect_on: call.chequeCollectOn } : {}),
+            })),
+          ),
         );
-        await run(c.from("invoices").update(nextCallColumns(next)).eq("id", input.invoiceId));
+        await run(c.from("invoices").update(nextCallColumns(next)).in("id", invoiceIds));
       },
     );
   },
 
-  scheduleInvoiceCall(invoiceId: string, next: InvoiceNextCall | null) {
+  scheduleInvoiceCalls(invoiceIds: string[], next: InvoiceNextCall | null) {
+    if (!invoiceIds.length) return;
     void commit(
       ["invoices"],
-      (db) => withNextCall(db, invoiceId, next),
-      (c) => run(c.from("invoices").update(nextCallColumns(next)).eq("id", invoiceId)),
+      (db) => withNextCall(db, invoiceIds, next),
+      (c) => run(c.from("invoices").update(nextCallColumns(next)).in("id", invoiceIds)),
     );
   },
 

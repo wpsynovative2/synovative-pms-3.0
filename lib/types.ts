@@ -1104,6 +1104,7 @@ export interface Invoice {
 export type InvoiceCallOutcome =
   | "Promised to pay"
   | "Part payment promised"
+  | "Cheque ready"
   | "Says already paid"
   | "Needs documents"
   | "Disputed"
@@ -1113,6 +1114,7 @@ export type InvoiceCallOutcome =
 export const INVOICE_CALL_OUTCOMES: InvoiceCallOutcome[] = [
   "Promised to pay",
   "Part payment promised",
+  "Cheque ready",
   "Says already paid",
   "Needs documents",
   "Disputed",
@@ -1122,6 +1124,8 @@ export const INVOICE_CALL_OUTCOMES: InvoiceCallOutcome[] = [
 ];
 /** The outcomes that carry a promise: a date, and usually an amount. */
 export const PROMISE_OUTCOMES: InvoiceCallOutcome[] = ["Promised to pay", "Part payment promised"];
+/** The outcome that asks for a cheque collection date (0019). */
+export const CHEQUE_READY: InvoiceCallOutcome = "Cheque ready";
 /**
  * The outcomes that leave the client to be called again, so logging one asks
  * for the next call: a promise is checked on, documents are sent and chased,
@@ -1152,6 +1156,8 @@ export interface InvoiceCall {
   notes: string;
   promisedOn: string | null;
   promisedAmount: number | null;
+  /** "Cheque ready" only: the day the cheque is to be collected (0019). */
+  chequeCollectOn: string | null;
   createdBy: string | null;
   createdAt: string;
 }

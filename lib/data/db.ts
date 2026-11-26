@@ -1187,6 +1187,7 @@ async function loadInvoices(sb: SupabaseClient): Promise<Partial<Database>> {
       notes: str(r.notes),
       promisedOn: nullable(r.promised_on) ? dateOnly(r.promised_on) : null,
       promisedAmount: r.promised_amount === null || r.promised_amount === undefined ? null : num(r.promised_amount),
+      chequeCollectOn: nullable(r.cheque_collect_on) ? dateOnly(r.cheque_collect_on) : null,
       createdBy: nullable(r.created_by),
       createdAt: str(r.created_at),
     }))
